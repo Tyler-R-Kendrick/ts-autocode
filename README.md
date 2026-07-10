@@ -1,12 +1,12 @@
 # ts-autocode
 
-Train TypeScript functions from runtime traces and AgentV evals, then safely
-rewrite the function that was marked trainable.
+Train TypeScript functions from AgentV evals and optional runtime traces, then
+safely rewrite the function marked trainable.
 
-The normal path has four pieces:
+The normal path has three pieces:
 
 ```text
-"use training" -> runtime captures -> AgentV evals -> Ax optimization -> guarded source update
+"use training" -> AgentV evals -> Ax optimization -> guarded source update
 ```
 
 Ax is the default optimizer. `TrainingEngine` remains a small provider boundary
@@ -22,14 +22,14 @@ Node.js 20 or newer is required.
 
 ## Use the directive
 
-`useTraining` is the default export. It wraps methods whose first statement is
-the literal directive, while preserving the object's public type.
+Place the literal directive first in a function or method body. No import,
+decorator, wrapper, registration call, or source-region argument is required.
 
 ```ts
-import useTraining, { configureTraining } from "ts-autocode";
+import { createTraining } from "ts-autocode";
 import { ai } from "@ax-llm/ax";
 
-const training = configureTraining({
+const training = createTraining({
   ax: {
     studentAI: async ({ secrets }) => {
       const apiKey = await secrets?.get("OPENAI_API_KEY");
@@ -47,25 +47,23 @@ class Router {
   }
 }
 
-const router = useTraining(new Router());
-```
-
-The same form works for a function:
-
-```ts
-const trainedRoute = useTraining(function route(input: string): string {
+function normalize(input: string): string {
   "use training";
-  return input;
-});
+  return input.trim();
+}
+
+const router = new Router();
 ```
 
 The directive stays in source. TypeScript's compiler API uses it to discover
-the exact function body and its signature; there are no generated-region
-comments or external offsets to maintain.
+the exact enclosing function body, identity, and signature. Consumer calls stay
+unchanged because the directive is the marker; there is no runtime proxy.
 
-## Use the decorator
+## Optional runtime capture
 
-The decorator is equivalent when an explicit identity is preferable:
+The decorator is optional when runtime trace capture is needed. It accepts only
+the trainable identity and capture options; the decorated method is the source
+target, so callers never provide a source region.
 
 ```ts
 import { defineTrainable, trainable } from "ts-autocode";
@@ -143,8 +141,8 @@ Runtime dependencies enter through `TrainingSettings`:
 - `concurrency` limits `optimizeAll()`; independent work runs concurrently.
 
 `createTraining(settings)` creates an isolated training context.
-`configureTraining(settings)` sets the application default used by `@trainable`
-and `useTraining()`.
+`configureTraining(settings)` sets the application default used only by the
+optional `@trainable` runtime-capture decorator.
 
 ## Custom engines
 

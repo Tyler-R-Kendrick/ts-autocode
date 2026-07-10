@@ -100,10 +100,6 @@ function discoverSourceFile(
 	return targets;
 }
 
-export function hasTrainingDirective(method: Function): boolean {
-	return /^[^{]*\{\s*["']use training["']\s*;?/.test(Function.prototype.toString.call(method));
-}
-
 function targetFor(
 	node: ts.MethodDeclaration | ts.FunctionDeclaration,
 	sourceFile: ts.SourceFile,
