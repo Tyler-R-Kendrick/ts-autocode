@@ -8,9 +8,10 @@
 		"type": "git",
 		"url": "https://github.com/Tyler-R-Kendrick/ts-autocode.git"
 	},
-	"description": "Code-evolution toolkit for TypeScript: marker-delimited generated regions, trajectory capture, a pluggable training-engine port, offline screening, three-lens promotion gates, and champion/challenger promotion with revert.",
+	"description": "Optimize marker-delimited TypeScript regions with Ax and apply candidates safely.",
 	"license": "MIT",
 	"type": "module",
+	"sideEffects": false,
 	"files": [
 		"dist"
 	],
@@ -19,21 +20,23 @@
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",
-			"default": "./dist/index.js"
+			"import": "./dist/index.js"
 		}
+	},
+	"homepage": "https://github.com/Tyler-R-Kendrick/ts-autocode#readme",
+	"bugs": {
+		"url": "https://github.com/Tyler-R-Kendrick/ts-autocode/issues"
 	},
 	"scripts": {
 		"build": "tsc -p tsconfig.json",
 		"typecheck": "tsc --noEmit -p tsconfig.test.json",
 		"test": "vitest run",
-		"prepublishOnly": "npm run build && npm test"
+		"check": "npm run typecheck && npm test && npm run build",
+		"prepublishOnly": "npm run check"
 	},
 	"keywords": [
-		"code-evolution",
-		"self-optimizing",
-		"training-engine",
-		"champion-challenger",
-		"promotion-gate",
+		"ax-llm",
+		"code-optimization",
 		"codegen",
 		"rewriter"
 	],
@@ -41,5 +44,9 @@
 		"@types/node": "^22.15.3",
 		"typescript": "^5.9.3",
 		"vitest": "^4.1.9"
+	},
+	"dependencies": {
+		"@ax-llm/ax": "^23.0.0",
+		"@opentelemetry/api": "^1.9.1"
 	}
 }

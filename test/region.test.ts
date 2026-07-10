@@ -1,93 +1,37 @@
 import { describe, expect, it } from "vitest";
 
-import {
-	RegionError,
-	applyRegionEdits,
-	checkGeneratedRegionDrift,
-	findGeneratedRegion,
-} from "../src/index.js";
-import { classifierRegion, classifierSource } from "./fixtures.js";
+import { findGeneratedRegion } from "../src/index.js";
+
+const source = `export function route(input: string) {
+  // autocode:generated-region begin region=router owner=ax
+  return input;
+  // autocode:generated-region end region=router
+}
+`;
 
 describe("findGeneratedRegion", () => {
-	it("locates the marker-delimited region and its owner", () => {
-		const source = classifierSource();
-		const region = findGeneratedRegion(source, "classify-body");
+	it("returns the optimizer-owned range and a source digest", () => {
+		const region = findGeneratedRegion(source, "router", { artifactRef: "src/router.ts" });
 
-		expect(region.owner).toBe("training-engine");
-		expect(source.slice(region.startOffset, region.endOffset)).toBe('  return "identity-support";\n');
+		expect(source.slice(region.startOffset, region.endOffset)).toBe("  return input;\n");
+		expect(region).toMatchObject({
+			artifactRef: "src/router.ts",
+			owner: "ax",
+			regionId: "router",
+		});
+		expect(region.sourceDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
 	});
 
-	it("throws when the begin marker is missing", () => {
-		expect(() => findGeneratedRegion("const x = 1;\n", "classify-body")).toThrowError(RegionError);
-		expect(() => findGeneratedRegion("const x = 1;\n", "classify-body")).toThrowError(/region.marker_missing/);
-	});
-
-	it("throws when the end marker is missing", () => {
-		const source = ["// autocode:generated-region begin region=classify-body owner=training-engine", "code"].join(
-			"\n",
+	it("supports an existing marker convention", () => {
+		const custom = source.replaceAll("autocode:generated-region", "hobo:generated-region");
+		expect(findGeneratedRegion(custom, "router", { markerPrefix: "hobo:generated-region" }).regionId).toBe(
+			"router",
 		);
-		expect(() => findGeneratedRegion(source, "classify-body")).toThrowError(/region.marker_unclosed/);
 	});
 
-	it("supports custom marker prefixes for existing codebases", () => {
-		const source = classifierSource().replaceAll("autocode:generated-region", "hobo:generated-region");
-		const region = findGeneratedRegion(source, "classify-body", { markerPrefix: "hobo:generated-region" });
-
-		expect(source.slice(region.startOffset, region.endOffset)).toBe('  return "identity-support";\n');
-	});
-});
-
-describe("checkGeneratedRegionDrift", () => {
-	it("passes when the generated region is unchanged", () => {
-		const report = checkGeneratedRegionDrift({
-			source: classifierSource(),
-			expectedSource: classifierSource(),
-			regionId: "classify-body",
-		});
-
-		expect(report.ok).toBe(true);
-		expect(report.handWrittenChanged).toBe(false);
-	});
-
-	it("flags a hand edit inside the generated region", () => {
-		const drifted = classifierSource().replace('"identity-support"', '"hand-edited"');
-		const report = checkGeneratedRegionDrift({
-			source: drifted,
-			expectedSource: classifierSource(),
-			regionId: "classify-body",
-		});
-
-		expect(report.ok).toBe(false);
-		expect(report.code).toBe("region.generated_region_drift");
-		expect(report.expectedDigest).not.toBe(report.actualDigest);
-	});
-
-	it("reports hand-written changes outside the region without failing", () => {
-		const changedOutside = classifierSource().replace("handWrittenGuard = true", "handWrittenGuard = false");
-		const report = checkGeneratedRegionDrift({
-			source: changedOutside,
-			expectedSource: classifierSource(),
-			regionId: "classify-body",
-		});
-
-		expect(report.ok).toBe(true);
-		expect(report.handWrittenChanged).toBe(true);
-	});
-});
-
-describe("applyRegionEdits", () => {
-	it("applies edits right-to-left so offsets stay valid", () => {
-		const source = classifierSource();
-		const region = classifierRegion(source);
-		const next = applyRegionEdits(source, [
-			{
-				startOffset: region.startOffset,
-				endOffset: region.endOffset,
-				replacement: '  return "billing-support";\n',
-			},
-		]);
-
-		expect(next).toContain('return "billing-support";');
-		expect(next).toContain("handWrittenGuard = true");
+	it("rejects missing and unclosed regions", () => {
+		expect(() => findGeneratedRegion("const value = 1;", "router")).toThrow("was not found");
+		expect(() => findGeneratedRegion(source.replace("// autocode:generated-region end region=router", ""), "router"))
+			.toThrow("is not closed");
 	});
 });
