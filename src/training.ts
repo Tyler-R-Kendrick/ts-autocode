@@ -22,7 +22,7 @@ import {
 	type PromotionResult,
 	type PromotionSnapshot,
 } from "./promotion.js";
-import { createAxEngine, type AxEngineOptions } from "./providers/ax.js";
+import { createAxEngine } from "./providers/ax.js";
 import { createMemoryTrainingStore, type TrainingRecord, type TrainingStore } from "./records.js";
 import {
 	discoverTrainables,
@@ -35,35 +35,34 @@ import { defineTrainable, toTrainableToken, type TrainableIdentity, type Trainab
 const trainableAttribute = "ts_autocode.trainable.id";
 
 export interface CaptureSettings {
+	readonly enabled?: boolean;
 	readonly input?: boolean;
 	readonly output?: boolean;
 	readonly serialize?: (value: unknown) => string;
 	readonly redact?: (value: unknown, field: "input" | "output") => unknown;
+	readonly mapInput?: (args: readonly unknown[], trainable: TrainableToken) => unknown;
+	readonly mapOutput?: (result: unknown, trainable: TrainableToken) => unknown;
+}
+
+export interface TracingSettings {
+	readonly enabled?: boolean;
+	readonly tracer?: Tracer;
+	readonly kind?: OpenInferenceSpanKind;
+	readonly attributes?: Attributes;
 }
 
 export interface TrainingSettings {
 	readonly engine?: TrainingEngine;
-	readonly ax?: AxEngineOptions;
 	readonly source?: SourceSettings;
 	readonly store?: TrainingStore;
-	readonly tracer?: Tracer;
 	readonly secrets?: SecretProvider;
 	readonly variables?: Readonly<Record<string, string>>;
 	readonly concurrency?: number;
 	readonly capture?: CaptureSettings;
+	readonly tracing?: TracingSettings;
 	readonly idFactory?: () => string;
 	readonly now?: () => Date;
 	readonly onError?: (error: unknown, phase: "capture" | "store") => void;
-}
-
-export interface TrainableOptions {
-	readonly training?: Training;
-	readonly name?: string;
-	readonly kind?: OpenInferenceSpanKind;
-	readonly attributes?: Attributes;
-	readonly mapInput?: (args: readonly unknown[]) => unknown;
-	readonly mapOutput?: (result: unknown) => unknown;
-	readonly runId?: () => string;
 }
 
 export interface OptimizeInput {
@@ -116,8 +115,8 @@ export type TrainableDecorator = <This, Args extends unknown[], Result>(
 ) => (this: This, ...args: Args) => Result;
 
 class TrainingRuntime implements Training {
-	readonly #settings: Required<Pick<TrainingSettings, "capture" | "concurrency" | "idFactory" | "now" | "source">> &
-		Omit<TrainingSettings, "capture" | "concurrency" | "idFactory" | "now" | "source">;
+	readonly #settings: Required<Pick<TrainingSettings, "capture" | "concurrency" | "idFactory" | "now" | "source" | "tracing">> &
+		Omit<TrainingSettings, "capture" | "concurrency" | "idFactory" | "now" | "source" | "tracing">;
 	readonly #engine: TrainingEngine;
 	readonly #store: TrainingStore;
 	readonly #tracer: Tracer;
@@ -136,11 +135,12 @@ class TrainingRuntime implements Training {
 			idFactory: settings.idFactory ?? randomUUID,
 			now: settings.now ?? (() => new Date()),
 			source: settings.source ?? {},
+			tracing: settings.tracing ?? {},
 			variables: Object.freeze({ ...settings.variables }),
 		};
-		this.#engine = settings.engine ?? createAxEngine(settings.ax);
+		this.#engine = settings.engine ?? createAxEngine();
 		this.#store = settings.store ?? createMemoryTrainingStore();
-		this.#tracer = settings.tracer ?? trace.getTracer("ts-autocode");
+		this.#tracer = this.#settings.tracing.tracer ?? trace.getTracer("ts-autocode");
 	}
 
 	async records(identity?: TrainableIdentity): Promise<readonly TrainingRecord[]> {
@@ -267,62 +267,79 @@ class TrainingRuntime implements Training {
 		args: Args,
 		token: TrainableToken,
 		name: string,
-		options: TrainableOptions = {},
 	): Result {
+		if (this.#settings.tracing.enabled === false) {
+			return this.#execute(thisValue, method, args, token, name);
+		}
 		const attributes: Attributes = {
-			...options.attributes,
-			[SemanticConventions.OPENINFERENCE_SPAN_KIND]: options.kind ?? OpenInferenceSpanKind.CHAIN,
+			...this.#settings.tracing.attributes,
+			[SemanticConventions.OPENINFERENCE_SPAN_KIND]: this.#settings.tracing.kind ?? OpenInferenceSpanKind.CHAIN,
 			[trainableAttribute]: token.id,
 		};
-		return this.#tracer.startActiveSpan(name, { attributes }, (span) => {
-			const startedAt = this.#settings.now();
-			const runId = options.runId?.() ?? this.#settings.idFactory();
-			let result: Result;
-			try {
-				result = method.apply(thisValue, args);
-			} catch (error) {
-				this.#finish({ span, error, args, name, options, token, runId, startedAt });
-				throw error;
-			}
-			if (isPromise(result)) {
-				return result.then(
-					(value) => {
-						this.#finish({ span, result: value, args, name, options, token, runId, startedAt });
-						return value;
-					},
-					(error) => {
-						this.#finish({ span, error, args, name, options, token, runId, startedAt });
-						throw error;
-					},
-				) as Result;
-			}
-			this.#finish({ span, result, args, name, options, token, runId, startedAt });
-			return result;
-		});
+		return this.#tracer.startActiveSpan(name, { attributes }, (span) =>
+			this.#execute(thisValue, method, args, token, name, span));
 	}
 
-	#finish({ span, result, error, args, name, options, token, runId, startedAt }: {
-		span: Span;
+	#execute<This, Args extends unknown[], Result>(
+		thisValue: This,
+		method: (this: This, ...args: Args) => Result,
+		args: Args,
+		token: TrainableToken,
+		name: string,
+		span?: Span,
+	): Result {
+		const startedAt = this.#settings.now();
+		const runId = this.#settings.idFactory();
+		const execution = { args, name, token, runId, startedAt, ...(span === undefined ? {} : { span }) };
+		let result: Result;
+		try {
+			result = method.apply(thisValue, args);
+		} catch (error) {
+			this.#finish({ ...execution, error });
+			throw error;
+		}
+		if (isPromise(result)) {
+			return result.then(
+				(value) => {
+					this.#finish({ ...execution, result: value });
+					return value;
+				},
+				(error) => {
+					this.#finish({ ...execution, error });
+					throw error;
+				},
+			) as Result;
+		}
+		this.#finish({ ...execution, result });
+		return result;
+	}
+
+	#finish({ span, result, error, args, name, token, runId, startedAt }: {
+		span?: Span;
 		result?: unknown;
 		error?: unknown;
 		args: readonly unknown[];
 		name: string;
-		options: TrainableOptions;
 		token: TrainableToken;
 		runId: string;
 		startedAt: Date;
 	}): void {
 		const endedAt = this.#settings.now();
-		if (error === undefined) span.setStatus({ code: SpanStatusCode.OK });
-		else {
-			span.recordException(error instanceof Error ? error : String(error));
-			span.setStatus({ code: SpanStatusCode.ERROR });
+		if (span) {
+			if (error === undefined) span.setStatus({ code: SpanStatusCode.OK });
+			else {
+				span.recordException(error instanceof Error ? error : String(error));
+				span.setStatus({ code: SpanStatusCode.ERROR });
+			}
+			span.end();
 		}
-		const spanContext = span.spanContext();
-		span.end();
+		if (this.#settings.capture.enabled === false) return;
 		try {
-			const input = options.mapInput?.(args) ?? args;
-			const output = error === undefined ? options.mapOutput?.(result) ?? result : errorMessage(error);
+			const spanContext = span?.spanContext();
+			const input = this.#settings.capture.mapInput?.(args, token) ?? args;
+			const output = error === undefined
+				? this.#settings.capture.mapOutput?.(result, token) ?? result
+				: errorMessage(error);
 			const record: TrainingRecord = {
 				id: this.#settings.idFactory(),
 				runId,
@@ -338,7 +355,11 @@ class TrainingRuntime implements Training {
 					durationMs: Math.max(0, endedAt.getTime() - startedAt.getTime()),
 					provider: "ts-autocode",
 					target: token.id,
-					metadata: { runId, trainableId: token.id, traceId: spanContext.traceId, spanId: spanContext.spanId },
+					metadata: {
+						runId,
+						trainableId: token.id,
+						...(spanContext === undefined ? {} : { traceId: spanContext.traceId, spanId: spanContext.spanId }),
+					},
 					...(error === undefined ? {} : { error: errorMessage(error) }),
 				}),
 			};
@@ -363,34 +384,26 @@ class TrainingRuntime implements Training {
 
 let configuredTraining: TrainingRuntime | undefined;
 
-export function createTraining(settings: TrainingSettings = {}): Training {
-	return new TrainingRuntime(settings);
-}
-
 export function configureTraining(settings: TrainingSettings = {}): Training {
 	configuredTraining = new TrainingRuntime(settings);
 	return configuredTraining;
 }
 
 /** Decorator form: `@trainable("Router.route")`. */
-export function trainable(identity: TrainableIdentity, options: TrainableOptions = {}): TrainableDecorator {
+export function trainable(identity: TrainableIdentity): TrainableDecorator {
 	const token = toTrainableToken(identity);
 	return function <This, Args extends unknown[], Result>(
 		method: (this: This, ...args: Args) => Result,
 		context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
 	) {
-		const name = options.name ?? String(context.name);
+		const name = String(context.name);
 		return function (this: This, ...args: Args): Result {
-			return runtime(options.training).invoke(this, method, args, token, name, options);
+			return runtime().invoke(this, method, args, token, name);
 		};
 	};
 }
 
-function runtime(training?: Training): TrainingRuntime {
-	if (training !== undefined) {
-		if (!(training instanceof TrainingRuntime)) throw new TypeError("training must be created by ts-autocode");
-		return training;
-	}
+function runtime(): TrainingRuntime {
 	return configuredTraining ??= new TrainingRuntime({});
 }
 

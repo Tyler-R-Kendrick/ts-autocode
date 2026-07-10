@@ -1,4 +1,5 @@
 import {
+	ai,
 	ax,
 	optimize as optimizeWithAx,
 	type AxAIService,
@@ -37,8 +38,8 @@ export function createAxEngine(options: AxEngineOptions = {}): TrainingEngine {
 	const engine: TrainingEngine = {
 		id: options.id ?? "@ax-llm/ax",
 		async optimize(request: OptimizeRequest, context: EngineContext) {
-			const studentAI = await service(options.studentAI, context, "studentAI");
-			const teacherAI = options.teacherAI === undefined ? undefined : await service(options.teacherAI, context, "teacherAI");
+			const studentAI = await service(options.studentAI, context);
+			const teacherAI = options.teacherAI === undefined ? undefined : await service(options.teacherAI, context);
 			const examples = trainingExamples(request);
 			if (examples.length === 0) {
 				throw new Error(`Ax requires captured calls or AgentV evaluations for ${request.trainableId}`);
@@ -171,11 +172,18 @@ async function scoreImplementation(
 	}
 }
 
-async function service(value: Service | undefined, context: EngineContext, name: string): Promise<AxAIService> {
-	if (value === undefined) {
-		throw new Error(`default Ax engine requires TrainingSettings.ax.${name}`);
-	}
+async function service(value: Service | undefined, context: EngineContext): Promise<AxAIService> {
+	if (value === undefined) return defaultAI(context);
 	return typeof value === "function" ? value(context) : value;
+}
+
+async function defaultAI(context: EngineContext): Promise<AxAIService> {
+	const apiKey = await context.secrets?.get("OPENAI_API_KEY", context.signal) ??
+		process.env["OPENAI_API_KEY"] ?? process.env["OPENAI_APIKEY"];
+	if (!apiKey) {
+		throw new Error("default optimizer requires OPENAI_API_KEY or a custom TrainingSettings.engine");
+	}
+	return ai({ name: "openai", apiKey });
 }
 
 function fieldType(type: string): NonNullable<AxField["type"]> {

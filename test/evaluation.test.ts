@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-	createTraining,
+	configureTraining,
 	defineTrainable,
 	type CandidatePatch,
 	type TrainingEngine,
@@ -47,7 +47,7 @@ describe("AgentV evaluation", () => {
 				return { implementation: "return input;" };
 			},
 		};
-		const training = createTraining({ engine });
+		const training = configureTraining({ engine });
 		await training.evaluate("Router.route", {
 			tests: [{ id: "identity", input: "hello", assert: [{ type: "equals", value: "hello" }] }],
 			task: (input) => input,
@@ -70,7 +70,7 @@ describe("AgentV evaluation", () => {
 			target,
 			implementation: "return input.toUpperCase();",
 		};
-		const evaluated = await createTraining({}).evaluateCandidate(candidate, {
+		const evaluated = await configureTraining({}).evaluateCandidate(candidate, {
 			tests: [{ id: "uppercase", input: "hello", assert: [{ type: "equals", value: "HELLO" }] }],
 			outputDir: "test/output/agentv-candidate",
 		});
@@ -86,7 +86,7 @@ describe("AgentV evaluation", () => {
 				return { implementation: "return input.toUpperCase();" };
 			},
 		};
-		const training = createTraining({ engine, source: { files: [import.meta.filename] } });
+		const training = configureTraining({ engine, source: { files: [import.meta.filename] } });
 		const run = await training.train({
 			trainable: "pipelineTarget",
 			objective: "uppercase the result",

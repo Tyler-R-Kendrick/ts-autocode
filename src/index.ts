@@ -1,6 +1,5 @@
 export {
 	configureTraining,
-	createTraining,
 	trainable,
 } from "./training.js";
 export type {
@@ -8,10 +7,10 @@ export type {
 	CandidateEvalConfig,
 	OptimizeInput,
 	TrainInput,
-	TrainableOptions,
 	Training,
 	TrainingRun,
 	TrainingSettings,
+	TracingSettings,
 } from "./training.js";
 
 export { defineTrainable } from "./token.js";

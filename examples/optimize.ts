@@ -1,19 +1,8 @@
-import { ai } from "@ax-llm/ax";
 import type { EvalTestInput } from "@agentv/core";
 
-import { createTraining } from "../src/index.js";
+import { configureTraining } from "../src/index.js";
 
-const training = createTraining({
-	source: { files: [import.meta.filename] },
-	secrets: { async get(name) { return process.env[name]; } },
-	ax: {
-		studentAI: async ({ secrets }) => {
-			const apiKey = await secrets?.get("OPENAI_API_KEY");
-			if (!apiKey) throw new Error("OPENAI_API_KEY is not configured");
-			return ai({ name: "openai", apiKey });
-		},
-	},
-});
+const training = configureTraining();
 
 class Router {
 	route(input: string): string {

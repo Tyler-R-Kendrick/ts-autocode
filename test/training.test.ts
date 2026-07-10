@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import * as publicApi from "../src/index.js";
 import {
-	createTraining,
+	configureTraining,
 	defineTrainable,
 	trainable,
 	type TrainingEngine,
@@ -28,6 +28,7 @@ describe("trainable identity", () => {
 
 		expect(new Router().route("billing")).toBe("BILLING");
 		expect("useTraining" in publicApi).toBe(false);
+		expect("createTraining" in publicApi).toBe(false);
 		expect("default" in publicApi).toBe(false);
 	});
 
@@ -39,14 +40,30 @@ describe("trainable identity", () => {
 });
 
 describe("trainable method capture", () => {
+	it("controls capture and tracing only through global settings", async () => {
+		const startActiveSpan = vi.fn();
+		const training = configureTraining({
+			capture: { enabled: false },
+			tracing: { enabled: false, tracer: { startActiveSpan } as never },
+		});
+		class Router {
+			route(input: string): string { return input; }
+		}
+		applyMethodDecorator(Router, "route", trainable("Router.route"));
+
+		expect(new Router().route("billing")).toBe("billing");
+		expect(startActiveSpan).not.toHaveBeenCalled();
+		expect(await training.records("Router.route")).toEqual([]);
+	});
+
 	it("supports the decorator without external source metadata", async () => {
-		const training = createTraining({});
+		const training = configureTraining({});
 		class Router {
 			async fail(): Promise<void> {
 				throw new Error("boom");
 			}
 		}
-		applyMethodDecorator(Router, "fail", trainable("Router.fail", { training }));
+		applyMethodDecorator(Router, "fail", trainable("Router.fail"));
 
 		await expect(new Router().fail()).rejects.toThrow("boom");
 		const [record] = await training.records("Router.fail");
@@ -69,7 +86,7 @@ describe("training execution", () => {
 				return { implementation: "return input;" };
 			},
 		};
-		const training = createTraining({ engine, concurrency: 2 });
+		const training = configureTraining({ engine, concurrency: 2 });
 
 		await training.optimizeAll(["one", "two"].map((objective) => ({
 			trainable: "Router.route",
