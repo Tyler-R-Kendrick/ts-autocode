@@ -76,7 +76,7 @@ export interface OptimizeInput {
 	readonly signal?: AbortSignal;
 }
 
-export type CandidateEvalConfig = Omit<EvalConfig, "task">;
+export type CandidateEvalConfig = Omit<EvalConfig, "task"> & { readonly signal?: AbortSignal };
 
 export interface TrainInput {
 	readonly trainable: TrainableIdentity;
@@ -166,13 +166,16 @@ class TrainingRuntime implements Training {
 
 	async evaluateCandidate(candidate: CandidatePatch, config: CandidateEvalConfig): Promise<TrainableEvalRun> {
 		const token = defineTrainable(candidate.trainableId);
+		const { signal, ...evaluation } = config;
+		signal?.throwIfAborted();
 		const evaluated = await evaluateTrainable(token, {
-			...config,
+			...evaluation,
 			task: async (input) => {
 				const output = await executeImplementation(
 					candidate.target,
 					candidate.implementation,
 					evaluationArgs(input),
+					signal === undefined ? {} : { signal },
 				);
 				return typeof output === "string" ? output : JSON.stringify(output) ?? String(output);
 			},
@@ -213,9 +216,10 @@ class TrainingRuntime implements Training {
 					...(signal === undefined ? {} : { signal }),
 				});
 			},
-			teacher: async (candidate, { round }) => {
+			teacher: async (candidate, { round, signal }) => {
 				const verification = await this.evaluateCandidate(candidate, {
 					...candidateEvaluation,
+					...(signal === undefined ? {} : { signal }),
 					outputDir: `${outputDir ?? ".agentv"}/candidate-${round}`,
 				});
 				const decision = await evaluatePromotionGate({

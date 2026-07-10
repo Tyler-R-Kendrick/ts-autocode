@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
 	configureTraining,
@@ -80,6 +80,7 @@ describe("AgentV evaluation", () => {
 
 	it("uses the harness for student optimization and teacher feedback", async () => {
 		let round = 0;
+		const signal = new AbortController().signal;
 		const engine: TrainingEngine = {
 			id: "student",
 			async optimize(request) {
@@ -92,9 +93,11 @@ describe("AgentV evaluation", () => {
 			},
 		};
 		const training = configureTraining({ engine, source: { files: [import.meta.filename] } });
+		const evaluateCandidate = vi.spyOn(training, "evaluateCandidate");
 		const run = await training.train({
 			trainable: "pipelineTarget",
 			objective: "uppercase the result",
+			signal,
 			evaluation: {
 				tests: [{ id: "uppercase", input: "hello", assert: [{ type: "equals", value: "HELLO" }] }],
 				task: pipelineTarget,
@@ -105,6 +108,7 @@ describe("AgentV evaluation", () => {
 		expect(run.outcome).toBe("ready");
 		expect(run.baseline.run.summary.failed).toBe(1);
 		expect(run.rounds).toHaveLength(2);
+		expect(evaluateCandidate.mock.calls[0]?.[1].signal).toBe(signal);
 		expect(run.final.verification.run.summary.passed).toBe(1);
 		expect(run.final.decision.promote).toBe(true);
 	});
