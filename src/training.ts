@@ -1,39 +1,39 @@
 import { randomUUID } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
 
 import { buildTraceFromMessages, type EvalConfig } from "@agentv/core";
-import {
-	OpenInferenceSpanKind,
-	SemanticConventions,
-} from "@arizeai/openinference-semantic-conventions";
-import {
-	SpanStatusCode,
-	trace,
-	type Attributes,
-	type Span,
-	type Tracer,
-} from "@opentelemetry/api";
+import { OpenInferenceSpanKind, SemanticConventions } from "@arizeai/openinference-semantic-conventions";
+import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "@opentelemetry/api";
 
 import {
+	optimizeCandidate,
 	type BoundEvaluation,
 	type CandidatePatch,
 	type SecretProvider,
 	type TrainingEngine,
-	optimizeCandidate,
 } from "./engine.js";
 import { evaluateTrainable, type TrainableEvalRun } from "./evaluation.js";
-import type { GeneratedRegion } from "./region.js";
+import { executeImplementation } from "./execution.js";
 import {
-	createMemoryTrainingStore,
-	type TrainingRecord,
-	type TrainingStore,
-} from "./records.js";
-import type { TrainableToken } from "./token.js";
+	evaluatePromotionGate,
+	promoteCandidate,
+	revertPromotion,
+	type PromotionDecision,
+	type PromotionResult,
+	type PromotionSnapshot,
+} from "./promotion.js";
+import { createAxEngine, type AxEngineOptions } from "./providers/ax.js";
+import { createMemoryTrainingStore, type TrainingRecord, type TrainingStore } from "./records.js";
+import {
+	discoverTrainables,
+	findTrainable,
+	hasTrainingDirective,
+	type SourceSettings,
+	type TrainableTarget,
+} from "./source.js";
+import { defineTrainable, toTrainableToken, type TrainableIdentity, type TrainableToken } from "./token.js";
 
-const attribute = {
-	artifact: "ts_autocode.artifact.ref",
-	region: "ts_autocode.region.id",
-	trainable: "ts_autocode.trainable.id",
-} as const;
+const trainableAttribute = "ts_autocode.trainable.id";
 
 export interface CaptureSettings {
 	readonly input?: boolean;
@@ -44,6 +44,8 @@ export interface CaptureSettings {
 
 export interface TrainingSettings {
 	readonly engine?: TrainingEngine;
+	readonly ax?: AxEngineOptions;
+	readonly source?: SourceSettings;
 	readonly store?: TrainingStore;
 	readonly tracer?: Tracer;
 	readonly secrets?: SecretProvider;
@@ -55,11 +57,8 @@ export interface TrainingSettings {
 	readonly onError?: (error: unknown, phase: "capture" | "store") => void;
 }
 
-type RegionResolver = GeneratedRegion | ((instance: unknown, args: readonly unknown[]) => GeneratedRegion);
-
-export interface BoundTrainableOptions {
-	readonly token: TrainableToken;
-	readonly region: RegionResolver;
+export interface TrainableOptions {
+	readonly training?: Training;
 	readonly name?: string;
 	readonly kind?: OpenInferenceSpanKind;
 	readonly attributes?: Attributes;
@@ -68,8 +67,53 @@ export interface BoundTrainableOptions {
 	readonly runId?: () => string;
 }
 
-export interface TrainableOptions extends BoundTrainableOptions {
-	readonly training: TrainingSession;
+export interface UseTrainingOptions {
+	readonly training?: Training;
+	readonly namespace?: string;
+}
+
+export interface OptimizeInput {
+	readonly trainable: TrainableIdentity;
+	readonly objective: string;
+	readonly target?: TrainableTarget;
+	readonly constraints?: readonly string[];
+	readonly evaluations?: readonly BoundEvaluation[];
+	readonly engine?: TrainingEngine;
+	readonly signal?: AbortSignal;
+}
+
+export type CandidateEvalConfig = Omit<EvalConfig, "task">;
+
+export interface TrainInput {
+	readonly trainable: TrainableIdentity;
+	readonly objective: string;
+	readonly evaluation: EvalConfig;
+	readonly constraints?: readonly string[];
+	readonly engine?: TrainingEngine;
+	readonly signal?: AbortSignal;
+	readonly minScore?: number;
+	readonly minPassRate?: number;
+	readonly conformance?: boolean;
+	readonly policy?: (candidate: CandidatePatch) => boolean | Promise<boolean>;
+}
+
+export interface TrainingRun {
+	readonly baseline: TrainableEvalRun;
+	readonly candidate: CandidatePatch;
+	readonly verification: TrainableEvalRun;
+	readonly decision: PromotionDecision;
+}
+
+export interface Training {
+	records(trainable?: TrainableIdentity): Promise<readonly TrainingRecord[]>;
+	evaluate(trainable: TrainableIdentity, config: EvalConfig): Promise<TrainableEvalRun>;
+	evaluateCandidate(candidate: CandidatePatch, config: CandidateEvalConfig): Promise<TrainableEvalRun>;
+	train(input: TrainInput): Promise<TrainingRun>;
+	optimize(input: OptimizeInput): Promise<CandidatePatch>;
+	optimizeAll(inputs: readonly OptimizeInput[]): Promise<readonly CandidatePatch[]>;
+	promote(candidate: CandidatePatch, decision: PromotionDecision): Promise<PromotionResult>;
+	revert(snapshot: PromotionSnapshot): Promise<void>;
+	flush(): Promise<void>;
 }
 
 export type TrainableDecorator = <This, Args extends unknown[], Result>(
@@ -77,24 +121,13 @@ export type TrainableDecorator = <This, Args extends unknown[], Result>(
 	context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
 ) => (this: This, ...args: Args) => Result;
 
-export interface OptimizeInput {
-	readonly token: TrainableToken;
-	readonly objective: string;
-	readonly artifacts: Readonly<Record<string, string>>;
-	readonly regions?: readonly GeneratedRegion[];
-	readonly constraints?: readonly string[];
-	readonly evaluations?: readonly BoundEvaluation[];
-	readonly engine?: TrainingEngine;
-	readonly signal?: AbortSignal;
-}
-
-export class TrainingSession {
-	readonly #settings: Required<Pick<TrainingSettings, "capture" | "concurrency" | "idFactory" | "now">> &
-		Omit<TrainingSettings, "capture" | "concurrency" | "idFactory" | "now">;
+class TrainingRuntime implements Training {
+	readonly #settings: Required<Pick<TrainingSettings, "capture" | "concurrency" | "idFactory" | "now" | "source">> &
+		Omit<TrainingSettings, "capture" | "concurrency" | "idFactory" | "now" | "source">;
+	readonly #engine: TrainingEngine;
 	readonly #store: TrainingStore;
 	readonly #tracer: Tracer;
 	readonly #pending = new Set<Promise<void>>();
-	readonly #regions = new Map<string, Map<string, GeneratedRegion>>();
 	readonly #evaluations = new Map<string, BoundEvaluation[]>();
 
 	constructor(settings: TrainingSettings) {
@@ -108,94 +141,93 @@ export class TrainingSession {
 			concurrency,
 			idFactory: settings.idFactory ?? randomUUID,
 			now: settings.now ?? (() => new Date()),
+			source: settings.source ?? {},
 			variables: Object.freeze({ ...settings.variables }),
 		};
+		this.#engine = settings.engine ?? createAxEngine(settings.ax);
 		this.#store = settings.store ?? createMemoryTrainingStore();
 		this.#tracer = settings.tracer ?? trace.getTracer("ts-autocode");
 	}
 
-	trainable(options: BoundTrainableOptions): TrainableDecorator {
-		const session = this;
-		return function <This, Args extends unknown[], Result>(
-			method: (this: This, ...args: Args) => Result,
-			context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
-		) {
-			const name = options.name ?? String(context.name);
-			return function (this: This, ...args: Args): Result {
-				const region = resolveRegion(options.region, this, args);
-				session.#register(options.token, region);
-				const attributes: Attributes = {
-					...options.attributes,
-					[SemanticConventions.OPENINFERENCE_SPAN_KIND]: options.kind ?? OpenInferenceSpanKind.CHAIN,
-					[attribute.artifact]: region.artifactRef,
-					[attribute.region]: region.regionId,
-					[attribute.trainable]: options.token.id,
-				};
-
-				return session.#tracer.startActiveSpan(name, { attributes }, (span) => {
-					const startedAt = session.#settings.now();
-					const runId = options.runId?.() ?? session.#settings.idFactory();
-					let result: Result;
-					try {
-						result = method.apply(this, args);
-					} catch (error) {
-						session.#finish({ span, error, args, name, options, region, runId, startedAt });
-						throw error;
-					}
-
-					if (isPromise(result)) {
-						return result.then(
-							(value) => {
-								session.#finish({ span, result: value, args, name, options, region, runId, startedAt });
-								return value;
-							},
-							(error) => {
-								session.#finish({ span, error, args, name, options, region, runId, startedAt });
-								throw error;
-							},
-						) as Result;
-					}
-
-					session.#finish({ span, result, args, name, options, region, runId, startedAt });
-					return result;
-				});
-			};
-		};
-	}
-
-	async records(token?: TrainableToken): Promise<readonly TrainingRecord[]> {
+	async records(identity?: TrainableIdentity): Promise<readonly TrainingRecord[]> {
 		await this.flush();
-		return this.#store.list(token?.id);
+		return this.#store.list(identity === undefined ? undefined : toTrainableToken(identity).id);
 	}
 
-	regions(token: TrainableToken): readonly GeneratedRegion[] {
-		return [...(this.#regions.get(token.id)?.values() ?? [])];
-	}
-
-	async evaluate(token: TrainableToken, config: EvalConfig): Promise<TrainableEvalRun> {
+	async evaluate(identity: TrainableIdentity, config: EvalConfig): Promise<TrainableEvalRun> {
+		const token = toTrainableToken(identity);
 		const run = await evaluateTrainable(token, config);
-		const existing = this.#evaluations.get(token.id) ?? [];
-		existing.push(...run.evaluations);
-		this.#evaluations.set(token.id, existing);
+		this.#remember(run);
 		return run;
 	}
 
+	async evaluateCandidate(candidate: CandidatePatch, config: CandidateEvalConfig): Promise<TrainableEvalRun> {
+		const token = defineTrainable(candidate.trainableId);
+		const evaluated = await evaluateTrainable(token, {
+			...config,
+			task: async (input) => {
+				const output = await executeImplementation(
+					candidate.target,
+					candidate.implementation,
+					evaluationArgs(input),
+				);
+				return typeof output === "string" ? output : JSON.stringify(output) ?? String(output);
+			},
+		});
+		const run: TrainableEvalRun = Object.freeze({
+			token: evaluated.token,
+			run: evaluated.run,
+			evaluations: evaluated.evaluations.map((evaluation) => ({ ...evaluation, candidateId: candidate.id })),
+		});
+		this.#remember(run);
+		return run;
+	}
+
+	async train(input: TrainInput): Promise<TrainingRun> {
+		const baseline = await this.evaluate(input.trainable, input.evaluation);
+		const candidate = await this.optimize({
+			trainable: input.trainable,
+			objective: input.objective,
+			evaluations: baseline.evaluations,
+			...(input.constraints === undefined ? {} : { constraints: input.constraints }),
+			...(input.engine === undefined ? {} : { engine: input.engine }),
+			...(input.signal === undefined ? {} : { signal: input.signal }),
+		});
+		const { task: _task, outputDir, ...candidateEvaluation } = input.evaluation;
+		const verification = await this.evaluateCandidate(candidate, {
+			...candidateEvaluation,
+			outputDir: `${outputDir ?? ".agentv"}/candidate`,
+		});
+		const decision = await evaluatePromotionGate({
+			candidate,
+			evaluations: verification.evaluations,
+			conformance: input.conformance ?? true,
+			...(input.minScore === undefined ? {} : { minScore: input.minScore }),
+			...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
+			...(input.policy === undefined ? {} : { policy: input.policy }),
+		});
+		return Object.freeze({ baseline, candidate, verification, decision });
+	}
+
+	#remember(run: TrainableEvalRun): void {
+		const token = run.token;
+		const evaluations = this.#evaluations.get(token.id) ?? [];
+		evaluations.push(...run.evaluations);
+		this.#evaluations.set(token.id, evaluations);
+	}
+
 	async optimize(input: OptimizeInput): Promise<CandidatePatch> {
-		const engine = input.engine ?? this.#settings.engine;
-		if (!engine) {
-			throw new Error("no training engine is configured");
-		}
-		const regions = input.regions ?? this.regions(input.token);
-		const records = await this.records(input.token);
+		const token = toTrainableToken(input.trainable);
+		const target = input.target ?? findTrainable(token.id, this.#settings.source);
+		const records = await this.records(token);
 		return optimizeCandidate(
-			engine,
+			input.engine ?? this.#engine,
 			{
-				trainableId: input.token.id,
+				trainableId: token.id,
 				objective: input.objective,
-				artifacts: input.artifacts,
-				regions,
+				target,
 				records,
-				evaluations: input.evaluations ?? this.#evaluations.get(input.token.id) ?? [],
+				evaluations: input.evaluations ?? this.#evaluations.get(token.id) ?? [],
 				...(input.constraints === undefined ? {} : { constraints: input.constraints }),
 			},
 			{
@@ -207,79 +239,112 @@ export class TrainingSession {
 	}
 
 	async optimizeAll(inputs: readonly OptimizeInput[]): Promise<readonly CandidatePatch[]> {
-		return mapConcurrent(inputs, this.#settings.concurrency, (input) => this.optimize(input));
+		const needsDiscovery = inputs.some((input) => input.target === undefined);
+		const targets = needsDiscovery ? targetsById(discoverTrainables(this.#settings.source)) : new Map();
+		const prepared = inputs.map((input): OptimizeInput => {
+			if (input.target) return input;
+			const id = toTrainableToken(input.trainable).id;
+			const target = targets.get(id);
+			if (!target) throw new Error(`trainable source was not found: ${id}`);
+			return { ...input, target };
+		});
+		return mapConcurrent(prepared, this.#settings.concurrency, (input) => this.optimize(input));
+	}
+
+	async promote(candidate: CandidatePatch, decision: PromotionDecision): Promise<PromotionResult> {
+		const source = await readFile(candidate.target.artifactRef, "utf8");
+		const promoted = promoteCandidate({ source, candidate, decision });
+		await writeFile(candidate.target.artifactRef, promoted.source, "utf8");
+		return promoted;
+	}
+
+	async revert(snapshot: PromotionSnapshot): Promise<void> {
+		const source = await readFile(snapshot.artifactRef, "utf8");
+		await writeFile(snapshot.artifactRef, revertPromotion(source, snapshot), "utf8");
 	}
 
 	async flush(): Promise<void> {
 		await Promise.all([...this.#pending]);
 	}
 
-	#register(token: TrainableToken, region: GeneratedRegion): void {
-		const regions = this.#regions.get(token.id) ?? new Map<string, GeneratedRegion>();
-		regions.set(`${region.artifactRef}:${region.regionId}`, region);
-		this.#regions.set(token.id, regions);
+	invoke<This, Args extends unknown[], Result>(
+		thisValue: This,
+		method: (this: This, ...args: Args) => Result,
+		args: Args,
+		token: TrainableToken,
+		name: string,
+		options: TrainableOptions = {},
+	): Result {
+		const attributes: Attributes = {
+			...options.attributes,
+			[SemanticConventions.OPENINFERENCE_SPAN_KIND]: options.kind ?? OpenInferenceSpanKind.CHAIN,
+			[trainableAttribute]: token.id,
+		};
+		return this.#tracer.startActiveSpan(name, { attributes }, (span) => {
+			const startedAt = this.#settings.now();
+			const runId = options.runId?.() ?? this.#settings.idFactory();
+			let result: Result;
+			try {
+				result = method.apply(thisValue, args);
+			} catch (error) {
+				this.#finish({ span, error, args, name, options, token, runId, startedAt });
+				throw error;
+			}
+			if (isPromise(result)) {
+				return result.then(
+					(value) => {
+						this.#finish({ span, result: value, args, name, options, token, runId, startedAt });
+						return value;
+					},
+					(error) => {
+						this.#finish({ span, error, args, name, options, token, runId, startedAt });
+						throw error;
+					},
+				) as Result;
+			}
+			this.#finish({ span, result, args, name, options, token, runId, startedAt });
+			return result;
+		});
 	}
 
-	#finish({
-		span,
-		result,
-		error,
-		args,
-		name,
-		options,
-		region,
-		runId,
-		startedAt,
-	}: {
+	#finish({ span, result, error, args, name, options, token, runId, startedAt }: {
 		span: Span;
 		result?: unknown;
 		error?: unknown;
 		args: readonly unknown[];
 		name: string;
-		options: BoundTrainableOptions;
-		region: GeneratedRegion;
+		options: TrainableOptions;
+		token: TrainableToken;
 		runId: string;
 		startedAt: Date;
 	}): void {
 		const endedAt = this.#settings.now();
-		if (error === undefined) {
-			span.setStatus({ code: SpanStatusCode.OK });
-		} else {
+		if (error === undefined) span.setStatus({ code: SpanStatusCode.OK });
+		else {
 			span.recordException(error instanceof Error ? error : String(error));
 			span.setStatus({ code: SpanStatusCode.ERROR });
 		}
 		const spanContext = span.spanContext();
 		span.end();
-
 		try {
 			const input = options.mapInput?.(args) ?? args;
 			const output = error === undefined ? options.mapOutput?.(result) ?? result : errorMessage(error);
 			const record: TrainingRecord = {
 				id: this.#settings.idFactory(),
 				runId,
-				trainableId: options.token.id,
+				trainableId: token.id,
 				method: name,
-				region,
 				succeeded: error === undefined,
 				recordedAt: endedAt.toISOString(),
 				trace: buildTraceFromMessages({
 					input: this.#settings.capture.input === false ? [] : [{ role: "user", content: this.#serialize(input, "input") }],
-					output:
-						this.#settings.capture.output === false
-							? []
-							: [{ role: "assistant", content: this.#serialize(output, "output") }],
+					output: this.#settings.capture.output === false ? [] : [{ role: "assistant", content: this.#serialize(output, "output") }],
 					startTime: startedAt.toISOString(),
 					endTime: endedAt.toISOString(),
 					durationMs: Math.max(0, endedAt.getTime() - startedAt.getTime()),
 					provider: "ts-autocode",
-					target: options.token.id,
-					metadata: {
-						runId,
-						trainableId: options.token.id,
-						regionId: region.regionId,
-						traceId: spanContext.traceId,
-						spanId: spanContext.spanId,
-					},
+					target: token.id,
+					metadata: { runId, trainableId: token.id, traceId: spanContext.traceId, spanId: spanContext.spanId },
 					...(error === undefined ? {} : { error: errorMessage(error) }),
 				}),
 			};
@@ -295,32 +360,73 @@ export class TrainingSession {
 	}
 
 	#enqueue(write: Promise<void>): void {
-		const pending = write.catch((error) => {
-			this.#settings.onError?.(error, "store");
-		}).finally(() => {
+		const pending = write.catch((error) => this.#settings.onError?.(error, "store")).finally(() => {
 			this.#pending.delete(pending);
 		});
 		this.#pending.add(pending);
 	}
 }
 
-export function createTraining(settings: TrainingSettings): TrainingSession {
-	return new TrainingSession(settings);
+let configuredTraining: TrainingRuntime | undefined;
+
+export function createTraining(settings: TrainingSettings = {}): Training {
+	return new TrainingRuntime(settings);
 }
 
-/** Concise settings-bound API; equivalent to createTraining(settings). */
-export function useTraining(settings: TrainingSettings): TrainingSession {
-	return createTraining(settings);
+export function configureTraining(settings: TrainingSettings = {}): Training {
+	configuredTraining = new TrainingRuntime(settings);
+	return configuredTraining;
 }
 
-/** Standalone decorator form. */
-export function trainable(options: TrainableOptions): TrainableDecorator {
-	const { training, ...bound } = options;
-	return training.trainable(bound);
+/** Decorator form: `@trainable("Router.route")`. */
+export function trainable(identity: TrainableIdentity, options: TrainableOptions = {}): TrainableDecorator {
+	const token = toTrainableToken(identity);
+	return function <This, Args extends unknown[], Result>(
+		method: (this: This, ...args: Args) => Result,
+		context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
+	) {
+		const name = options.name ?? String(context.name);
+		return function (this: This, ...args: Args): Result {
+			return runtime(options.training).invoke(this, method, args, token, name, options);
+		};
+	};
 }
 
-function resolveRegion(resolver: RegionResolver, instance: unknown, args: readonly unknown[]): GeneratedRegion {
-	return typeof resolver === "function" ? resolver(instance, args) : resolver;
+/** Directive form: wraps methods whose first statement is `"use training"`. */
+export function useTraining<T extends object>(target: T, options: UseTrainingOptions = {}): T {
+	if (typeof target === "function") {
+		const method = target as unknown as (...args: unknown[]) => unknown;
+		if (!hasTrainingDirective(method)) throw new TypeError("useTraining function must contain a \"use training\" directive");
+		const name = method.name || "anonymous";
+		const token = defineTrainable(options.namespace ?? name);
+		return function (this: unknown, ...args: unknown[]) {
+			return runtime(options.training).invoke(this, method, args, token, name);
+		} as unknown as T;
+	}
+	const namespace = options.namespace ?? target.constructor.name;
+	const cache = new Map<PropertyKey, unknown>();
+	return new Proxy(target, {
+		get(object, property, receiver) {
+			const value = Reflect.get(object, property, receiver) as unknown;
+			if (typeof value !== "function" || !hasTrainingDirective(value)) return value;
+			if (cache.has(property)) return cache.get(property);
+			const token = defineTrainable(`${namespace}.${String(property)}`);
+			const wrapped = (...args: unknown[]) => runtime(options.training)
+				.invoke(object, value as (...args: unknown[]) => unknown, args, token, String(property));
+			cache.set(property, wrapped);
+			return wrapped;
+		},
+	});
+}
+
+export default useTraining;
+
+function runtime(training?: Training): TrainingRuntime {
+	if (training !== undefined) {
+		if (!(training instanceof TrainingRuntime)) throw new TypeError("training must be created by ts-autocode");
+		return training;
+	}
+	return configuredTraining ??= new TrainingRuntime({});
 }
 
 function isPromise<T>(value: T): value is T & Promise<Awaited<T>> {
@@ -340,22 +446,34 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-async function mapConcurrent<T, R>(
-	items: readonly T[],
-	concurrency: number,
-	map: (item: T) => Promise<R>,
-): Promise<R[]> {
+function evaluationArgs(input: string): readonly unknown[] {
+	try {
+		const parsed = JSON.parse(input) as unknown;
+		return Array.isArray(parsed) ? parsed : [parsed];
+	} catch {
+		return [input];
+	}
+}
+
+async function mapConcurrent<T, R>(items: readonly T[], concurrency: number, map: (item: T) => Promise<R>): Promise<R[]> {
 	if (items.length === 0) return [];
 	const limit = concurrency === Number.POSITIVE_INFINITY ? items.length : Math.min(concurrency, items.length);
 	const results = new Array<R>(items.length);
 	let next = 0;
-	await Promise.all(
-		Array.from({ length: limit }, async () => {
-			while (next < items.length) {
-				const index = next++;
-				results[index] = await map(items[index] as T);
-			}
-		}),
-	);
+	await Promise.all(Array.from({ length: limit }, async () => {
+		while (next < items.length) {
+			const index = next++;
+			results[index] = await map(items[index] as T);
+		}
+	}));
 	return results;
+}
+
+function targetsById(targets: readonly TrainableTarget[]): ReadonlyMap<string, TrainableTarget> {
+	const result = new Map<string, TrainableTarget>();
+	for (const target of targets) {
+		if (result.has(target.id)) throw new Error(`trainable id must resolve to exactly one method: ${target.id}`);
+		result.set(target.id, target);
+	}
+	return result;
 }

@@ -16,16 +16,21 @@ export interface TrainableEvalRun {
 	readonly evaluations: readonly BoundEvaluation[];
 }
 
-/** Run AgentV and bind every result to the same trainable token as its region. */
+/** Run AgentV and bind every result to the same trainable method. */
 export async function evaluateTrainable(token: TrainableToken, config: EvalConfig): Promise<TrainableEvalRun> {
+	const tests = config.tests?.map((test) => bindTest(test, token));
 	const run = await evaluate({
 		...config,
-		...(config.tests === undefined ? {} : { tests: config.tests.map((test) => bindTest(test, token)) }),
+		...(tests === undefined ? {} : { tests }),
 	});
+	const testsById = new Map(tests?.map((test) => [test.id, test]));
 	return Object.freeze({
 		token,
 		run,
-		evaluations: run.results.map((result) => ({ trainableId: token.id, result })),
+		evaluations: run.results.map((result) => {
+			const test = testsById.get(result.testId);
+			return { trainableId: token.id, result, ...(test === undefined ? {} : { test }) };
+		}),
 	});
 }
 

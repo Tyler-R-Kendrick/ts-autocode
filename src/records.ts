@@ -1,6 +1,5 @@
 import type { Trace } from "@agentv/core";
 
-import type { GeneratedRegion } from "./region.js";
 import type { TrainableId } from "./token.js";
 
 /** One captured invocation of a trainable method. AgentV owns the trace shape. */
@@ -9,7 +8,6 @@ export interface TrainingRecord {
 	readonly runId: string;
 	readonly trainableId: TrainableId;
 	readonly method: string;
-	readonly region: GeneratedRegion;
 	readonly trace: Trace;
 	readonly succeeded: boolean;
 	readonly recordedAt: string;

@@ -2,86 +2,82 @@ import { describe, expect, it } from "vitest";
 
 import {
 	defineTrainable,
+	createTraining,
 	evaluatePromotionGate,
-	evaluateTrainable,
-	findGeneratedRegion,
 	promoteCandidate,
 	revertPromotion,
 	type CandidatePatch,
 } from "../src/index.js";
-import { generatedRegionSource } from "./fixtures.js";
+import { evaluateTrainable } from "../src/evaluation.js";
+import { discoverInSource } from "../src/source.js";
 
-const source = generatedRegionSource([{ id: "route", body: 'return "old";' }]);
+const source = `class Router {
+  route(input: string): string {
+    "use training";
+    return "old";
+  }
+}`;
+const target = discoverInSource(source, "src/router.ts")[0]!;
+
+function candidate(): CandidatePatch {
+	return {
+		id: "candidate",
+		trainableId: defineTrainable("Router.route").id,
+		engineId: "test",
+		target,
+		implementation: 'return "new";',
+	};
+}
 
 describe("promotion", () => {
-	it("gates with AgentV results and supports guarded revert", async () => {
-		const token = defineTrainable("router.route");
-		const artifactRef = "src/router.ts";
-		const region = findGeneratedRegion(source, "route", { artifactRef });
-		const candidate: CandidatePatch = {
-			id: "candidate",
-			trainableId: token.id,
-			engineId: "test",
-			edits: [{
-				artifactRef,
-				regionId: region.regionId,
-				startOffset: region.startOffset,
-				endOffset: region.endOffset,
-				replacement: 'return "new";',
-			}],
-		};
-		const evaluations = await evaluateTrainable(token, {
+	it("gates with AgentV and reverts only an unchanged promoted method", async () => {
+		const patch = candidate();
+		const evaluated = await createTraining({}).evaluateCandidate(patch, {
 			tests: [{ id: "candidate", input: "route", assert: [{ type: "equals", value: "new" }] }],
-			task: () => "new",
 			outputDir: "test/output/agentv-promotion",
 		});
 		const decision = await evaluatePromotionGate({
-			candidate,
-			evaluations: evaluations.evaluations,
+			candidate: patch,
+			evaluations: evaluated.evaluations,
 			conformance: true,
-			policy: () => true,
 		});
+		const promoted = promoteCandidate({ source, candidate: patch, decision });
 
-		expect(decision.promote).toBe(true);
-		const promoted = promoteCandidate({
-			artifacts: { [artifactRef]: source },
-			candidate,
-			regions: [region],
-			decision,
-		});
-		expect(promoted.artifacts[artifactRef]).toContain('return "new";');
-		const reverted = revertPromotion(promoted.artifacts, promoted.snapshot);
-		expect(reverted[artifactRef]).toBe(source);
+		expect(promoted.source).toContain('return "new";');
+		expect(revertPromotion(promoted.source, promoted.snapshot)).toBe(source);
+		expect(() => revertPromotion(promoted.source.replace('return "new";', 'return "changed";'), promoted.snapshot))
+			.toThrow("changed before revert");
 	});
 
-	it("rejects AgentV results bound to another trainable", async () => {
-		const candidateToken = defineTrainable("router.route");
-		const otherToken = defineTrainable("router.other");
-		const artifactRef = "src/router.ts";
-		const region = findGeneratedRegion(source, "route", { artifactRef });
-		const evaluated = await evaluateTrainable(otherToken, {
+	it("rejects evaluations bound to another trainable", async () => {
+		const evaluated = await evaluateTrainable(defineTrainable("Router.other"), {
 			tests: [{ id: "other", input: "route", assert: [{ type: "equals", value: "old" }] }],
 			task: () => "old",
 			outputDir: "test/output/agentv-promotion-mismatch",
 		});
 		const decision = await evaluatePromotionGate({
-			candidate: {
-				id: "candidate",
-				trainableId: candidateToken.id,
-				engineId: "test",
-				edits: [{
-					artifactRef,
-					regionId: region.regionId,
-					startOffset: region.startOffset,
-					endOffset: region.endOffset,
-					replacement: 'return "new";',
-				}],
-			},
+			candidate: candidate(),
 			evaluations: evaluated.evaluations,
 			conformance: true,
 		});
 
 		expect(decision.promote).toBe(false);
 		expect(decision.failures).toContain("AgentV evaluations must match the candidate trainable id");
+	});
+
+	it("never treats baseline evaluations as candidate evidence", async () => {
+		const baseline = await evaluateTrainable(defineTrainable("Router.route"), {
+			tests: [{ id: "baseline", input: "route", assert: [{ type: "equals", value: "old" }] }],
+			task: () => "old",
+			outputDir: "test/output/agentv-promotion-baseline",
+		});
+		const decision = await evaluatePromotionGate({
+			candidate: candidate(),
+			evaluations: baseline.evaluations,
+			conformance: true,
+		});
+
+		expect(decision.promote).toBe(false);
+		expect(decision.failures).toContain("AgentV evaluations must be run against the candidate");
 	});
 });

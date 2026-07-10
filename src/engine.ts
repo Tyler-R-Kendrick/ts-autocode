@@ -1,8 +1,9 @@
-import type { EvaluationResult } from "@agentv/core";
+import type { EvaluationResult, EvalTestInput } from "@agentv/core";
+import ts from "typescript";
 
 import { digest } from "./canonical.js";
-import type { GeneratedRegion } from "./region.js";
 import type { TrainingRecord } from "./records.js";
+import type { TrainableTarget } from "./source.js";
 import type { TrainableId } from "./token.js";
 
 export interface SecretProvider {
@@ -11,14 +12,15 @@ export interface SecretProvider {
 
 export interface BoundEvaluation {
 	readonly trainableId: TrainableId;
+	readonly candidateId?: string;
+	readonly test?: EvalTestInput;
 	readonly result: EvaluationResult;
 }
 
 export interface OptimizeRequest {
 	readonly trainableId: TrainableId;
 	readonly objective: string;
-	readonly artifacts: Readonly<Record<string, string>>;
-	readonly regions: readonly GeneratedRegion[];
+	readonly target: TrainableTarget;
 	readonly records: readonly TrainingRecord[];
 	readonly evaluations: readonly BoundEvaluation[];
 	readonly constraints?: readonly string[];
@@ -30,26 +32,22 @@ export interface EngineContext {
 	readonly signal?: AbortSignal;
 }
 
-export interface CandidateEdit {
-	readonly artifactRef: string;
-	readonly regionId: string;
-	readonly startOffset: number;
-	readonly endOffset: number;
-	readonly replacement: string;
-}
-
-export interface CandidatePatch {
-	readonly id: string;
-	readonly trainableId: TrainableId;
-	readonly engineId: string;
-	readonly edits: readonly CandidateEdit[];
+export interface EngineCandidate {
+	readonly implementation: string;
 	readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
-/** Engines are async, provider-neutral adapters. */
+export interface CandidatePatch extends EngineCandidate {
+	readonly id: string;
+	readonly trainableId: TrainableId;
+	readonly engineId: string;
+	readonly target: TrainableTarget;
+}
+
+/** Provider-neutral optimizer. Ax is the default implementation, not the interface. */
 export interface TrainingEngine {
 	readonly id: string;
-	optimize(request: OptimizeRequest, context: EngineContext): Promise<CandidatePatch>;
+	optimize(request: OptimizeRequest, context: EngineContext): Promise<EngineCandidate>;
 }
 
 export async function optimizeCandidate(
@@ -58,124 +56,70 @@ export async function optimizeCandidate(
 	context: EngineContext,
 ): Promise<CandidatePatch> {
 	validateRequest(request);
-	const candidate = await engine.optimize(structuredClone(request), context);
-	validateCandidate(candidate, request);
+	if (!engine.id.trim()) throw new TypeError("engine id must be a non-empty string");
+	const proposed = await engine.optimize(structuredClone(request), context);
+	const implementation = cleanImplementation(proposed.implementation);
+	if (!implementation) throw new Error("engine returned an empty implementation");
+	validateImplementation(request.target, implementation);
+	const candidate = {
+		id: digest({ trainableId: request.trainableId, engineId: engine.id, target: request.target, implementation }),
+		trainableId: request.trainableId,
+		engineId: engine.id,
+		target: request.target,
+		implementation,
+		...(proposed.metadata === undefined ? {} : { metadata: proposed.metadata }),
+	} satisfies CandidatePatch;
 	return Object.freeze(structuredClone(candidate));
 }
 
-/** Apply a validated candidate only if every generated region is unchanged. */
-export function applyCandidate(
-	artifacts: Readonly<Record<string, string>>,
-	candidate: CandidatePatch,
-	regions: readonly GeneratedRegion[],
-): Readonly<Record<string, string>> {
-	const byId = uniqueRegions(regions);
-	if (candidate.edits.length !== regions.length) {
-		throw new Error("candidate must replace every requested region exactly once");
+/** Replace exactly the discovered method body if it has not changed. */
+export function applyCandidate(source: string, candidate: CandidatePatch): string {
+	const { target } = candidate;
+	if (target.id !== candidate.trainableId) throw new Error("candidate target must match its trainable id");
+	const current = source.slice(target.bodyStart, target.bodyEnd);
+	if (digest(current) !== target.bodyDigest) {
+		throw new Error(`trainable method changed after optimization started: ${target.id}`);
 	}
-
-	const seen = new Set<string>();
-	const editsByArtifact = new Map<string, CandidateEdit[]>();
-	for (const edit of candidate.edits) {
-		const region = byId.get(edit.regionId);
-		if (!region || seen.has(edit.regionId)) {
-			throw new Error(`candidate contains an unknown or duplicate region: ${edit.regionId}`);
-		}
-		assertCompleteEdit(edit, region);
-		const source = artifacts[region.artifactRef];
-		if (source === undefined) {
-			throw new Error(`artifact is missing: ${region.artifactRef}`);
-		}
-		if (digest(source.slice(region.startOffset, region.endOffset)) !== region.sourceDigest) {
-			throw new Error(`generated region changed after optimization started: ${region.regionId}`);
-		}
-		seen.add(edit.regionId);
-		const edits = editsByArtifact.get(edit.artifactRef) ?? [];
-		edits.push(edit);
-		editsByArtifact.set(edit.artifactRef, edits);
-	}
-
-	const result = { ...artifacts };
-	for (const [artifactRef, edits] of editsByArtifact) {
-		result[artifactRef] = [...edits]
-			.sort((left, right) => right.startOffset - left.startOffset)
-			.reduce(
-				(source, edit) =>
-					`${source.slice(0, edit.startOffset)}${matchTrailingNewline(source, edit)}${source.slice(edit.endOffset)}`,
-				result[artifactRef] as string,
-			);
-	}
-	return Object.freeze(result);
+	const replacement = formatImplementation(candidate.implementation, target.indentation, source);
+	return `${source.slice(0, target.bodyStart)}${replacement}${source.slice(target.bodyEnd)}`;
 }
 
 function validateRequest(request: OptimizeRequest): void {
-	if (!request.objective.trim()) {
-		throw new TypeError("optimization objective must be a non-empty string");
-	}
-	const regions = uniqueRegions(request.regions);
-	if (regions.size === 0) {
-		throw new TypeError("at least one generated region is required");
-	}
-	for (const region of regions.values()) {
-		const source = request.artifacts[region.artifactRef];
-		if (source === undefined) {
-			throw new Error(`artifact is missing: ${region.artifactRef}`);
-		}
-		if (digest(source.slice(region.startOffset, region.endOffset)) !== region.sourceDigest) {
-			throw new Error(`generated region is stale: ${region.regionId}`);
-		}
-	}
+	if (!request.objective.trim()) throw new TypeError("optimization objective must be a non-empty string");
+	if (request.target.id !== request.trainableId) throw new Error("trainable target must match the request id");
 	if (request.records.some((record) => record.trainableId !== request.trainableId)) {
-		throw new Error("training records must match the request trainable id");
+		throw new Error("training records must match the request id");
 	}
 	if (request.evaluations.some((evaluation) => evaluation.trainableId !== request.trainableId)) {
-		throw new Error("evaluations must match the request trainable id");
+		throw new Error("evaluations must match the request id");
 	}
 }
 
-function validateCandidate(candidate: CandidatePatch, request: OptimizeRequest): void {
-	if (candidate.trainableId !== request.trainableId) {
-		throw new Error("candidate must match the request trainable id");
-	}
-	if (!candidate.engineId.trim()) {
-		throw new Error("candidate engine id must be a non-empty string");
-	}
-	if (candidate.edits.length !== request.regions.length) {
-		throw new Error("candidate must replace every requested region exactly once");
-	}
-	const regions = uniqueRegions(request.regions);
-	const seen = new Set<string>();
-	for (const edit of candidate.edits) {
-		const region = regions.get(edit.regionId);
-		if (!region || seen.has(edit.regionId)) {
-			throw new Error(`candidate contains an unknown or duplicate region: ${edit.regionId}`);
-		}
-		assertCompleteEdit(edit, region);
-		seen.add(edit.regionId);
+function cleanImplementation(value: string): string {
+	if (typeof value !== "string") throw new TypeError("engine implementation must be a string");
+	return value.trim().replace(/^```(?:typescript|ts|javascript|js)?\s*/i, "").replace(/\s*```$/, "").trim();
+}
+
+function validateImplementation(target: TrainableTarget, implementation: string): void {
+	const declaration = `${target.async ? "async " : ""}function candidate(${target.parameters
+		.map((parameter) => parameter.declaration)
+		.join(", ")}): ${target.returnType} {\n${implementation}\n}`;
+	const diagnostics = ts.transpileModule(declaration, {
+		compilerOptions: { target: ts.ScriptTarget.ES2022 },
+		reportDiagnostics: true,
+	}).diagnostics ?? [];
+	if (diagnostics.some((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)) {
+		throw new SyntaxError(`engine returned invalid TypeScript for ${target.id}`);
 	}
 }
 
-function uniqueRegions(regions: readonly GeneratedRegion[]): Map<string, GeneratedRegion> {
-	const byId = new Map(regions.map((region) => [region.regionId, region]));
-	if (byId.size !== regions.length) {
-		throw new Error("region ids must be unique");
-	}
-	return byId;
-}
-
-function assertCompleteEdit(edit: CandidateEdit, region: GeneratedRegion): void {
-	if (
-		edit.artifactRef !== region.artifactRef ||
-		edit.startOffset !== region.startOffset ||
-		edit.endOffset !== region.endOffset
-	) {
-		throw new Error(`candidate must replace the complete region: ${edit.regionId}`);
-	}
-}
-
-function matchTrailingNewline(source: string, edit: CandidateEdit): string {
-	const previous = source.slice(edit.startOffset, edit.endOffset);
-	return previous.endsWith("\n") && !edit.replacement.endsWith("\n")
-		? `${edit.replacement}\n`
-		: edit.replacement;
+function formatImplementation(implementation: string, methodIndent: string, source: string): string {
+	const indentUnit = source.includes("\t") ? "\t" : "  ";
+	const bodyIndent = `${methodIndent}${indentUnit}`;
+	const lines = implementation.split("\n");
+	const minimumIndent = Math.min(
+		...lines.filter((line) => line.trim()).map((line) => /^\s*/.exec(line)?.[0].length ?? 0),
+	);
+	const normalized = lines.map((line) => `${bodyIndent}${line.slice(Number.isFinite(minimumIndent) ? minimumIndent : 0)}`);
+	return `\n${normalized.join("\n")}\n${methodIndent}`;
 }

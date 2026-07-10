@@ -1,118 +1,84 @@
-import { optimize as axOptimize, type AxProgrammable } from "@ax-llm/ax";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { defineTrainable, findGeneratedRegion } from "../src/index.js";
+import { createTraining, defineTrainable, type BoundEvaluation } from "../src/index.js";
 import { createAxEngine } from "../src/providers/ax.js";
-import { generatedRegionSource } from "./fixtures.js";
+import { discoverInSource } from "../src/source.js";
 
-vi.mock("@ax-llm/ax", () => ({ optimize: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+	ax: vi.fn(),
+	optimize: vi.fn(),
+	applyOptimization: vi.fn(),
+	forward: vi.fn(),
+}));
 
-const mockedOptimize = vi.mocked(axOptimize);
-const source = generatedRegionSource([
-	{ id: "one", body: 'return "one";' },
-	{ id: "two", body: 'return "two";' },
-]);
+vi.mock("@ax-llm/ax", async (importOriginal) => ({
+	...await importOriginal<typeof import("@ax-llm/ax")>(),
+	ax: mocks.ax,
+	optimize: mocks.optimize,
+}));
 
-type Input = { task: string };
-type Output = { replacement: string };
+const source = `class Router {
+  route(input: string): string {
+    "use training";
+    return input;
+  }
+}`;
+const target = discoverInSource(source, "src/router.ts")[0]!;
+const token = defineTrainable("Router.route");
+const evaluations: BoundEvaluation[] = [{
+	trainableId: token.id,
+	test: { id: "uppercase", input: "hello", assert: [{ type: "equals", value: "HELLO" }] },
+	result: {
+		input: [{ role: "user", content: '["hello"]' }],
+		output: "hello",
+		executionStatus: "quality_failure",
+	} as never,
+}];
 
-function program(regionId: string): AxProgrammable<Input, Output> {
-	return {
-		applyOptimization: vi.fn(),
-		forward: vi.fn(async () => ({ replacement: `return ${JSON.stringify(`${regionId}-optimized`)};` })),
-	} as unknown as AxProgrammable<Input, Output>;
-}
-
-function axResult() {
-	return {
-		bestScore: 0.9,
-		optimizedProgram: {
-			optimizerType: "GEPA",
-			converged: true,
-			totalRounds: 2,
-		},
-	};
-}
-
-describe("Ax engine adapter", () => {
-	beforeEach(() => mockedOptimize.mockReset());
-
-	it("uses the real Ax optimization boundary and parallelizes independent regions", async () => {
-		let active = 0;
-		let maxActive = 0;
-		mockedOptimize.mockImplementation(async () => {
-			active += 1;
-			maxActive = Math.max(maxActive, active);
-			await new Promise((resolve) => setTimeout(resolve, 10));
-			active -= 1;
-			return axResult() as never;
+describe("default Ax engine", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.ax.mockReturnValue({ applyOptimization: mocks.applyOptimization, forward: mocks.forward });
+		mocks.forward.mockResolvedValue({ optimizedMethodImplementation: "return input.toUpperCase();" });
+		mocks.optimize.mockImplementation(async (_program, examples, metric) => {
+			expect(await metric({ prediction: { optimizedMethodImplementation: "return input.toUpperCase();" }, example: examples[0] }))
+				.toBe(1);
+			return {
+				bestScore: 1,
+				optimizedProgram: { optimizerType: "GEPA", converged: true, totalRounds: 2 },
+			};
 		});
-		const artifactRef = "src/generated.ts";
-		const regions = ["one", "two"].map((id) => findGeneratedRegion(source, id, { artifactRef }));
-		const token = defineTrainable("router");
-		const engine = createAxEngine<Input, Output>({
-			studentAI: {} as never,
-			program: ({ region }) => program(region.regionId),
-			examples: ({ request }) => [{ task: request.objective }],
-			metric: () => 1,
-			input: ({ request }) => ({ task: request.objective }),
-			replacement: (output) => output.replacement,
-		});
-
-		const candidate = await engine.optimize(
-			{
-				trainableId: token.id,
-				objective: "improve routing",
-				artifacts: { [artifactRef]: source },
-				regions,
-				records: [],
-				evaluations: [],
-			},
-			{ variables: {} },
-		);
-
-		expect(mockedOptimize).toHaveBeenCalledTimes(2);
-		expect(maxActive).toBe(2);
-		expect(candidate.trainableId).toBe(token.id);
-		expect(candidate.edits.map((edit) => edit.replacement)).toEqual([
-			'return "one-optimized";',
-			'return "two-optimized";',
-		]);
 	});
 
-	it("honors the adapter concurrency setting", async () => {
-		let active = 0;
-		let maxActive = 0;
-		mockedOptimize.mockImplementation(async () => {
-			active += 1;
-			maxActive = Math.max(maxActive, active);
-			await new Promise((resolve) => setTimeout(resolve, 5));
-			active -= 1;
-			return axResult() as never;
+	it("derives the Ax program and executable metric from the method signature", async () => {
+		const training = createTraining({ ax: { studentAI: {} as never } });
+		const candidate = await training.optimize({
+			trainable: token,
+			objective: "uppercase the result",
+			target,
+			evaluations,
 		});
-		const artifactRef = "src/generated.ts";
-		const regions = ["one", "two"].map((id) => findGeneratedRegion(source, id, { artifactRef }));
-		const token = defineTrainable("router");
-		const engine = createAxEngine<Input, Output>({
-			studentAI: {} as never,
-			program: ({ region }) => program(region.regionId),
-			examples: () => [{ task: "example" }],
-			metric: () => 1,
-			input: () => ({ task: "optimize" }),
-			replacement: (output) => output.replacement,
-			concurrency: 1,
-		});
-		await engine.optimize(
-			{
-				trainableId: token.id,
-				objective: "improve",
-				artifacts: { [artifactRef]: source },
-				regions,
-				records: [],
-				evaluations: [],
-			},
+
+		const signature = mocks.ax.mock.calls[0]?.[0] as {
+			description: string;
+			inputs: Array<{ name: string; description?: string }>;
+		};
+		expect(signature.description).toContain("route(input: string): string");
+		expect(signature.inputs.map(({ name }) => name)).toEqual([
+			"methodArgumentInput",
+			"trainingObjective",
+			"currentMethodImplementation",
+		]);
+		expect(signature.inputs[0]?.description).toBe("input: string");
+		expect(mocks.optimize).toHaveBeenCalledOnce();
+		expect(candidate).toMatchObject({ engineId: "@ax-llm/ax", implementation: "return input.toUpperCase();" });
+	});
+
+	it("keeps custom engines possible while making missing Ax configuration explicit", async () => {
+		const engine = createAxEngine();
+		await expect(engine.optimize(
+			{ trainableId: token.id, objective: "improve", target, records: [], evaluations },
 			{ variables: {} },
-		);
-		expect(maxActive).toBe(1);
+		)).rejects.toThrow("TrainingSettings.ax.studentAI");
 	});
 });

@@ -3,93 +3,68 @@ import { describe, expect, it } from "vitest";
 import {
 	applyCandidate,
 	defineTrainable,
-	findGeneratedRegion,
-	optimizeCandidate,
 	type CandidatePatch,
 	type TrainingEngine,
 } from "../src/index.js";
-import { generatedRegionSource } from "./fixtures.js";
+import { optimizeCandidate } from "../src/engine.js";
+import { discoverInSource } from "../src/source.js";
 
-const source = `const before = true;\n${generatedRegionSource([
-	{ id: "first", body: 'return "first";' },
-	{ id: "second", body: 'return "second";' },
-])}`;
-const token = defineTrainable("router.classify");
-
-function fixture() {
-	const artifactRef = "src/generated.ts";
-	const regions = ["first", "second"].map((id) => findGeneratedRegion(source, id, { artifactRef }));
-	const candidate: CandidatePatch = {
-		id: "candidate",
-		trainableId: token.id,
-		engineId: "test-engine",
-		edits: regions.map((region) => ({
-			artifactRef,
-			regionId: region.regionId,
-			startOffset: region.startOffset,
-			endOffset: region.endOffset,
-			replacement: `return ${JSON.stringify(`${region.regionId}-optimized`)};`,
-		})),
-	};
-	return { artifactRef, regions, candidate };
-}
+const source = `class Router {
+  route(input: string): string {
+    "use training";
+    return input;
+  }
+}`;
+const token = defineTrainable("Router.route");
+const target = discoverInSource(source, "src/router.ts")[0]!;
 
 describe("provider-neutral engine", () => {
-	it("passes settings-backed variables and secrets to any engine", async () => {
-		const { artifactRef, regions, candidate } = fixture();
+	it("passes settings and wraps a minimal engine result as a candidate", async () => {
 		const engine: TrainingEngine = {
 			id: "test-engine",
 			async optimize(request, context) {
-				expect(request.trainableId).toBe(token.id);
+				expect(request.target.signature).toBe("route(input: string): string");
 				expect(context.variables["MODEL"]).toBe("test-model");
 				expect(await context.secrets?.get("API_KEY")).toBe("secret");
-				return candidate;
+				return { implementation: "return input.toUpperCase();" };
 			},
 		};
 
-		await expect(
-			optimizeCandidate(
-				engine,
-				{
-					trainableId: token.id,
-					objective: "improve routing",
-					artifacts: { [artifactRef]: source },
-					regions,
-					records: [],
-					evaluations: [],
-				},
-				{
-					variables: { MODEL: "test-model" },
-					secrets: { async get() { return "secret"; } },
-				},
-			),
-		).resolves.toEqual(candidate);
-	});
-});
-
-describe("applyCandidate", () => {
-	it("applies multiple edits without offset drift", () => {
-		const { artifactRef, regions, candidate } = fixture();
-		const result = applyCandidate({ [artifactRef]: source }, candidate, regions);
-
-		expect(result[artifactRef]).toContain('return "first-optimized";');
-		expect(result[artifactRef]).toContain('return "second-optimized";');
-		expect(source).toContain('return "first";');
-	});
-
-	it("refuses a stale region", () => {
-		const { artifactRef, regions, candidate } = fixture();
-		const changed = source.replace('return "first";', 'return "changed";');
-		expect(() => applyCandidate({ [artifactRef]: changed }, candidate, regions)).toThrow(
-			"changed after optimization started",
+		const candidate = await optimizeCandidate(
+			engine,
+			{ trainableId: token.id, objective: "uppercase", target, records: [], evaluations: [] },
+			{
+				variables: { MODEL: "test-model" },
+				secrets: { async get() { return "secret"; } },
+			},
 		);
+
+		expect(candidate).toMatchObject({ trainableId: token.id, engineId: "test-engine", target });
+		expect(applyCandidate(source, candidate)).toContain("return input.toUpperCase();");
+		expect(source).toContain("return input;");
 	});
 
-	it("requires one complete edit per region", () => {
-		const { artifactRef, regions, candidate } = fixture();
-		const incomplete = { ...candidate, edits: candidate.edits.slice(0, 1) };
-		expect(() => applyCandidate({ [artifactRef]: source }, incomplete, regions)).toThrow(
-			"replace every requested region exactly once",
-		);
+	it("refuses to overwrite a method that changed after discovery", () => {
+		const candidate: CandidatePatch = {
+			id: "candidate",
+			trainableId: token.id,
+			engineId: "test",
+			target,
+			implementation: "return input.toUpperCase();",
+		};
+		const changed = source.replace("return input;", "return input.trim();");
+		expect(() => applyCandidate(changed, candidate)).toThrow("changed after optimization started");
+	});
+
+	it("rejects invalid TypeScript returned by an engine", async () => {
+		const engine: TrainingEngine = {
+			id: "invalid",
+			async optimize() { return { implementation: "return (" }; },
+		};
+		await expect(optimizeCandidate(
+			engine,
+			{ trainableId: token.id, objective: "break it", target, records: [], evaluations: [] },
+			{ variables: {} },
+		)).rejects.toThrow("invalid TypeScript");
 	});
 });

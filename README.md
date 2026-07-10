@@ -1,14 +1,16 @@
 # ts-autocode
 
-`ts-autocode` connects runtime traces and AgentV evaluations to safe,
-marker-delimited TypeScript rewrites.
+Train TypeScript functions from runtime traces and AgentV evals, then safely
+rewrite the function that was marked trainable.
+
+The normal path has four pieces:
 
 ```text
-@trainable invocation -> AgentV Trace -> AgentV evals -> TrainingEngine -> candidate -> gate -> promote/revert
+"use training" -> runtime captures -> AgentV evals -> Ax optimization -> guarded source update
 ```
 
-The core is provider-neutral. Ax is available as an optional engine adapter,
-not a required architecture choice.
+Ax is the default optimizer. `TrainingEngine` remains a small provider boundary
+for applications that use another engine.
 
 ## Install
 
@@ -16,246 +18,167 @@ not a required architecture choice.
 npm install ts-autocode
 ```
 
-Install Ax only when using that adapter:
-
-```bash
-npm install @ax-llm/ax
-```
-
 Node.js 20 or newer is required.
 
-## Define the trainable identity
+## Use the directive
 
-A trainable token is the stable join key for code regions, runtime captures,
-AgentV results, optimizer candidates, and promotion decisions.
-
-```ts
-import { defineTrainable } from "ts-autocode";
-
-export const routeToken = defineTrainable("router.route");
-```
-
-The token contains a serializable `id` and a stable `Symbol.for(...)` symbol.
-Use one token for every region and eval case belonging to the same trainable
-unit.
-
-## Mark the generated region
+`useTraining` is the default export. It wraps methods whose first statement is
+the literal directive, while preserving the object's public type.
 
 ```ts
-export class Router {
-  // autocode:generated-region begin region=route owner=training
-  route(input: string) {
-    return "fallback";
-  }
-  // autocode:generated-region end region=route
-}
-```
+import useTraining, { configureTraining } from "ts-autocode";
+import { ai } from "@ax-llm/ax";
 
-```ts
-const region = findGeneratedRegion(source, "route", {
-  artifactRef: "src/router.ts",
-});
-```
-
-Only the text between those markers may be replaced. The region includes a
-digest used to reject stale writes.
-
-## Configure training
-
-All runtime values enter through settings. The library does not read process
-environment variables or maintain global provider configuration.
-
-```ts
-const training = useTraining({
-  engine,
-  store,
-  tracer,
-  variables: {
-    environment: "staging",
-  },
-  secrets: {
-    async get(name) {
-      return secretManager.read(name);
+const training = configureTraining({
+  ax: {
+    studentAI: async ({ secrets }) => {
+      const apiKey = await secrets?.get("OPENAI_API_KEY");
+      if (!apiKey) throw new Error("OPENAI_API_KEY is not configured");
+      return ai({ name: "openai", apiKey });
     },
   },
-  concurrency: 4,
-  capture: {
-    redact(value, field) {
-      return field === "input" ? redactInput(value) : value;
-    },
-  },
+  secrets: secretManager,
 });
-```
 
-`createTraining(settings)` is the canonical factory. `useTraining(settings)`
-is equivalent syntactic sugar.
-
-## Decorate trainable methods
-
-The settings-bound form is concise:
-
-```ts
 class Router {
-  @training.trainable({ token: routeToken, region })
-  async route(input: string) {
-    return classify(input);
+  route(input: string): string {
+    "use training";
+    return input.includes("invoice") ? "billing" : "fallback";
   }
 }
+
+const router = useTraining(new Router());
 ```
 
-The standalone decorator is equivalent:
+The same form works for a function:
 
 ```ts
-class Router {
-  @trainable({ training, token: routeToken, region })
-  async route(input: string) {
-    return classify(input);
-  }
-}
-```
-
-Both forms preserve the method's `this`, arguments, return type, synchronous
-behavior, and thrown errors. Capture writes are non-blocking; call
-`training.flush()` during shutdown or before reading records.
-
-OpenInference span kinds come from
-`@arizeai/openinference-semantic-conventions`. Span, status, tracer, and
-attribute types come from `@opentelemetry/api`. Captured execution traces use
-AgentV's `Trace` type; this package does not redefine those models.
-
-## Evaluate with AgentV
-
-`training.evaluate()` calls AgentV's TypeScript SDK directly and binds every
-result to the trainable token.
-
-```ts
-const evaluated = await training.evaluate(routeToken, {
-  tests: [
-    {
-      id: "billing",
-      input: "Where is my invoice?",
-      assert: [{ type: "equals", value: "billing" }],
-    },
-    {
-      id: "fallback",
-      input: "Reset my password",
-      assert: [{ type: "equals", value: "fallback" }],
-    },
-  ],
-  task: (input) => router.route(input),
-  workers: 2,
+const trainedRoute = useTraining(function route(input: string): string {
+  "use training";
+  return input;
 });
 ```
 
-AgentV owns eval configuration, graders, traces, scores, and result types.
-`ts-autocode` only adds the trainable-token binding needed for attribution.
+The directive stays in source. TypeScript's compiler API uses it to discover
+the exact function body and its signature; there are no generated-region
+comments or external offsets to maintain.
 
-## Implement an engine
+## Use the decorator
 
-Any async implementation of `TrainingEngine` can optimize candidates:
+The decorator is equivalent when an explicit identity is preferable:
+
+```ts
+import { defineTrainable, trainable } from "ts-autocode";
+
+const route = defineTrainable("Router.route");
+
+class Router {
+  @trainable(route)
+  route(input: string): string {
+    return input;
+  }
+}
+```
+
+A token contains a durable string id and stable `Symbol.for(...)` symbol. The
+same id binds the method, captures, AgentV results, optimizer candidate, and
+promotion decision. String identities such as `@trainable("Router.route")` are
+also accepted.
+
+## Train and promote
+
+AgentV owns eval definitions, graders, traces, scores, and result types.
+
+```ts
+const tests = [
+  {
+    id: "billing",
+    input: "Where is my invoice?",
+    assert: [{ type: "equals", value: "billing" }],
+  },
+  {
+    id: "fallback",
+    input: "Reset my password",
+    assert: [{ type: "equals", value: "fallback" }],
+  },
+];
+
+const run = await training.train({
+  trainable: "Router.route",
+  objective: "Preserve correct billing and fallback routing",
+  evaluation: {
+    tests,
+    task: (input) => router.route(input),
+    workers: 2,
+  },
+  policy: (candidate) => deploymentPolicy.allows(candidate),
+});
+
+const promoted = await training.promote(run.candidate, run.decision);
+
+// Refuses to overwrite later changes.
+await training.revert(promoted.snapshot);
+```
+
+`train()` runs baseline AgentV evals, optimization, sandboxed candidate evals,
+and the promotion gate. Baseline results are never treated as proof that a
+rewrite passes. The lower-level `evaluate`, `optimize`, `evaluateCandidate`, and
+gate functions remain available for custom orchestration.
+
+No Ax program is supplied by the caller. The default engine derives its fields,
+descriptions, executable examples, and return contract from the TypeScript
+method signature. Ax optimizes the generated program, and its metric executes
+proposed bodies in Ax's JavaScript sandbox against captured and AgentV examples.
+
+## Configuration
+
+Runtime dependencies enter through `TrainingSettings`:
+
+- `ax` configures the default engine and its AI services.
+- `engine` replaces Ax with another `TrainingEngine`.
+- `secrets` and `variables` are passed to engine factories without entering traces.
+- `store`, `tracer`, and `capture` configure recording.
+- `source` overrides TypeScript project discovery when the default `tsconfig.json`
+  is not the desired project.
+- `concurrency` limits `optimizeAll()`; independent work runs concurrently.
+
+`createTraining(settings)` creates an isolated training context.
+`configureTraining(settings)` sets the application default used by `@trainable`
+and `useTraining()`.
+
+## Custom engines
+
+Custom engines return only the new method implementation:
 
 ```ts
 const engine: TrainingEngine = {
-  id: "acme/rewrite-engine",
+  id: "acme/optimizer",
   async optimize(request, context) {
-    const apiKey = await context.secrets?.get("REWRITE_API_KEY", context.signal);
-    const edits = await rewrite({
-      apiKey,
-      objective: request.objective,
-      regions: request.regions,
-      records: request.records,
-      evaluations: request.evaluations,
-      variables: context.variables,
-    });
-
     return {
-      id: crypto.randomUUID(),
-      trainableId: request.trainableId,
-      engineId: "acme/rewrite-engine",
-      edits,
+      implementation: await rewrite({
+        signature: request.target.signature,
+        implementation: request.target.implementation,
+        objective: request.objective,
+        evaluations: request.evaluations,
+        secrets: context.secrets,
+      }),
     };
   },
 };
 ```
 
-The engine receives configuration through `EngineContext`; secrets are never
-added to traces, candidates, or event metadata by the core.
+The core validates identity, source digests, and the final candidate regardless
+of engine.
 
-## Optional Ax engine
+## Official telemetry types
 
-```ts
-import { ai, ax } from "@ax-llm/ax";
-import { createAxEngine } from "ts-autocode/ax";
+- AgentV `Trace` and `EvaluationResult` come from `@agentv/core`.
+- OpenInference span kinds and semantic conventions come from
+  `@arizeai/openinference-semantic-conventions`.
+- OpenTelemetry spans, tracers, attributes, and status codes come from
+  `@opentelemetry/api`.
 
-const engine = createAxEngine({
-  studentAI: async ({ secrets }) => {
-    const apiKey = await secrets?.get("OPENAI_API_KEY");
-    if (!apiKey) throw new Error("OPENAI_API_KEY is not configured");
-    return ai({ name: "openai", apiKey });
-  },
-  program: () => ax("task:string, currentCode:string -> replacement:string"),
-  examples: ({ request, currentSource }) =>
-    request.evaluations.map(({ result }) => ({
-      task: request.objective,
-      currentCode: currentSource,
-      expected: result.output,
-    })),
-  metric: ({ prediction, example }) =>
-    prediction.replacement.includes(String(example.expected)) ? 1 : 0,
-  input: ({ request, currentSource }) => ({
-    task: request.objective,
-    currentCode: currentSource,
-  }),
-  replacement: (output) => output.replacement,
-});
-```
-
-Ax uses its real `optimize()` implementation. Independent regions run in
-parallel, with an optional adapter-level concurrency limit.
-
-## Optimize and promote
-
-```ts
-const candidate = await training.optimize({
-  token: routeToken,
-  objective: "Improve routing without losing the fallback",
-  artifacts: { "src/router.ts": source },
-});
-
-const decision = await evaluatePromotionGate({
-  candidate,
-  evaluations: evaluated.evaluations,
-  conformance: true,
-  policy: () => deploymentPolicy.allows(candidate),
-});
-
-const promoted = promoteCandidate({
-  artifacts: { "src/router.ts": source },
-  candidate,
-  regions: training.regions(routeToken),
-  decision,
-});
-```
-
-Promotion requires conformance, AgentV score/pass thresholds, and policy.
-`revertPromotion(promoted.artifacts, promoted.snapshot)` restores only the
-promoted regions and refuses to overwrite subsequent edits.
-
-## Concurrency
-
-- AgentV uses its `workers` setting for eval cases.
-- `TrainingSession.optimizeAll()` runs independent training jobs concurrently.
-- The Ax adapter runs independent regions concurrently.
-- Both training and Ax concurrency can be capped through settings.
-
-## Safety
-
-- Candidates must match the trainable token.
-- Records and AgentV results must match the same token.
-- Every requested region must have exactly one complete-region edit.
-- Region digests prevent stale writes.
-- Promotion is gated and revert verifies the promoted text before restoring.
-- Secrets and runtime variables are injected through settings/providers.
+This package does not duplicate those types.
 
 ## Development
 
@@ -264,8 +187,8 @@ npm ci
 npm run check
 ```
 
-Tests may write generated artifacts only under `test/output/`. That directory
-is ignored by Git and excluded from TypeScript compilation.
+Tests write generated artifacts only under `test/output/`. The directory is
+ignored by Git and excluded from TypeScript compilation.
 
 See [examples/optimize.ts](examples/optimize.ts),
 [docs/architecture.md](docs/architecture.md), [CONTRIBUTING.md](CONTRIBUTING.md),

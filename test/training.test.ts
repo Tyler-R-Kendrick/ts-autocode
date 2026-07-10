@@ -1,71 +1,98 @@
 import { describe, expect, it } from "vitest";
 
-import {
+import useTraining, {
 	createMemoryTrainingStore,
+	createTraining,
 	defineTrainable,
-	findGeneratedRegion,
 	trainable,
-	useTraining,
-	type CandidatePatch,
 	type TrainingEngine,
 } from "../src/index.js";
-import { generatedRegionSource } from "./fixtures.js";
+import { discoverInSource } from "../src/source.js";
 
-const source = generatedRegionSource(
-	[{ id: "route", body: "  route(input: string) { return input; }" }],
-	(content) => `export class Router {\n${content}\n}`,
-);
-const region = findGeneratedRegion(source, "route", { artifactRef: "src/router.ts" });
+const source = `class Router {
+  route(input: string): string {
+    "use training";
+    return input;
+  }
+}`;
+const target = discoverInSource(source, "src/router.ts")[0]!;
 
 describe("trainable identity", () => {
 	it("uses a durable id and stable symbol", () => {
-		const first = defineTrainable("router.route");
-		const second = defineTrainable("router.route");
-		expect(first.id).toBe("router.route");
+		const first = defineTrainable("Router.route");
+		const second = defineTrainable("Router.route");
 		expect(first.symbol).toBe(second.symbol);
 	});
 });
 
-describe("trainable decorators", () => {
-	it("supports the useTraining bound decorator and maps captures to token and region", async () => {
-		const token = defineTrainable("router.route");
+describe("trainable method capture", () => {
+	it("uses the literal directive through the default useTraining export", async () => {
 		const store = createMemoryTrainingStore();
-		const training = useTraining({ store });
-
+		const training = createTraining({ store });
 		class Router {
 			route(input: string): string {
+				"use training";
 				return input.toUpperCase();
 			}
 		}
-		applyMethodDecorator(Router, "route", training.trainable({ token, region }));
+		const router = useTraining(new Router(), { training });
 
-		expect(new Router().route("billing")).toBe("BILLING");
-		await training.flush();
-		const [record] = await training.records(token);
-		expect(record).toMatchObject({ trainableId: token.id, method: "route", region, succeeded: true });
-		expect(record?.trace.messages.map((message) => message.content)).toEqual([
-			'["billing"]',
-			"BILLING",
-		]);
-		expect(training.regions(token)).toEqual([region]);
+		expect(router.route("billing")).toBe("BILLING");
+		const [record] = await training.records("Router.route");
+		expect(record).toMatchObject({ trainableId: "Router.route", method: "route", succeeded: true });
+		expect(record?.trace.messages.map((message) => message.content)).toEqual(['["billing"]', "BILLING"]);
 	});
 
-	it("supports the standalone decorator and captures async errors", async () => {
-		const token = defineTrainable("router.fail");
-		const training = useTraining({});
+	it("wraps directive-marked functions as well as class methods", async () => {
+		const training = createTraining({});
+		function normalize(input: string): string {
+			"use training";
+			return input.trim();
+		}
+		const trained = useTraining(normalize, { training });
 
+		expect(trained(" value ")).toBe("value");
+		expect(await training.records("normalize")).toHaveLength(1);
+	});
+
+	it("supports the decorator without external source metadata", async () => {
+		const training = createTraining({});
 		class Router {
 			async fail(): Promise<void> {
 				throw new Error("boom");
 			}
 		}
-		applyMethodDecorator(Router, "fail", trainable({ training, token, region }));
+		applyMethodDecorator(Router, "fail", trainable("Router.fail", { training }));
 
 		await expect(new Router().fail()).rejects.toThrow("boom");
-		await training.flush();
-		const [record] = await training.records(token);
+		const [record] = await training.records("Router.fail");
 		expect(record?.succeeded).toBe(false);
 		expect(record?.trace.errorCount).toBe(1);
+	});
+});
+
+describe("training execution", () => {
+	it("parallelizes independent trainables with a configured cap", async () => {
+		let active = 0;
+		let maxActive = 0;
+		const engine: TrainingEngine = {
+			id: "parallel",
+			async optimize() {
+				active += 1;
+				maxActive = Math.max(maxActive, active);
+				await new Promise((resolve) => setTimeout(resolve, 10));
+				active -= 1;
+				return { implementation: "return input;" };
+			},
+		};
+		const training = createTraining({ engine, concurrency: 2 });
+
+		await training.optimizeAll(["one", "two"].map((objective) => ({
+			trainable: "Router.route",
+			objective,
+			target,
+		})));
+		expect(maxActive).toBe(2);
 	});
 });
 
@@ -90,43 +117,3 @@ function applyMethodDecorator<Class extends abstract new (...args: never[]) => o
 	} as unknown as ClassMethodDecoratorContext);
 	Object.defineProperty(prototype, name, { value: replacement, configurable: true, writable: true });
 }
-
-describe("training execution", () => {
-	it("runs independent optimization jobs concurrently", async () => {
-		let active = 0;
-		let maxActive = 0;
-		const token = defineTrainable("router.route");
-		const candidate = (id: string): CandidatePatch => ({
-			id,
-			trainableId: token.id,
-			engineId: "parallel",
-			edits: [{
-				artifactRef: region.artifactRef,
-				regionId: region.regionId,
-				startOffset: region.startOffset,
-				endOffset: region.endOffset,
-				replacement: "return input;",
-			}],
-		});
-		const engine: TrainingEngine = {
-			id: "parallel",
-			async optimize(request) {
-				active += 1;
-				maxActive = Math.max(maxActive, active);
-				await new Promise((resolve) => setTimeout(resolve, 10));
-				active -= 1;
-				return candidate(request.objective);
-			},
-		};
-		const training = useTraining({ engine, concurrency: 2 });
-		const inputs = ["one", "two"].map((objective) => ({
-			token,
-			objective,
-			artifacts: { [region.artifactRef]: source },
-			regions: [region],
-		}));
-
-		await training.optimizeAll(inputs);
-		expect(maxActive).toBe(2);
-	});
-});

@@ -8,7 +8,7 @@
 		"type": "git",
 		"url": "https://github.com/Tyler-R-Kendrick/ts-autocode.git"
 	},
-	"description": "Provider-neutral runtime capture, evaluation, optimization, and promotion for trainable TypeScript regions.",
+	"description": "Train and safely rewrite decorated or directive-marked TypeScript functions.",
 	"license": "MIT",
 	"type": "module",
 	"sideEffects": false,
@@ -46,23 +46,15 @@
 		"rewriter"
 	],
 	"devDependencies": {
-		"@ax-llm/ax": "^23.0.0",
 		"@types/node": "^22.15.3",
-		"typescript": "^5.9.3",
 		"vitest": "^4.1.9"
 	},
 	"dependencies": {
 		"@agentv/core": "^4.42.4",
 		"@arizeai/openinference-semantic-conventions": "^2.5.0",
-		"@opentelemetry/api": "^1.9.1"
-	},
-	"peerDependencies": {
-		"@ax-llm/ax": "^23.0.0"
-	},
-	"peerDependenciesMeta": {
-		"@ax-llm/ax": {
-			"optional": true
-		}
+		"@ax-llm/ax": "^23.0.0",
+		"@opentelemetry/api": "^1.9.1",
+		"typescript": "^5.9.3"
 	},
 	"overrides": {
 		"@agentv/core": {

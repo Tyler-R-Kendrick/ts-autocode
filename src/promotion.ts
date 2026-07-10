@@ -1,7 +1,6 @@
 import type { EvaluationResult } from "@agentv/core";
 
 import { applyCandidate, type BoundEvaluation, type CandidatePatch } from "./engine.js";
-import type { GeneratedRegion } from "./region.js";
 
 export interface PromotionGateInput {
 	readonly candidate: CandidatePatch;
@@ -22,130 +21,88 @@ export interface PromotionDecision {
 
 export interface PromotionSnapshot {
 	readonly candidateId: string;
-	readonly edits: readonly {
-		readonly artifactRef: string;
-		readonly regionId: string;
-		readonly startOffset: number;
-		readonly previous: string;
-		readonly promoted: string;
-	}[];
+	readonly artifactRef: string;
+	readonly startOffset: number;
+	readonly previous: string;
+	readonly promoted: string;
 }
 
 export interface PromotionResult {
-	readonly artifacts: Readonly<Record<string, string>>;
+	readonly source: string;
 	readonly snapshot: PromotionSnapshot;
 }
 
-/** Three-lens gate: conformance, AgentV evaluation, and policy. */
 export async function evaluatePromotionGate(input: PromotionGateInput): Promise<PromotionDecision> {
 	const minScore = input.minScore ?? 0.8;
 	const minPassRate = input.minPassRate ?? 1;
 	assertUnitInterval(minScore, "minScore");
 	assertUnitInterval(minPassRate, "minPassRate");
-	const hasMismatchedEvaluations = input.evaluations.some(
-		(evaluation) => evaluation.trainableId !== input.candidate.trainableId,
+	const mismatched = input.evaluations.some((evaluation) => evaluation.trainableId !== input.candidate.trainableId);
+	const wrongCandidate = input.evaluations.some((evaluation) =>
+		evaluation.trainableId === input.candidate.trainableId && evaluation.candidateId !== input.candidate.id
 	);
 	const results = input.evaluations
-		.filter((evaluation) => evaluation.trainableId === input.candidate.trainableId)
+		.filter((evaluation) =>
+			evaluation.trainableId === input.candidate.trainableId && evaluation.candidateId === input.candidate.id
+		)
 		.map((evaluation) => evaluation.result);
 	const meanScore = average(results.map((result) => result.score));
 	const passRate = average(results.map((result) => Number(passed(result, minScore))));
 	const failures: string[] = [];
 	if (!input.conformance) failures.push("conformance failed");
-	if (hasMismatchedEvaluations) failures.push("AgentV evaluations must match the candidate trainable id");
-	if (results.length === 0) failures.push("AgentV evaluations are required");
+	if (mismatched) failures.push("AgentV evaluations must match the candidate trainable id");
+	if (wrongCandidate) failures.push("AgentV evaluations must be run against the candidate");
+	if (results.length === 0) failures.push("candidate-specific AgentV evaluations are required");
 	if (results.some((result) => result.executionStatus === "execution_error")) {
 		failures.push("AgentV evaluation had execution errors");
 	}
 	if (meanScore < minScore) failures.push(`mean AgentV score ${meanScore} is below ${minScore}`);
 	if (passRate < minPassRate) failures.push(`AgentV pass rate ${passRate} is below ${minPassRate}`);
 	if (input.policy && !(await input.policy(input.candidate))) failures.push("promotion policy refused candidate");
-	return Object.freeze({
-		candidateId: input.candidate.id,
-		promote: failures.length === 0,
-		failures,
-		meanScore,
-		passRate,
-	});
+	return Object.freeze({ candidateId: input.candidate.id, promote: failures.length === 0, failures, meanScore, passRate });
 }
 
 export function promoteCandidate({
-	artifacts,
+	source,
 	candidate,
-	regions,
 	decision,
 }: {
-	artifacts: Readonly<Record<string, string>>;
+	source: string;
 	candidate: CandidatePatch;
-	regions: readonly GeneratedRegion[];
 	decision: PromotionDecision;
 }): PromotionResult {
 	if (!decision.promote || decision.candidateId !== candidate.id) {
 		throw new Error("candidate has not passed the promotion gate");
 	}
-	const promoted = applyCandidate(artifacts, candidate, regions);
-	const byId = new Map(regions.map((region) => [region.regionId, region]));
-	const snapshot = candidate.edits.map((edit) => {
-		const region = byId.get(edit.regionId) as GeneratedRegion;
-		const source = artifacts[edit.artifactRef] as string;
-		const shift = candidate.edits
-			.filter((other) => other.artifactRef === edit.artifactRef && other.startOffset < edit.startOffset)
-			.reduce((sum, other) => sum + normalizedReplacement(source, other).length - (other.endOffset - other.startOffset), 0);
-		return {
-			artifactRef: edit.artifactRef,
-			regionId: edit.regionId,
-			startOffset: edit.startOffset + shift,
-			previous: source.slice(region.startOffset, region.endOffset),
-			promoted: normalizedReplacement(source, edit),
-		};
+	const updated = applyCandidate(source, candidate);
+	const previous = source.slice(candidate.target.bodyStart, candidate.target.bodyEnd);
+	const promotedLength = updated.length - source.length + previous.length;
+	return Object.freeze({
+		source: updated,
+		snapshot: Object.freeze({
+			candidateId: candidate.id,
+			artifactRef: candidate.target.artifactRef,
+			startOffset: candidate.target.bodyStart,
+			previous,
+			promoted: updated.slice(candidate.target.bodyStart, candidate.target.bodyStart + promotedLength),
+		}),
 	});
-	return {
-		artifacts: promoted,
-		snapshot: Object.freeze({ candidateId: candidate.id, edits: snapshot }),
-	};
 }
 
-export function revertPromotion(
-	artifacts: Readonly<Record<string, string>>,
-	snapshot: PromotionSnapshot,
-): Readonly<Record<string, string>> {
-	const result = { ...artifacts };
-	const byArtifact = new Map<string, PromotionSnapshot["edits"][number][]>();
-	for (const edit of snapshot.edits) {
-		const edits = byArtifact.get(edit.artifactRef) ?? [];
-		edits.push(edit);
-		byArtifact.set(edit.artifactRef, edits);
+export function revertPromotion(source: string, snapshot: PromotionSnapshot): string {
+	const endOffset = snapshot.startOffset + snapshot.promoted.length;
+	if (source.slice(snapshot.startOffset, endOffset) !== snapshot.promoted) {
+		throw new Error("promoted method changed before revert");
 	}
-	for (const [artifactRef, edits] of byArtifact) {
-		let source = result[artifactRef];
-		if (source === undefined) throw new Error(`artifact is missing: ${artifactRef}`);
-		for (const edit of [...edits].sort((left, right) => right.startOffset - left.startOffset)) {
-			const endOffset = edit.startOffset + edit.promoted.length;
-			if (source.slice(edit.startOffset, endOffset) !== edit.promoted) {
-				throw new Error(`promoted region changed before revert: ${edit.regionId}`);
-			}
-			source = `${source.slice(0, edit.startOffset)}${edit.previous}${source.slice(endOffset)}`;
-		}
-		result[artifactRef] = source;
-	}
-	return Object.freeze(result);
+	return `${source.slice(0, snapshot.startOffset)}${snapshot.previous}${source.slice(endOffset)}`;
 }
 
 function passed(result: EvaluationResult, threshold: number): boolean {
 	return result.executionStatus !== "execution_error" && result.score >= threshold;
 }
 
-function normalizedReplacement(source: string, edit: CandidatePatch["edits"][number]): string {
-	const previous = source.slice(edit.startOffset, edit.endOffset);
-	return previous.endsWith("\n") && !edit.replacement.endsWith("\n")
-		? `${edit.replacement}\n`
-		: edit.replacement;
-}
-
 function assertUnitInterval(value: number, name: string): void {
-	if (!Number.isFinite(value) || value < 0 || value > 1) {
-		throw new TypeError(`${name} must be between 0 and 1`);
-	}
+	if (!Number.isFinite(value) || value < 0 || value > 1) throw new TypeError(`${name} must be between 0 and 1`);
 }
 
 function average(values: readonly number[]): number {

@@ -1,44 +1,45 @@
 # Architecture
 
-## Identity
+## Source identity
 
-`TrainableToken` is the join key for the system. Its string id is persisted;
-its symbol provides stable runtime identity. Regions, captures, AgentV results,
-optimization requests, candidates, and promotion decisions must agree on that
-id.
+`TrainableToken` is the durable join key. A token id binds a trainable method to
+its runtime captures, AgentV evaluations, optimizer request, candidate, and
+promotion decision.
+
+Methods are marked with `@trainable(id)` or a first-statement `"use training"`
+directive. The TypeScript compiler API discovers the method directly and records
+its signature, parameter declarations, return type, body offsets, and source
+digest. No marker comments or caller-provided region objects are used.
 
 ## Runtime capture
 
-`@trainable` wraps a class method without changing its call contract. It emits
-an OpenTelemetry/OpenInference span and writes a `TrainingRecord` containing an
-AgentV `Trace`. Storage is injected through `TrainingSettings` and capture
-writes do not extend request latency.
+The decorator and the default `useTraining()` wrapper share the same capture
+runtime. Calls preserve `this`, arguments, synchronous or asynchronous return
+behavior, and thrown errors. Capture storage is asynchronous and configurable.
 
-The package imports telemetry types and conventions from their official
-packages. It does not define another span or OTLP graph.
+Captured traces use AgentV's `Trace`; spans use official OpenTelemetry and
+OpenInference APIs.
 
-## Evaluation
+## Evaluation and optimization
 
-AgentV's TypeScript `evaluate()` API runs eval cases. Inline cases receive the
-trainable id in AgentV metadata, and returned `EvaluationResult` values are
-bound to the same token before entering optimization or promotion.
+AgentV's TypeScript `evaluate()` API runs eval cases and binds results to the
+trainable id. `TrainingEngine` is provider-neutral and returns a replacement
+method implementation.
 
-## Engine boundary
+Ax is the default engine. It builds an Ax signature from the TypeScript method
+signature, creates examples from runtime captures and AgentV results, and scores
+candidate implementations by running them in Ax's sandbox. Applications can
+replace the engine without changing capture, evaluation, or promotion.
 
-`TrainingEngine` is an async provider interface. It receives generated regions,
-captured records, AgentV results, objectives, constraints, settings variables,
-an optional secret provider, and an abort signal. Ax is implemented behind the
-optional `ts-autocode/ax` subpath; other engines implement the same interface.
+Candidate bodies are evaluated separately through AgentV before promotion.
+Baseline results can train the optimizer but cannot satisfy the promotion gate.
 
-## Concurrency
-
-Independent eval cases, optimization jobs, and Ax region runs can execute in
-parallel. Each layer exposes a concurrency setting so provider limits remain
-under caller control.
+Independent `optimizeAll()` requests run concurrently with a caller-controlled
+limit. AgentV retains its own `workers` setting for eval parallelism.
 
 ## Promotion
 
-The promotion gate checks conformance, AgentV score/pass thresholds, and caller
-policy. Candidate application verifies token binding, complete-region edits,
-artifact offsets, and source digests. Revert snapshots cover only promoted
-regions and refuse to overwrite later changes.
+Candidates can replace only the discovered method body. Application verifies the
+body digest before editing. Promotion additionally requires conformance, AgentV
+thresholds, and optional policy. Revert stores only the previous and promoted
+method body and refuses to overwrite subsequent edits.
