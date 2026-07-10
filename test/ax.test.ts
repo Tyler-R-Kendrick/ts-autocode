@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createTraining, defineTrainable, type BoundEvaluation } from "../src/index.js";
+import { configureTraining, defineTrainable, type BoundEvaluation } from "../src/index.js";
 import { createAxEngine } from "../src/providers/ax.js";
 import { discoverInSource } from "../src/source.js";
 
@@ -9,10 +9,12 @@ const mocks = vi.hoisted(() => ({
 	optimize: vi.fn(),
 	applyOptimization: vi.fn(),
 	forward: vi.fn(),
+	ai: vi.fn(),
 }));
 
 vi.mock("@ax-llm/ax", async (importOriginal) => ({
 	...await importOriginal<typeof import("@ax-llm/ax")>(),
+	ai: mocks.ai,
 	ax: mocks.ax,
 	optimize: mocks.optimize,
 }));
@@ -40,6 +42,7 @@ describe("default Ax engine", () => {
 		vi.clearAllMocks();
 		mocks.ax.mockReturnValue({ applyOptimization: mocks.applyOptimization, forward: mocks.forward });
 		mocks.forward.mockResolvedValue({ optimizedMethodImplementation: "return input.toUpperCase();" });
+		mocks.ai.mockReturnValue({});
 		mocks.optimize.mockImplementation(async (_program, examples, metric) => {
 			expect(await metric({ prediction: { optimizedMethodImplementation: "return input.toUpperCase();" }, example: examples[0] }))
 				.toBe(1);
@@ -49,9 +52,10 @@ describe("default Ax engine", () => {
 			};
 		});
 	});
+	afterEach(() => vi.unstubAllEnvs());
 
 	it("derives the Ax program and executable metric from the method signature", async () => {
-		const training = createTraining({ ax: { studentAI: {} as never } });
+		const training = configureTraining({ engine: createAxEngine({ studentAI: {} as never }) });
 		const candidate = await training.optimize({
 			trainable: token,
 			objective: "uppercase the result",
@@ -74,11 +78,13 @@ describe("default Ax engine", () => {
 		expect(candidate).toMatchObject({ engineId: "@ax-llm/ax", implementation: "return input.toUpperCase();" });
 	});
 
-	it("keeps custom engines possible while making missing Ax configuration explicit", async () => {
+	it("uses standard environment credentials without provider-specific root settings", async () => {
+		vi.stubEnv("OPENAI_API_KEY", "test-key");
 		const engine = createAxEngine();
-		await expect(engine.optimize(
+		await engine.optimize(
 			{ trainableId: token.id, objective: "improve", target, records: [], evaluations },
 			{ variables: {} },
-		)).rejects.toThrow("TrainingSettings.ax.studentAI");
+		);
+		expect(mocks.ai).toHaveBeenCalledWith({ name: "openai", apiKey: "test-key" });
 	});
 });

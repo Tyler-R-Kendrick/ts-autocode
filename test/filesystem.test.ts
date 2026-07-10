@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
-import { createTraining, discoverTrainables, type CandidatePatch } from "../src/index.js";
+import { configureTraining, discoverTrainables, type CandidatePatch } from "../src/index.js";
 
 describe("filesystem isolation", () => {
 	it("rewrites only the discovered method in ignored test output", async () => {
@@ -23,7 +23,7 @@ describe("filesystem isolation", () => {
 			target,
 			implementation: "return input.toUpperCase();",
 		};
-		const training = createTraining({});
+		const training = configureTraining({});
 		const promoted = await training.promote(candidate, {
 			candidateId: candidate.id,
 			promote: true,

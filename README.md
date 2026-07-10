@@ -26,19 +26,9 @@ Place the literal directive first in a function or method body. No import,
 decorator, wrapper, registration call, or source-region argument is required.
 
 ```ts
-import { createTraining } from "ts-autocode";
-import { ai } from "@ax-llm/ax";
+import { configureTraining } from "ts-autocode";
 
-const training = createTraining({
-  ax: {
-    studentAI: async ({ secrets }) => {
-      const apiKey = await secrets?.get("OPENAI_API_KEY");
-      if (!apiKey) throw new Error("OPENAI_API_KEY is not configured");
-      return ai({ name: "openai", apiKey });
-    },
-  },
-  secrets: secretManager,
-});
+const training = configureTraining();
 
 class Router {
   route(input: string): string {
@@ -61,9 +51,10 @@ unchanged because the directive is the marker; there is no runtime proxy.
 
 ## Optional runtime capture
 
-The decorator is optional when runtime trace capture is needed. It accepts only
-the trainable identity and capture options; the decorated method is the source
-target, so callers never provide a source region.
+The decorator is optional when calls must be intercepted for runtime capture.
+It accepts only the trainable identity; global configuration controls capture
+and tracing. The decorated method is the source target, so callers never provide
+source metadata.
 
 ```ts
 import { defineTrainable, trainable } from "ts-autocode";
@@ -132,17 +123,18 @@ proposed bodies in Ax's JavaScript sandbox against captured and AgentV examples.
 
 Runtime dependencies enter through `TrainingSettings`:
 
-- `ax` configures the default engine and its AI services.
-- `engine` replaces Ax with another `TrainingEngine`.
+- `engine` replaces the default Ax implementation with any `TrainingEngine`.
 - `secrets` and `variables` are passed to engine factories without entering traces.
-- `store`, `tracer`, and `capture` configure recording.
+- `store`, `capture`, and `tracing` configure recording globally.
 - `source` overrides TypeScript project discovery when the default `tsconfig.json`
   is not the desired project.
 - `concurrency` limits `optimizeAll()`; independent work runs concurrently.
 
-`createTraining(settings)` creates an isolated training context.
-`configureTraining(settings)` sets the application default used only by the
-optional `@trainable` runtime-capture decorator.
+`configureTraining(settings)` is the single public runtime configuration entry
+point. Settings are optional. The default Ax implementation reads
+`OPENAI_API_KEY` from the configured secret provider or process environment.
+Provider-specific Ax tuning remains isolated to the optional `ts-autocode/ax`
+adapter and is passed through the provider-neutral `engine` slot.
 
 ## Custom engines
 

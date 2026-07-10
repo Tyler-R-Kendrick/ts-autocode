@@ -14,10 +14,11 @@ used.
 
 ## Runtime capture
 
-The optional `@trainable(id)` decorator adds runtime capture when an application
-needs it. It infers the target from the decorated method and accepts no source
-region. Calls preserve `this`, arguments, synchronous or asynchronous return
-behavior, and thrown errors. Capture storage is asynchronous and configurable.
+The optional `@trainable(id)` decorator intercepts calls without accepting
+capture or tracing options. Global `configureTraining()` settings determine
+whether calls are captured or traced and how values are serialized and
+redacted. The target is always the decorated method. Calls preserve `this`,
+arguments, synchronous or asynchronous return behavior, and thrown errors.
 
 Captured traces use AgentV's `Trace`; spans use official OpenTelemetry and
 OpenInference APIs.
@@ -31,7 +32,9 @@ method implementation.
 Ax is the default engine. It builds an Ax signature from the TypeScript method
 signature, creates examples from runtime captures and AgentV results, and scores
 candidate implementations by running them in Ax's sandbox. Applications can
-replace the engine without changing capture, evaluation, or promotion.
+replace it through the provider-neutral `engine` setting without changing
+capture, evaluation, or promotion. Provider-specific options do not appear in
+the root configuration contract.
 
 Candidate bodies are evaluated separately through AgentV before promotion.
 Baseline results can train the optimizer but cannot satisfy the promotion gate.

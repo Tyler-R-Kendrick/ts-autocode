@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	defineTrainable,
-	createTraining,
+	configureTraining,
 	evaluatePromotionGate,
 	promoteCandidate,
 	revertPromotion,
@@ -32,7 +32,7 @@ function candidate(): CandidatePatch {
 describe("promotion", () => {
 	it("gates with AgentV and reverts only an unchanged promoted method", async () => {
 		const patch = candidate();
-		const evaluated = await createTraining({}).evaluateCandidate(patch, {
+		const evaluated = await configureTraining({}).evaluateCandidate(patch, {
 			tests: [{ id: "candidate", input: "route", assert: [{ type: "equals", value: "new" }] }],
 			outputDir: "test/output/agentv-promotion",
 		});
