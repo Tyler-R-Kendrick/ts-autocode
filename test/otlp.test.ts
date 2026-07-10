@@ -102,6 +102,35 @@ describe("fromOtelSpans (round-trip)", () => {
 		expect(recovered.usage?.inputTokens).toBe(20);
 	});
 
+	it("preserves sensitive payload classification across the round-trip", () => {
+		const base = makeTrajectory({
+			id: "t-class",
+			input: "billing invoice",
+			baselineLabel: "general-support",
+			expectedLabel: "billing-support",
+		});
+		const withSecret = {
+			...base,
+			payloads: {
+				...base.payloads,
+				apiKey: {
+					classification: "secret" as const,
+					redaction: "encrypted" as const,
+					encryptedRef: `run://${base.run.id}/payloads/apiKey`,
+				},
+			},
+		};
+
+		const { trajectories, skipped } = fromOtelSpans(toOtlpJson([withSecret]));
+
+		expect(skipped).toEqual([]);
+		expect(trajectories[0]?.payloads["apiKey"]).toEqual({
+			classification: "secret",
+			redaction: "encrypted",
+			encryptedRef: `run://${base.run.id}/payloads/apiKey`,
+		});
+	});
+
 	it("ingests foreign gen_ai.* spans via a bind() callback", () => {
 		const foreign = {
 			resourceSpans: [

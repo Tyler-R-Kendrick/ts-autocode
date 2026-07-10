@@ -1,5 +1,5 @@
 import type { OptimizeRequest, TrainingEngine } from "./engine.js";
-import { type TrainingRunResult, runBuiltInOptoTrainingRun } from "./optimizer.js";
+import { type TrainingRunResult, runTrainingRun } from "./optimizer.js";
 import type { Feedback, Trajectory } from "./trajectory.js";
 
 // The Trace-style epoch loop (zero_feedback → backward → step), bounded:
@@ -58,7 +58,7 @@ export async function runOptimizationLoop({
 			...structuredClone(request),
 			feedback: structuredClone(accumulated),
 		};
-		const run = await runBuiltInOptoTrainingRun({
+		const run = await runTrainingRun({
 			request: roundRequest,
 			heldOutTrajectories,
 			engine,

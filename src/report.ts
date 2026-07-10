@@ -121,8 +121,9 @@ function renderTrajectory(trajectory: Trajectory): string[] {
 	const lines = [
 		`## Trajectory ${trajectory.id} (method ${trajectory.subject.method}, region digest ${trajectory.code.regionDigest.slice(0, 19)}…${trajectory.code.arm ? `, arm ${trajectory.code.arm}` : ""})`,
 	];
+	const spanById = new Map(trajectory.spans.map((span) => [span.id, span]));
 	for (const span of trajectory.spans) {
-		lines.push(renderSpan(span, trajectory.spans));
+		lines.push(renderSpan(span, spanById));
 	}
 	if (trajectory.usage) {
 		const cost = trajectory.usage.costUsd === undefined ? "" : `, $${trajectory.usage.costUsd}`;
@@ -142,8 +143,8 @@ function renderTrajectory(trajectory: Trajectory): string[] {
 	return lines;
 }
 
-function renderSpan(span: TrajectorySpan, spans: readonly TrajectorySpan[]): string {
-	const depth = spanDepth(span, spans);
+function renderSpan(span: TrajectorySpan, spanById: ReadonlyMap<string, TrajectorySpan>): string {
+	const depth = spanDepth(span, spanById);
 	const kind = span.attributes["openinference.span.kind"];
 	const inputs = span.inputs ? ` inputs=${JSON.stringify(span.inputs)}` : "";
 	const outputs = span.outputs ? ` outputs=${JSON.stringify(span.outputs)}` : "";
@@ -154,12 +155,15 @@ function renderSpan(span: TrajectorySpan, spans: readonly TrajectorySpan[]): str
 	return `${"  ".repeat(depth)}- [${String(kind)}] ${span.name}${genAi}${status}${inputs}${outputs}`;
 }
 
-function spanDepth(span: TrajectorySpan, spans: readonly TrajectorySpan[]): number {
+function spanDepth(span: TrajectorySpan, spanById: ReadonlyMap<string, TrajectorySpan>): number {
 	let depth = 0;
 	let current: TrajectorySpan | undefined = span;
-	while (current?.parentId) {
-		const parentId: string = current.parentId;
-		current = spans.find((candidate) => candidate.id === parentId);
+	// Reports render unvalidated trajectories, so guard against parentId
+	// cycles instead of walking them forever.
+	const visited = new Set<string>();
+	while (current?.parentId && !visited.has(current.id)) {
+		visited.add(current.id);
+		current = spanById.get(current.parentId);
 		if (!current) {
 			break;
 		}

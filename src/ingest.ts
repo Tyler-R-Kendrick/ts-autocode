@@ -272,6 +272,8 @@ function contextFor(root: RawSpan) {
 	return contextFromConventionAttributes(root.attributes);
 }
 
+const SENSITIVE_PAYLOAD_CLASSIFICATIONS = new Set(["pii", "secret", "confidential", "regulated"] as const);
+
 function payloadsFromAttributes(attributes: Record<string, unknown>, runId: string): Record<string, TrajectoryPayload> {
 	const payloads: Record<string, TrajectoryPayload> = {};
 	for (const [key, value] of Object.entries(attributes)) {
@@ -283,9 +285,15 @@ function payloadsFromAttributes(attributes: Record<string, unknown>, runId: stri
 			};
 		} else if (key.startsWith(AUTOCODE_ATTR.payloadRefPrefix) && typeof value === "string") {
 			const name = key.slice(AUTOCODE_ATTR.payloadRefPrefix.length);
+			const exportedClass = attributes[`${AUTOCODE_ATTR.payloadClassPrefix}${name}`];
+			const classification = SENSITIVE_PAYLOAD_CLASSIFICATIONS.has(
+				exportedClass as "pii" | "secret" | "confidential" | "regulated",
+			)
+				? (exportedClass as "pii" | "secret" | "confidential" | "regulated")
+				: "pii";
 			payloads[name] = value.startsWith(`run://${runId}/`)
-				? { classification: "pii", redaction: "encrypted", encryptedRef: value }
-				: { classification: "pii", redaction: "tokenized", tokenRef: value };
+				? { classification, redaction: "encrypted", encryptedRef: value }
+				: { classification, redaction: "tokenized", tokenRef: value };
 		}
 	}
 	return payloads;

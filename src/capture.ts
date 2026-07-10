@@ -324,8 +324,8 @@ export function createCaptureRuntime(options: CaptureRuntimeOptions = {}): Captu
 				if (!runKeyRef) {
 					throw new TypeError("contentCapture \"ref\" requires a runKeyRef on the capture runtime");
 				}
-				encrypt(message.content, path, runKeyRef);
-				return { ...structuredClone(message), content: { ref: `run://${runId}/${path}` } };
+				const ciphertext = encrypt(message.content, path, runKeyRef);
+				return { ...structuredClone(message), content: { ref: `run://${runId}/${path}`, ciphertext } };
 			});
 
 		const result = {
@@ -346,8 +346,8 @@ export function createCaptureRuntime(options: CaptureRuntimeOptions = {}): Captu
 				throw new TypeError("contentCapture \"ref\" requires a runKeyRef on the capture runtime");
 			}
 			const path = `spans/${spanId}/system_instructions`;
-			encrypt(genAi.systemInstructions, path, runKeyRef);
-			return { ...result, systemInstructions: { ref: `run://${runId}/${path}` } } as GenAiSpanData;
+			const ciphertext = encrypt(genAi.systemInstructions, path, runKeyRef);
+			return { ...result, systemInstructions: { ref: `run://${runId}/${path}`, ciphertext } } as GenAiSpanData;
 		}
 		return result as GenAiSpanData;
 	}

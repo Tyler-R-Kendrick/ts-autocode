@@ -186,10 +186,12 @@ function bindingAttributes(trajectory: Trajectory): Record<string, unknown> {
 			}
 			continue;
 		}
-		// Sensitive payloads export refs only, never raw values.
+		// Sensitive payloads export refs only, never raw values; the
+		// classification rides along so ingest can restore it faithfully.
 		const ref = payload.encryptedRef ?? payload.tokenRef;
 		if (ref !== undefined) {
 			attributes[`${AUTOCODE_ATTR.payloadRefPrefix}${name}`] = ref;
+			attributes[`${AUTOCODE_ATTR.payloadClassPrefix}${name}`] = payload.classification;
 		}
 	}
 	return attributes;

@@ -65,7 +65,7 @@ declare (regions + trainable) ──▶ forward: capture trajectories ──▶ 
 4. **The built-in OPTO engine** (`optimizer.ts`) — a deterministic reference
    optimizer that derives keyword→label rewrite rules from the trajectories
    the baseline got wrong and emits one full-region edit per requested
-   region. `runBuiltInOptoTrainingRun` runs one offline round: optimize →
+   region. `runTrainingRun` runs one offline round: optimize →
    validate patch → check contract invariants → evaluate against held-out
    trajectories → emit a replayable event log (terminal `training.Rejected`
    on failure).
@@ -104,7 +104,7 @@ error), with swappable LLM optimizers behind one interface:
 | `node(…, trainable=True)` | `GeneratedRegion` — region body is the parameter |
 | `@bundle(trainable=True)` | `trainable(fn, …)` capture wrapper |
 | execution trace | `Trajectory` (OpenInference span tree) |
-| `.backward(feedback)` | `TrajectoryReward` + `Feedback` (score/text/error) |
+| `.backward(feedback)` | `Score[]` + `Feedback` (score/text/error) |
 | OptoPrime / OPRO / TextGrad | `TrainingEngine` implementations |
 | `optimizer.step()` epochs | `runOptimizationLoop` |
 | OptoPrime's LLM report | `renderOptimizeReport` |

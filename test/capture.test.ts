@@ -99,12 +99,14 @@ describe("createCaptureRuntime", () => {
 		expect(serialized).not.toContain("the secret answer");
 		expect(serialized).not.toContain("the secret instructions");
 		const llmSpan = capture.trajectory?.spans[1];
-		expect(llmSpan?.genAi?.inputMessages?.[0]?.content).toEqual({
-			ref: `run://${run.id}/spans/${llmSpan?.id}/input/0`,
-		});
-		expect(llmSpan?.genAi?.systemInstructions).toEqual({
-			ref: `run://${run.id}/spans/${llmSpan?.id}/system_instructions`,
-		});
+		const inputContent = llmSpan?.genAi?.inputMessages?.[0]?.content as { ref: string; ciphertext?: string };
+		expect(inputContent.ref).toBe(`run://${run.id}/spans/${llmSpan?.id}/input/0`);
+		// The ciphertext is persisted alongside the ref so content stays
+		// recoverable by whoever holds the run key.
+		expect(inputContent.ciphertext).toMatch(/^enc:sha256:/);
+		const instructions = llmSpan?.genAi?.systemInstructions as { ref: string; ciphertext?: string };
+		expect(instructions.ref).toBe(`run://${run.id}/spans/${llmSpan?.id}/system_instructions`);
+		expect(instructions.ciphertext).toMatch(/^enc:sha256:/);
 	});
 
 	it("contentCapture \"none\" drops message content entirely", () => {

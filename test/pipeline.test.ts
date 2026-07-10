@@ -15,7 +15,7 @@ import {
 	promoteCandidate,
 	promotionEventNames,
 	revertPromotion,
-	runBuiltInOptoTrainingRun,
+	runTrainingRun,
 	runOptimizationLoop,
 	trainable,
 } from "../src/index.js";
@@ -50,7 +50,7 @@ describe("code-evolution pipeline", () => {
 		const region = classifierRegion(source);
 
 		// 1. Offline training run: candidate must beat baseline on held-out data.
-		const run = await runBuiltInOptoTrainingRun({
+		const run = await runTrainingRun({
 			request: makeOptimizeRequest({ generatedRegions: [region] }),
 			heldOutTrajectories: heldOutTrajectories(),
 		});
@@ -174,7 +174,7 @@ describe("code-evolution pipeline", () => {
 	});
 
 	it("a refused gate never reaches promotion", async () => {
-		const run = await runBuiltInOptoTrainingRun({
+		const run = await runTrainingRun({
 			request: makeOptimizeRequest(),
 			heldOutTrajectories: heldOutTrajectories(),
 		});

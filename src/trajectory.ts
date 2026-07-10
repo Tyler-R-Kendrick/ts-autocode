@@ -72,8 +72,12 @@ export interface Cost {
 	readonly totalUsd?: number;
 }
 
-/** Message content is either inline text or an external/redacted reference. */
-export type MessageContent = string | { readonly ref: string };
+/**
+ * Message content is either inline text or an external/redacted reference.
+ * Ref-mode capture stores the ciphertext alongside the ref so the content
+ * stays recoverable by whoever holds the run key.
+ */
+export type MessageContent = string | { readonly ref: string; readonly ciphertext?: string };
 
 /** A chat message, aligned with gen_ai.input.messages / llm.input_messages.*. */
 export interface GenAiMessage {
@@ -329,8 +333,10 @@ export function validateTrajectory(trajectory: unknown): ValidationResult<Trajec
 
 	const scores = trajectory["scores"];
 	const feedback = trajectory["feedback"];
-	if (scores === undefined && feedback === undefined) {
-		errors.push("trajectory must carry scores, feedback, or both");
+	const hasScores = Array.isArray(scores) && scores.length > 0;
+	const hasFeedback = Array.isArray(feedback) && feedback.length > 0;
+	if (!hasScores && !hasFeedback) {
+		errors.push("trajectory must carry at least one score or feedback item");
 	}
 	if (scores !== undefined) {
 		if (!Array.isArray(scores)) {
@@ -440,10 +446,14 @@ function validateSpans(spans: unknown, errors: string[]): void {
 	}
 
 	const spanIds = new Set<string>();
+	let rootCount = 0;
 	for (const [index, span] of spans.entries()) {
 		if (!isRecord(span)) {
 			errors.push(`spans.${index} must be an object`);
 			continue;
+		}
+		if (!isNonEmptyString(span["parentId"])) {
+			rootCount += 1;
 		}
 		const id = span["id"];
 		if (!isNonEmptyString(id)) {
@@ -476,6 +486,12 @@ function validateSpans(spans: unknown, errors: string[]): void {
 		if (isNonEmptyString(parentId) && !spanIds.has(parentId)) {
 			errors.push(`spans.${index}.parentId must reference another span`);
 		}
+	}
+
+	// OTLP export binds trajectory-level attributes and score/feedback events
+	// to THE root span, so a trajectory must have exactly one.
+	if (rootCount !== 1) {
+		errors.push("trajectory.spans must contain exactly one root span");
 	}
 }
 

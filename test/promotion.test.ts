@@ -325,9 +325,13 @@ describe("Ed25519 provenance verification", () => {
 
 	it("refuses a signature over a tampered payload", () => {
 		const { provenance, publicKeyPem } = signedProvenance();
+		// Recompute the digest for the tampered payload so the digest guard
+		// passes and the Ed25519 verification itself does the rejecting.
+		const tamperedPayload = { ...provenance.payload, seed: "tampered-seed" };
 		const tampered = {
 			...provenance,
-			payload: { ...provenance.payload, seed: "tampered-seed" },
+			payload: tamperedPayload,
+			signature: { ...provenance.signature, payloadDigest: digest(tamperedPayload) },
 		};
 		expect(() =>
 			promoteCandidate({

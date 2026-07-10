@@ -89,7 +89,7 @@ export {
 	evaluateCandidateOffline,
 	parseRewriteProgram,
 	predictLabel,
-	runBuiltInOptoTrainingRun,
+	runTrainingRun,
 	screenCandidateForPromotion,
 	validateCandidateRewriteContract,
 } from "./optimizer.js";

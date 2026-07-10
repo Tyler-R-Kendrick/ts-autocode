@@ -39,6 +39,24 @@ describe("validateTrajectory", () => {
 		).toBe(true);
 	});
 
+	it("rejects empty signal arrays and multiple root spans", () => {
+		const base = makeTrajectory({
+			id: "t-shape",
+			input: "billing invoice",
+			baselineLabel: "general-support",
+			expectedLabel: "billing-support",
+		});
+
+		const emptySignals = validateTrajectory({ ...base, scores: [], feedback: [] });
+		expect(emptySignals.ok).toBe(false);
+		expect(emptySignals.errors).toContain("trajectory must carry at least one score or feedback item");
+
+		const secondRoot = { ...base.spans[0], id: "t-shape-root-2", parentId: null };
+		const twoRoots = validateTrajectory({ ...base, spans: [...base.spans, secondRoot] });
+		expect(twoRoots.ok).toBe(false);
+		expect(twoRoots.errors).toContain("trajectory.spans must contain exactly one root span");
+	});
+
 	it("requires code.regionDigest and validates LLM spans carry model + usage", () => {
 		const base = makeTrajectory({
 			id: "t-llm",

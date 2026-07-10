@@ -152,7 +152,7 @@ export interface TrainingRunResult {
  * `ready-for-gate` (hand the candidate to the promotion gate) or `rejected`
  * with every reason recorded.
  */
-export async function runBuiltInOptoTrainingRun({
+export async function runTrainingRun({
 	request,
 	heldOutTrajectories,
 	engine = createBuiltInOptoEngine(),

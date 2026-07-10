@@ -84,6 +84,7 @@ export const AUTOCODE_ATTR = Object.freeze({
 	release: "autocode.release",
 	payloadPrefix: "autocode.payload.",
 	payloadRefPrefix: "autocode.payload_ref.",
+	payloadClassPrefix: "autocode.payload_class.",
 	scoreEventName: "autocode.score",
 	feedbackEventName: "autocode.feedback",
 } as const);

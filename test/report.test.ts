@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { renderOptimizeReport, runBuiltInOptoTrainingRun } from "../src/index.js";
+import { renderOptimizeReport, runTrainingRun } from "../src/index.js";
 import { heldOutTrajectories, makeDualRegionRequest, makeOptimizeRequest } from "./fixtures.js";
 
 describe("renderOptimizeReport", () => {
@@ -29,9 +29,24 @@ describe("renderOptimizeReport", () => {
 		expect(report).toContain("(current region source not provided)");
 	});
 
+	it("terminates on cyclic span parent references instead of hanging", () => {
+		const request = makeOptimizeRequest();
+		const base = request.trajectories[0]!;
+		const cyclic = {
+			...base,
+			spans: [
+				{ ...base.spans[0]!, id: "cycle-a", parentId: "cycle-b" },
+				{ ...base.spans[1]!, id: "cycle-b", parentId: "cycle-a" },
+			],
+		};
+		const report = renderOptimizeReport({ ...request, trajectories: [cyclic] });
+		expect(typeof report).toBe("string");
+		expect(report).toContain("# Trace");
+	});
+
 	it("carries prior-round screening and feedback into the report", async () => {
 		const request = makeOptimizeRequest();
-		const failed = await runBuiltInOptoTrainingRun({ request, heldOutTrajectories: [] });
+		const failed = await runTrainingRun({ request, heldOutTrajectories: [] });
 		const report = renderOptimizeReport(
 			{ ...request, feedback: [{ kind: "text", text: "prefer billing routes" }] },
 			{

@@ -5,7 +5,7 @@ import {
 	parseRewriteProgram,
 	predictLabel,
 	replayTrainingRun,
-	runBuiltInOptoTrainingRun,
+	runTrainingRun,
 } from "../src/index.js";
 import { heldOutTrajectories, makeDualRegionRequest, makeOptimizeRequest } from "./fixtures.js";
 
@@ -52,9 +52,9 @@ describe("createBuiltInOptoEngine", () => {
 	});
 });
 
-describe("runBuiltInOptoTrainingRun", () => {
+describe("runTrainingRun", () => {
 	it("produces a ready-for-gate candidate when held-out eval improves on baseline", async () => {
-		const run = await runBuiltInOptoTrainingRun({
+		const run = await runTrainingRun({
 			request: makeOptimizeRequest(),
 			heldOutTrajectories: heldOutTrajectories(),
 		});
@@ -67,7 +67,7 @@ describe("runBuiltInOptoTrainingRun", () => {
 	});
 
 	it("rejects when there is no held-out data, with a terminal Rejected event", async () => {
-		const run = await runBuiltInOptoTrainingRun({
+		const run = await runTrainingRun({
 			request: makeOptimizeRequest(),
 			heldOutTrajectories: [],
 		});
@@ -79,7 +79,7 @@ describe("runBuiltInOptoTrainingRun", () => {
 	});
 
 	it("emits RunStarted + Rejected when the engine's patch is invalid", async () => {
-		const run = await runBuiltInOptoTrainingRun({
+		const run = await runTrainingRun({
 			request: makeOptimizeRequest(),
 			heldOutTrajectories: heldOutTrajectories(),
 			engine: {
@@ -97,7 +97,7 @@ describe("runBuiltInOptoTrainingRun", () => {
 
 	it("rejects a candidate whose fallback violates the contract", async () => {
 		const request = makeOptimizeRequest();
-		const run = await runBuiltInOptoTrainingRun({
+		const run = await runTrainingRun({
 			request: {
 				...request,
 				contract: {
@@ -129,7 +129,7 @@ describe("runBuiltInOptoTrainingRun", () => {
 	});
 
 	it("emits a replayable event log for the run", async () => {
-		const run = await runBuiltInOptoTrainingRun({
+		const run = await runTrainingRun({
 			request: makeOptimizeRequest({ requestId: "run-events-1" }),
 			heldOutTrajectories: heldOutTrajectories(),
 		});
@@ -148,11 +148,11 @@ describe("runBuiltInOptoTrainingRun", () => {
 	});
 
 	it("is deterministic: identical requests produce identical replay digests", async () => {
-		const first = await runBuiltInOptoTrainingRun({
+		const first = await runTrainingRun({
 			request: makeOptimizeRequest(),
 			heldOutTrajectories: heldOutTrajectories(),
 		});
-		const second = await runBuiltInOptoTrainingRun({
+		const second = await runTrainingRun({
 			request: makeOptimizeRequest(),
 			heldOutTrajectories: heldOutTrajectories(),
 		});
