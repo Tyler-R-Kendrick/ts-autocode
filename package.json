@@ -1,0 +1,38 @@
+{
+	"name": "ts-autocode",
+	"version": "0.1.0",
+	"description": "Code-evolution toolkit for TypeScript: marker-delimited generated regions, trajectory capture, a pluggable training-engine port, offline screening, three-lens promotion gates, and champion/challenger promotion with revert.",
+	"license": "MIT",
+	"type": "module",
+	"files": [
+		"dist"
+	],
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"typecheck": "tsc --noEmit -p tsconfig.test.json",
+		"test": "vitest run",
+		"prepublishOnly": "npm run build && npm test"
+	},
+	"keywords": [
+		"code-evolution",
+		"self-optimizing",
+		"training-engine",
+		"champion-challenger",
+		"promotion-gate",
+		"codegen",
+		"rewriter"
+	],
+	"devDependencies": {
+		"@types/node": "^22.15.3",
+		"typescript": "^5.9.3",
+		"vitest": "^4.1.9"
+	}
+}
