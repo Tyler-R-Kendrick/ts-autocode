@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { findGeneratedRegion } from "../src/index.js";
+import { generatedRegionSource } from "./fixtures.js";
 
-const source = `export function route(input: string) {
-  // autocode:generated-region begin region=router owner=ax
-  return input;
-  // autocode:generated-region end region=router
-}
-`;
+const source = generatedRegionSource(
+	[{ id: "router", body: "  return input;", owner: "ax" }],
+	(content) => `export function route(input: string) {\n${content}\n}`,
+);
 
 describe("findGeneratedRegion", () => {
 	it("returns the optimizer-owned range and a source digest", () => {
@@ -31,7 +30,8 @@ describe("findGeneratedRegion", () => {
 
 	it("rejects missing and unclosed regions", () => {
 		expect(() => findGeneratedRegion("const value = 1;", "router")).toThrow("was not found");
-		expect(() => findGeneratedRegion(source.replace("// autocode:generated-region end region=router", ""), "router"))
+		const endMarker = ["//", "autocode:generated-region", "end", "region=router"].join(" ");
+		expect(() => findGeneratedRegion(source.replace(endMarker, ""), "router"))
 			.toThrow("is not closed");
 	});
 });

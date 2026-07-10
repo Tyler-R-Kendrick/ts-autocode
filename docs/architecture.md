@@ -1,42 +1,44 @@
 # Architecture
 
-The library has one pipeline:
+## Identity
 
-```text
-marked source -> GeneratedRegion -> Ax optimization -> CandidatePatch -> guarded apply
-```
+`TrainableToken` is the join key for the system. Its string id is persisted;
+its symbol provides stable runtime identity. Regions, captures, AgentV results,
+optimization requests, candidates, and promotion decisions must agree on that
+id.
 
-## Region boundary
+## Runtime capture
 
-`findGeneratedRegion` returns offsets, ownership, and a digest of the current
-region body. The digest is the optimistic-concurrency token used when a
-candidate is applied.
+`@trainable` wraps a class method without changing its call contract. It emits
+an OpenTelemetry/OpenInference span and writes a `TrainingRecord` containing an
+AgentV `Trace`. Storage is injected through `TrainingSettings` and capture
+writes do not extend request latency.
 
-## Ax adapter
+The package imports telemetry types and conventions from their official
+packages. It does not define another span or OTLP graph.
 
-`optimizeRegions` accepts Ax programs, examples, metrics, and AI services. It
-calls Ax's `optimize()` for every region. Each optimized program performs one
-final forward pass whose output is mapped to a region replacement.
+## Evaluation
 
-Regions are independent work units. They run concurrently by default, with an
-optional concurrency cap for provider limits.
+AgentV's TypeScript `evaluate()` API runs eval cases. Inline cases receive the
+trainable id in AgentV metadata, and returned `EvaluationResult` values are
+bound to the same token before entering optimization or promotion.
 
-## Apply boundary
+## Engine boundary
 
-`applyCandidate` accepts full artifact text, the candidate, and the original
-regions. It verifies that each edit:
+`TrainingEngine` is an async provider interface. It receives generated regions,
+captured records, AgentV results, objectives, constraints, settings variables,
+an optional secret provider, and an abort signal. Ax is implemented behind the
+optional `ts-autocode/ax` subpath; other engines implement the same interface.
 
-- targets a requested region;
-- covers the full region;
-- appears exactly once; and
-- still matches the region's source digest.
+## Concurrency
 
-Edits are applied from the highest offset to the lowest so earlier offsets do
-not move.
+Independent eval cases, optimization jobs, and Ax region runs can execute in
+parallel. Each layer exposes a concurrency setting so provider limits remain
+under caller control.
 
-## Observability
+## Promotion
 
-The optimizer uses `Tracer`, `Span`, and `SpanStatusCode` from
-`@opentelemetry/api`. Ax owns its lower-level LLM and optimizer telemetry. The
-library does not define an OTLP transport model or duplicate OpenTelemetry
-interfaces.
+The promotion gate checks conformance, AgentV score/pass thresholds, and caller
+policy. Candidate application verifies token binding, complete-region edits,
+artifact offsets, and source digests. Revert snapshots cover only promoted
+regions and refuse to overwrite later changes.

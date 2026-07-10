@@ -8,7 +8,7 @@
 		"type": "git",
 		"url": "https://github.com/Tyler-R-Kendrick/ts-autocode.git"
 	},
-	"description": "Optimize marker-delimited TypeScript regions with Ax and apply candidates safely.",
+	"description": "Provider-neutral runtime capture, evaluation, optimization, and promotion for trainable TypeScript regions.",
 	"license": "MIT",
 	"type": "module",
 	"sideEffects": false,
@@ -21,6 +21,10 @@
 		".": {
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js"
+		},
+		"./ax": {
+			"types": "./dist/providers/ax.d.ts",
+			"import": "./dist/providers/ax.js"
 		}
 	},
 	"homepage": "https://github.com/Tyler-R-Kendrick/ts-autocode#readme",
@@ -28,25 +32,41 @@
 		"url": "https://github.com/Tyler-R-Kendrick/ts-autocode/issues"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.json",
+		"build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json",
 		"typecheck": "tsc --noEmit -p tsconfig.test.json",
-		"test": "vitest run",
+		"test": "node test/run.mjs",
 		"check": "npm run typecheck && npm test && npm run build",
 		"prepublishOnly": "npm run check"
 	},
 	"keywords": [
-		"ax-llm",
+		"agentv",
 		"code-optimization",
+		"openinference",
 		"codegen",
 		"rewriter"
 	],
 	"devDependencies": {
+		"@ax-llm/ax": "^23.0.0",
 		"@types/node": "^22.15.3",
 		"typescript": "^5.9.3",
 		"vitest": "^4.1.9"
 	},
 	"dependencies": {
-		"@ax-llm/ax": "^23.0.0",
+		"@agentv/core": "^4.42.4",
+		"@arizeai/openinference-semantic-conventions": "^2.5.0",
 		"@opentelemetry/api": "^1.9.1"
+	},
+	"peerDependencies": {
+		"@ax-llm/ax": "^23.0.0"
+	},
+	"peerDependenciesMeta": {
+		"@ax-llm/ax": {
+			"optional": true
+		}
+	},
+	"overrides": {
+		"@agentv/core": {
+			"@opentelemetry/exporter-trace-otlp-http": "^0.220.0"
+		}
 	}
 }
