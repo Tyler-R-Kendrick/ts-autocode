@@ -3,14 +3,15 @@
 Train TypeScript functions from AgentV evals and optional runtime traces, then
 safely rewrite the function marked trainable.
 
-The normal path has three pieces:
+The normal path keeps the code primitives and agent loop in separate packages:
 
 ```text
-"use training" -> AgentV evals -> Ax optimization -> guarded source update
+"use training" -> AgentV evals -> student/teacher harness -> guarded source update
 ```
 
-Ax is the default optimizer. `TrainingEngine` remains a small provider boundary
-for applications that use another engine.
+Ax is the default student optimizer. AgentV evaluation and the promotion gate
+form the teacher. `ts-autocode` delegates their iterative coordination to the
+independent `ts-autocode-harness` package.
 
 ## Install
 
@@ -103,16 +104,17 @@ const run = await training.train({
   policy: (candidate) => deploymentPolicy.allows(candidate),
 });
 
-const promoted = await training.promote(run.candidate, run.decision);
+const promoted = await training.promote(run.final.candidate, run.final.decision);
 
 // Refuses to overwrite later changes.
 await training.revert(promoted.snapshot);
 ```
 
-`train()` runs baseline AgentV evals, optimization, sandboxed candidate evals,
-and the promotion gate. Baseline results are never treated as proof that a
-rewrite passes. The lower-level `evaluate`, `optimize`, `evaluateCandidate`, and
-gate functions remain available for custom orchestration.
+`ts-autocode-harness` runs the bounded student → teacher → feedback loop. It
+stops when a candidate passes the gate, repeats, or exhausts the configured
+round limit. Baseline results are never treated as proof that a rewrite passes.
+The lower-level `evaluate`, `optimize`, `evaluateCandidate`, and promotion
+primitives remain available for custom orchestration.
 
 No Ax program is supplied by the caller. The default engine derives its fields,
 descriptions, executable examples, and return contract from the TypeScript
@@ -181,6 +183,7 @@ Tests write generated artifacts only under `test/output/`. The directory is
 ignored by Git and excluded from TypeScript compilation.
 
 See [examples/optimize.ts](examples/optimize.ts),
+[packages/harness/README.md](packages/harness/README.md),
 [docs/architecture.md](docs/architecture.md), [CONTRIBUTING.md](CONTRIBUTING.md),
 and [SECURITY.md](SECURITY.md).
 
