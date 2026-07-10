@@ -1,0 +1,40 @@
+{
+	"name": "ts-autocode-harness",
+	"version": "0.1.0",
+	"description": "Typed student/teacher training-loop harness.",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/Tyler-R-Kendrick/ts-autocode.git",
+		"directory": "packages/harness"
+	},
+	"homepage": "https://github.com/Tyler-R-Kendrick/ts-autocode/tree/main/packages/harness#readme",
+	"bugs": {
+		"url": "https://github.com/Tyler-R-Kendrick/ts-autocode/issues"
+	},
+	"license": "MIT",
+	"type": "module",
+	"sideEffects": false,
+	"files": [
+		"dist"
+	],
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"engines": {
+		"node": ">=20"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"prepublishOnly": "npm run build"
+	},
+	"keywords": [
+		"agent",
+		"harness",
+		"training-loop"
+	]
+}

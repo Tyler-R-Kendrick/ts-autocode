@@ -78,12 +78,17 @@ describe("AgentV evaluation", () => {
 		expect(evaluated.run.summary).toMatchObject({ total: 1, passed: 1, failed: 0 });
 	});
 
-	it("orchestrates baseline, optimization, candidate verification, and gating", async () => {
+	it("uses the harness for student optimization and teacher feedback", async () => {
+		let round = 0;
 		const engine: TrainingEngine = {
-			id: "uppercase",
+			id: "student",
 			async optimize(request) {
-				expect(request.evaluations[0]?.test?.assert).toEqual([{ type: "equals", value: "HELLO" }]);
-				return { implementation: "return input.toUpperCase();" };
+				round += 1;
+				if (round === 2) {
+					expect(request.constraints).toContain("Previous candidate rejection: mean AgentV score 0 is below 0.8");
+					expect(request.evaluations).toHaveLength(2);
+				}
+				return { implementation: round === 1 ? "return input;" : "return input.toUpperCase();" };
 			},
 		};
 		const training = configureTraining({ engine, source: { files: [import.meta.filename] } });
@@ -93,13 +98,15 @@ describe("AgentV evaluation", () => {
 			evaluation: {
 				tests: [{ id: "uppercase", input: "hello", assert: [{ type: "equals", value: "HELLO" }] }],
 				task: pipelineTarget,
-				outputDir: "test/output/agentv-train",
+				outputDir: "test/output/agentv-harness",
 			},
 		});
 
+		expect(run.outcome).toBe("ready");
 		expect(run.baseline.run.summary.failed).toBe(1);
-		expect(run.verification.run.summary.passed).toBe(1);
-		expect(run.decision.promote).toBe(true);
-		expect(run.verification.evaluations[0]?.candidateId).toBe(run.candidate.id);
+		expect(run.rounds).toHaveLength(2);
+		expect(run.final.verification.run.summary.passed).toBe(1);
+		expect(run.final.decision.promote).toBe(true);
 	});
+
 });

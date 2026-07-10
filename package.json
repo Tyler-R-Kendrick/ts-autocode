@@ -12,6 +12,9 @@
 	"license": "MIT",
 	"type": "module",
 	"sideEffects": false,
+	"workspaces": [
+		"packages/*"
+	],
 	"files": [
 		"dist"
 	],
@@ -32,10 +35,12 @@
 		"url": "https://github.com/Tyler-R-Kendrick/ts-autocode/issues"
 	},
 	"scripts": {
-		"build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json",
-		"typecheck": "tsc --noEmit -p tsconfig.test.json",
+		"build": "npm run build:harness && npm run build:core",
+		"build:core": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json",
+		"build:harness": "node -e \"require('node:fs').rmSync('packages/harness/dist', { recursive: true, force: true })\" && tsc -p packages/harness/tsconfig.json",
+		"typecheck": "npm run build:harness && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p packages/harness/tsconfig.test.json",
 		"test": "node test/run.mjs",
-		"check": "npm run typecheck && npm test && npm run build",
+		"check": "npm run typecheck && npm test && npm run build:core",
 		"prepublishOnly": "npm run check"
 	},
 	"keywords": [
@@ -54,6 +59,7 @@
 		"@arizeai/openinference-semantic-conventions": "^2.5.0",
 		"@ax-llm/ax": "^23.0.0",
 		"@opentelemetry/api": "^1.9.1",
+		"ts-autocode-harness": "0.1.0",
 		"typescript": "^5.9.3"
 	},
 	"overrides": {

@@ -39,6 +39,14 @@ the root configuration contract.
 Candidate bodies are evaluated separately through AgentV before promotion.
 Baseline results can train the optimizer but cannot satisfy the promotion gate.
 
+## Agent harness
+
+`ts-autocode` depends on the standalone `ts-autocode-harness` package. The
+harness knows only student and teacher callbacks; it owns bounded rounds,
+feedback propagation, cancellation, stall detection, and termination.
+`ts-autocode` supplies candidate optimization as the student and AgentV
+candidate evaluation plus the promotion gate as the teacher.
+
 Independent `optimizeAll()` requests run concurrently with a caller-controlled
 limit. AgentV retains its own `workers` setting for eval parallelism.
 

@@ -4,6 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { buildTraceFromMessages, type EvalConfig } from "@agentv/core";
 import { OpenInferenceSpanKind, SemanticConventions } from "@arizeai/openinference-semantic-conventions";
 import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "@opentelemetry/api";
+import { defineTrainingHarness } from "ts-autocode-harness";
 
 import {
 	optimizeCandidate,
@@ -84,17 +85,25 @@ export interface TrainInput {
 	readonly constraints?: readonly string[];
 	readonly engine?: TrainingEngine;
 	readonly signal?: AbortSignal;
+	readonly maxRounds?: number;
 	readonly minScore?: number;
 	readonly minPassRate?: number;
 	readonly conformance?: boolean;
 	readonly policy?: (candidate: CandidatePatch) => boolean | Promise<boolean>;
 }
 
-export interface TrainingRun {
-	readonly baseline: TrainableEvalRun;
+export interface TrainingRound {
+	readonly round: number;
 	readonly candidate: CandidatePatch;
 	readonly verification: TrainableEvalRun;
 	readonly decision: PromotionDecision;
+}
+
+export interface TrainingRun {
+	readonly outcome: "ready" | "stalled" | "exhausted";
+	readonly baseline: TrainableEvalRun;
+	readonly rounds: readonly TrainingRound[];
+	readonly final: TrainingRound;
 }
 
 export interface Training {
@@ -179,28 +188,56 @@ class TrainingRuntime implements Training {
 
 	async train(input: TrainInput): Promise<TrainingRun> {
 		const baseline = await this.evaluate(input.trainable, input.evaluation);
-		const candidate = await this.optimize({
-			trainable: input.trainable,
-			objective: input.objective,
-			evaluations: baseline.evaluations,
-			...(input.constraints === undefined ? {} : { constraints: input.constraints }),
-			...(input.engine === undefined ? {} : { engine: input.engine }),
-			...(input.signal === undefined ? {} : { signal: input.signal }),
-		});
 		const { task: _task, outputDir, ...candidateEvaluation } = input.evaluation;
-		const verification = await this.evaluateCandidate(candidate, {
-			...candidateEvaluation,
-			outputDir: `${outputDir ?? ".agentv"}/candidate`,
+		let evaluations: readonly BoundEvaluation[] = baseline.evaluations;
+		const harness = defineTrainingHarness<CandidatePatch, {
+			readonly verification: TrainableEvalRun;
+			readonly decision: PromotionDecision;
+		}, string>({
+			candidateId: (candidate) => candidate.id,
+			...(input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds }),
 		});
-		const decision = await evaluatePromotionGate({
-			candidate,
-			evaluations: verification.evaluations,
-			conformance: input.conformance ?? true,
-			...(input.minScore === undefined ? {} : { minScore: input.minScore }),
-			...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
-			...(input.policy === undefined ? {} : { policy: input.policy }),
+		const result = await harness.run({
+			...(input.signal === undefined ? {} : { signal: input.signal }),
+			student: async ({ feedback, signal }) => {
+				const constraints = [
+					...(input.constraints ?? []),
+					...feedback.map((failure) => `Previous candidate rejection: ${failure}`),
+				];
+				return this.optimize({
+					trainable: input.trainable,
+					objective: input.objective,
+					evaluations,
+					...(constraints.length === 0 ? {} : { constraints }),
+					...(input.engine === undefined ? {} : { engine: input.engine }),
+					...(signal === undefined ? {} : { signal }),
+				});
+			},
+			teacher: async (candidate, { round }) => {
+				const verification = await this.evaluateCandidate(candidate, {
+					...candidateEvaluation,
+					outputDir: `${outputDir ?? ".agentv"}/candidate-${round}`,
+				});
+				const decision = await evaluatePromotionGate({
+					candidate,
+					evaluations: verification.evaluations,
+					conformance: input.conformance ?? true,
+					...(input.minScore === undefined ? {} : { minScore: input.minScore }),
+					...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
+					...(input.policy === undefined ? {} : { policy: input.policy }),
+				});
+				evaluations = [...evaluations, ...verification.evaluations];
+				return { accepted: decision.promote, assessment: { verification, decision }, feedback: decision.failures };
+			},
 		});
-		return Object.freeze({ baseline, candidate, verification, decision });
+		const rounds = result.rounds.map(({ round, candidate, assessment }) =>
+			Object.freeze({ round, candidate, ...assessment }));
+		return Object.freeze({
+			outcome: result.outcome === "accepted" ? "ready" : result.outcome,
+			baseline,
+			rounds: Object.freeze(rounds),
+			final: rounds.at(-1) as TrainingRound,
+		});
 	}
 
 	#remember(run: TrainableEvalRun): void {

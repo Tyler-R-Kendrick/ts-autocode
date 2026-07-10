@@ -8,6 +8,7 @@ export type {
 	OptimizeInput,
 	TrainInput,
 	Training,
+	TrainingRound,
 	TrainingRun,
 	TrainingSettings,
 	TracingSettings,
