@@ -1,4 +1,5 @@
 import { isNonEmptyString, isRecord } from "./canonical.js";
+import type { Score } from "./trajectory.js";
 
 // The champion/challenger promotion gate. A candidate promotes only through
 // the three-lens gate: conformance (hard contract) green AND eval thresholds
@@ -176,6 +177,37 @@ export function evaluatePromotionGate(input: PromotionGateInput): PromotionDecis
 			challengerId: input.candidateId,
 		},
 	});
+}
+
+/**
+ * Aggregates captured trajectory scores into an EvalResult for the gate:
+ * numeric scores average per name; boolean scores average as 0/1; categorical
+ * scores are skipped (they have no floor semantics). sampleCount is the
+ * number of scores contributing to the largest metric group.
+ */
+export function evalResultFromScores(
+	scores: readonly Score[],
+	{ rubricRef, source }: { rubricRef: string; source: string },
+): EvalResult {
+	const sums = new Map<string, { total: number; count: number }>();
+	for (const score of scores) {
+		const numeric =
+			typeof score.value === "number" ? score.value : typeof score.value === "boolean" ? Number(score.value) : null;
+		if (numeric === null) {
+			continue;
+		}
+		const entry = sums.get(score.name) ?? { total: 0, count: 0 };
+		entry.total += numeric;
+		entry.count += 1;
+		sums.set(score.name, entry);
+	}
+	const aggregated: Record<string, number> = {};
+	let sampleCount = 0;
+	for (const [name, { total, count }] of sums) {
+		aggregated[name] = total / count;
+		sampleCount = Math.max(sampleCount, count);
+	}
+	return parseEvalResult({ rubricRef, source, sampleCount, scores: aggregated });
 }
 
 // Past-tense facts a decision emits; the decision is the source of truth, so

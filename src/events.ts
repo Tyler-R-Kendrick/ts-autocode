@@ -6,7 +6,7 @@ import {
 	TRACEPARENT_PATTERN,
 	type ValidationResult,
 	hashTrajectory,
-	validateReward,
+	validateScore,
 	validateTrajectory,
 } from "./trajectory.js";
 import type { Trajectory } from "./trajectory.js";
@@ -151,7 +151,7 @@ export interface TrainingRunProjection {
 	status: "unknown" | "running" | "promoted" | "rejected";
 	trajectoryIds: string[];
 	sampledOutIds: string[];
-	rewardCount: number;
+	scoreCount: number;
 	spanCount: number;
 	candidateIds: string[];
 	lastSeq: number;
@@ -169,7 +169,7 @@ export function replayTrainingRun(events: readonly TrainingEvent[]): TrainingRun
 		status: "unknown",
 		trajectoryIds: [],
 		sampledOutIds: [],
-		rewardCount: 0,
+		scoreCount: 0,
 		spanCount: 0,
 		candidateIds: [],
 		lastSeq: -1,
@@ -193,7 +193,7 @@ export function replayTrainingRun(events: readonly TrainingEvent[]): TrainingRun
 		} else if (event.type === "telemetry.OpenInferenceSpanRecorded") {
 			projection.spanCount += 1;
 		} else if (event.type === "training.RewardObserved") {
-			projection.rewardCount += 1;
+			projection.scoreCount += 1;
 		} else if (event.type === "training.CandidateProposed") {
 			addUnique(projection.candidateIds, String((event.data["candidate"] as CandidatePatch).id));
 		} else if (event.type === "training.CandidateEvaluated") {
@@ -234,7 +234,7 @@ function validateTrainingEventPayload(event: Record<string, unknown>, errors: st
 		if (!isNonEmptyString(data["trajectoryId"])) {
 			errors.push("RewardObserved.trajectoryId must be a non-empty string");
 		}
-		validateReward(data["reward"], errors);
+		validateScore(data["score"], errors, "RewardObserved.score");
 	} else if (type === "training.TrajectorySampledOut") {
 		if (!isNonEmptyString(data["trajectoryId"])) {
 			errors.push("TrajectorySampledOut.trajectoryId must be a non-empty string");

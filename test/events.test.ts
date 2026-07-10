@@ -119,7 +119,7 @@ describe("replayTrainingRun", () => {
 				type: "training.RewardObserved",
 				runId: "run-1",
 				seq: 2,
-				data: { trajectoryId: trajectory.id, reward: trajectory.reward },
+				data: { trajectoryId: trajectory.id, score: trajectory.scores?.[0] },
 			}),
 			createTrainingEvent({
 				id: "e-3",
@@ -138,7 +138,7 @@ describe("replayTrainingRun", () => {
 			status: "promoted",
 			trajectoryIds: [trajectory.id],
 			sampledOutIds: [],
-			rewardCount: 1,
+			scoreCount: 1,
 			spanCount: 0,
 			candidateIds: ["candidate-1"],
 			lastSeq: 3,

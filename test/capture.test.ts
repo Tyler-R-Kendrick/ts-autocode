@@ -8,7 +8,7 @@ import {
 	trainable,
 	validateTrajectory,
 } from "../src/index.js";
-import { FIXTURE_TRACEPARENT, classifierRegion } from "./fixtures.js";
+import { FIXTURE_TRACEPARENT, classifierRegion, classifierRegionDigest } from "./fixtures.js";
 
 const run = {
 	id: "run-capture-1",
@@ -20,6 +20,7 @@ const method = {
 	name: "classify",
 	contractRef: "contract://classify@1.0.0",
 	generatedRegion: classifierRegion(),
+	regionDigest: classifierRegionDigest(),
 };
 
 describe("createCaptureRuntime", () => {
@@ -31,8 +32,18 @@ describe("createCaptureRuntime", () => {
 			inputs: { input: "billing invoice" },
 			outputs: { label: "general-support" },
 			payloads: { input: "billing invoice", baselineLabel: "general-support" },
-			childSpans: [{ name: "llm.classify", kind: "LLM" }],
-			reward: { source: "live-eval", rubricRef: "rubric://classify@1.0.0", score: 0.8 },
+			childSpans: [
+				{
+					name: "llm.classify",
+					kind: "LLM",
+					genAi: {
+						provider: "local",
+						requestModel: "stub-classifier",
+						usage: { inputTokens: 12, outputTokens: 3 },
+					},
+				},
+			],
+			scores: [{ name: "reward", value: 0.8, source: "live-eval", rubricRef: "rubric://classify@1.0.0" }],
 		});
 
 		expect(capture.captured).toBe(true);
@@ -51,7 +62,7 @@ describe("createCaptureRuntime", () => {
 			method,
 			payloads: { input: "billing invoice", email: "user@example.com" },
 			sensitiveFields: ["email"],
-			reward: { source: "live-eval", rubricRef: "rubric://classify@1.0.0", score: 0.8 },
+			scores: [{ name: "reward", value: 0.8, source: "live-eval", rubricRef: "rubric://classify@1.0.0" }],
 		});
 
 		const email = capture.trajectory?.payloads["email"];
@@ -59,6 +70,64 @@ describe("createCaptureRuntime", () => {
 		expect(email?.encryptedRef).toBe(`run://${run.id}/payloads/email`);
 		expect(email?.value).toBeUndefined();
 		expect(validateTrajectory(capture.trajectory).ok).toBe(true);
+	});
+
+	it("contentCapture \"ref\" replaces message content with run-scoped refs", () => {
+		const runtime = createCaptureRuntime({ runKeyRef: "run-key://tenant-a", contentCapture: "ref" });
+		const capture = runtime.captureInvocation({
+			run,
+			method,
+			payloads: { input: "billing invoice" },
+			scores: [{ name: "reward", value: 0.8, source: "live-eval" }],
+			childSpans: [
+				{
+					name: "llm.classify",
+					kind: "LLM",
+					genAi: {
+						requestModel: "stub-classifier",
+						usage: { inputTokens: 12, outputTokens: 3 },
+						inputMessages: [{ role: "user", content: "the secret prompt" }],
+						outputMessages: [{ role: "assistant", content: "the secret answer" }],
+						systemInstructions: "the secret instructions",
+					},
+				},
+			],
+		});
+
+		const serialized = JSON.stringify(capture.trajectory);
+		expect(serialized).not.toContain("the secret prompt");
+		expect(serialized).not.toContain("the secret answer");
+		expect(serialized).not.toContain("the secret instructions");
+		const llmSpan = capture.trajectory?.spans[1];
+		expect(llmSpan?.genAi?.inputMessages?.[0]?.content).toEqual({
+			ref: `run://${run.id}/spans/${llmSpan?.id}/input/0`,
+		});
+		expect(llmSpan?.genAi?.systemInstructions).toEqual({
+			ref: `run://${run.id}/spans/${llmSpan?.id}/system_instructions`,
+		});
+	});
+
+	it("contentCapture \"none\" drops message content entirely", () => {
+		const runtime = createCaptureRuntime({ contentCapture: "none" });
+		const capture = runtime.captureInvocation({
+			run,
+			method,
+			scores: [{ name: "reward", value: 0.8, source: "live-eval" }],
+			childSpans: [
+				{
+					name: "llm.classify",
+					kind: "LLM",
+					genAi: {
+						requestModel: "stub-classifier",
+						usage: { inputTokens: 12, outputTokens: 3 },
+						inputMessages: [{ role: "user", content: "the secret prompt" }],
+					},
+				},
+			],
+		});
+
+		expect(JSON.stringify(capture.trajectory)).not.toContain("the secret prompt");
+		expect(capture.trajectory?.spans[1]?.genAi?.inputMessages?.[0]).toEqual({ role: "user" });
 	});
 
 	it("refuses sensitive payloads without a runKeyRef", () => {
@@ -69,7 +138,7 @@ describe("createCaptureRuntime", () => {
 				method,
 				payloads: { email: "user@example.com" },
 				sensitiveFields: ["email"],
-				reward: { source: "live-eval", rubricRef: "rubric://classify@1.0.0", score: 0.8 },
+				scores: [{ name: "reward", value: 0.8, source: "live-eval", rubricRef: "rubric://classify@1.0.0" }],
 			}),
 		).toThrowError(/requires a runKeyRef/);
 	});
@@ -95,7 +164,7 @@ describe("createCaptureRuntime", () => {
 			run,
 			method,
 			payloads: { input: "billing invoice" },
-			reward: { source: "live-eval", rubricRef: "rubric://classify@1.0.0", score: 0.8 },
+			scores: [{ name: "reward", value: 0.8, source: "live-eval", rubricRef: "rubric://classify@1.0.0" }],
 		});
 		const projection = replayTrainingRun(runtime.eventLog());
 
@@ -146,7 +215,7 @@ describe("audit reconstruction", () => {
 			run,
 			method,
 			payloads: { input: "billing invoice" },
-			reward: { source: "live-eval", rubricRef: "rubric://classify@1.0.0", score: 0.8 },
+			scores: [{ name: "reward", value: 0.8, source: "live-eval", rubricRef: "rubric://classify@1.0.0" }],
 		});
 
 		const trajectory = reconstructTrajectoryFromLog(runtime.eventLog(), capture.trajectoryId);
@@ -160,7 +229,7 @@ describe("audit reconstruction", () => {
 			run,
 			method,
 			payloads: { input: "billing invoice" },
-			reward: { source: "live-eval", rubricRef: "rubric://classify@1.0.0", score: 0.8 },
+			scores: [{ name: "reward", value: 0.8, source: "live-eval", rubricRef: "rubric://classify@1.0.0" }],
 		});
 		const region = classifierRegion();
 		runtime.recordCandidateProposed({

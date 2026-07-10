@@ -4,6 +4,7 @@ import {
 	OPTIMIZE_REQUEST_SCHEMA,
 	type OptimizeRequest,
 	type TrainingEngine,
+	digest,
 	findGeneratedRegion,
 	hashTrajectory,
 	PROVENANCE_PAYLOAD_SCHEMA,
@@ -58,6 +59,12 @@ export function fallbackRegion(source = dualRegionSource()) {
 	});
 }
 
+/** Digest of the classify-body region source — the fixture baseline code version. */
+export function classifierRegionDigest(source = classifierSource()): string {
+	const region = classifierRegion(source);
+	return digest(source.slice(region.startOffset, region.endOffset));
+}
+
 export function makeTrajectory({
 	id,
 	input,
@@ -90,6 +97,15 @@ export function makeTrajectory({
 			contractRef: "contract://classify@1.0.0",
 			generatedRegion: region,
 		},
+		code: {
+			regionDigest: classifierRegionDigest(),
+			arm: "champion",
+		},
+		context: {
+			session: { id: "session-1" },
+			tags: ["fixture"],
+			environment: "test",
+		},
 		spans: [
 			{
 				id: `${id}-root`,
@@ -97,6 +113,7 @@ export function makeTrajectory({
 				name: "classify",
 				startTime: "2026-06-25T09:00:00.000Z",
 				endTime: "2026-06-25T09:00:00.120Z",
+				status: { code: "OK" },
 				attributes: {
 					"openinference.span.kind": "CHAIN",
 					"input.value": input,
@@ -116,6 +133,14 @@ export function makeTrajectory({
 				},
 				inputs: { promptTemplate: "classify input" },
 				outputs: { label: expectedLabel },
+				genAi: {
+					provider: "local",
+					operation: "chat",
+					requestModel: "stub-classifier",
+					invocationParameters: { temperature: 0 },
+					usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 },
+					cost: { totalUsd: 0.0002 },
+				},
 			},
 		],
 		payloads: {
@@ -123,13 +148,17 @@ export function makeTrajectory({
 			expectedLabel: { classification: "public", redaction: "none", value: expectedLabel },
 			baselineLabel: { classification: "public", redaction: "none", value: baselineLabel },
 		},
-		reward: {
-			source: "live-eval",
-			rubricRef: "rubric://classify@1.0.0",
-			eventId: "eval-1",
-			score,
-			observedAt: "2026-06-25T09:00:01.000Z",
-		},
+		scores: [
+			{
+				name: "reward",
+				value: score,
+				dataType: "numeric",
+				source: "live-eval",
+				rubricRef: "rubric://classify@1.0.0",
+				eventId: "eval-1",
+				observedAt: "2026-06-25T09:00:01.000Z",
+			},
+		],
 	};
 }
 

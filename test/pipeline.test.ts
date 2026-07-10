@@ -108,6 +108,7 @@ describe("code-evolution pipeline", () => {
 				name: "classify",
 				contractRef: "contract://classify@1.0.0",
 				generatedRegion: region,
+				regionSource: source.slice(region.startOffset, region.endOffset),
 			},
 		});
 		for (const ticket of ["billing invoice refund", "billing chargeback", "password reset"]) {

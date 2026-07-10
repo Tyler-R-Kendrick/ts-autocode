@@ -18,7 +18,8 @@ describe("renderOptimizeReport", () => {
 		expect(report).toContain("# Trace");
 		expect(report).toContain("## Trajectory train-billing-1");
 		expect(report).toContain("[LLM] llm.classify");
-		expect(report).toContain("reward: 0.9");
+		expect(report).toContain("score reward: 0.9");
+		expect(report).toContain("model=stub-classifier tokens=20/5");
 		expect(report).toContain("# Request");
 		expect(report).toContain('"schema": "ts-autocode.training.candidate-patch/v1"');
 	});

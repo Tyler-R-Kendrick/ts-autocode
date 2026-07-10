@@ -75,3 +75,9 @@ Sources: [Trace repo](https://github.com/microsoft/Trace) ·
   HoBo's ADR-0025 decision to keep optimizer choice behind a port).
 - **Hyperparameter nodes.** Trace can mark scalars trainable. In ts-autocode a
   hyperparameter is optimizable only by encoding it in region source.
+
+## See also
+
+What each trajectory collects — and how it maps to OTel GenAI semconv,
+OpenInference, LangSmith, and Langfuse — is documented in
+[`observability-alignment.md`](./observability-alignment.md).

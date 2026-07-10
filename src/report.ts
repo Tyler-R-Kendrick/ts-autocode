@@ -118,12 +118,23 @@ function renderInvariants(request: OptimizeRequest): string[] {
 }
 
 function renderTrajectory(trajectory: Trajectory): string[] {
-	const lines = [`## Trajectory ${trajectory.id} (method ${trajectory.subject.method})`];
+	const lines = [
+		`## Trajectory ${trajectory.id} (method ${trajectory.subject.method}, region digest ${trajectory.code.regionDigest.slice(0, 19)}…${trajectory.code.arm ? `, arm ${trajectory.code.arm}` : ""})`,
+	];
 	for (const span of trajectory.spans) {
 		lines.push(renderSpan(span, trajectory.spans));
 	}
-	if (trajectory.reward) {
-		lines.push(`reward: ${trajectory.reward.score} (${trajectory.reward.source}, ${trajectory.reward.rubricRef})`);
+	if (trajectory.usage) {
+		const cost = trajectory.usage.costUsd === undefined ? "" : `, $${trajectory.usage.costUsd}`;
+		const latency = trajectory.usage.latencyMs === undefined ? "" : `, ${trajectory.usage.latencyMs}ms`;
+		lines.push(
+			`usage: ${trajectory.usage.inputTokens} in / ${trajectory.usage.outputTokens} out tokens${cost}${latency}`,
+		);
+	}
+	for (const score of trajectory.scores ?? []) {
+		lines.push(
+			`score ${score.name}: ${String(score.value)} (${score.source}${score.rubricRef ? `, ${score.rubricRef}` : ""})${score.comment ? ` — ${score.comment}` : ""}`,
+		);
 	}
 	for (const item of trajectory.feedback ?? []) {
 		lines.push(renderFeedbackItem(item));
@@ -136,7 +147,11 @@ function renderSpan(span: TrajectorySpan, spans: readonly TrajectorySpan[]): str
 	const kind = span.attributes["openinference.span.kind"];
 	const inputs = span.inputs ? ` inputs=${JSON.stringify(span.inputs)}` : "";
 	const outputs = span.outputs ? ` outputs=${JSON.stringify(span.outputs)}` : "";
-	return `${"  ".repeat(depth)}- [${String(kind)}] ${span.name}${inputs}${outputs}`;
+	const genAi = span.genAi
+		? ` model=${span.genAi.requestModel ?? "?"}${span.genAi.usage ? ` tokens=${span.genAi.usage.inputTokens}/${span.genAi.usage.outputTokens}` : ""}${span.genAi.cost?.totalUsd !== undefined ? ` cost=$${span.genAi.cost.totalUsd}` : ""}`
+		: "";
+	const status = span.status && span.status.code !== "OK" ? ` status=${span.status.code}` : "";
+	return `${"  ".repeat(depth)}- [${String(kind)}] ${span.name}${genAi}${status}${inputs}${outputs}`;
 }
 
 function spanDepth(span: TrajectorySpan, spans: readonly TrajectorySpan[]): number {

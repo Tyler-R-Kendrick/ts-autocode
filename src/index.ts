@@ -24,19 +24,45 @@ export {
 	OPENINFERENCE_SPAN_KINDS,
 	TRACEPARENT_PATTERN,
 	TRAJECTORY_SCHEMA,
+	aggregateTrajectoryUsage,
 	hashTrajectory,
+	scoreDataType,
 	validateFeedbackList,
+	validateScore,
 	validateTrajectory,
 } from "./trajectory.js";
 export type {
+	Cost,
 	Feedback,
+	GenAiMessage,
+	GenAiSpanData,
+	MessageContent,
+	Score,
+	SpanStatus,
 	Trajectory,
+	TrajectoryCode,
+	TrajectoryContext,
 	TrajectoryPayload,
-	TrajectoryReward,
 	TrajectoryRun,
 	TrajectorySpan,
+	Usage,
 	ValidationResult,
 } from "./trajectory.js";
+
+export {
+	AUTOCODE_ATTR,
+	GEN_AI_ATTR,
+	OPENINFERENCE_ATTR,
+	contextFromConventionAttributes,
+	dualConventionAttributes,
+	fromConventionAttributes,
+} from "./conventions.js";
+
+export { fromAnyValue, fromKeyValues, fromUnixNano, toAnyValue, toKeyValues, toOtlpJson } from "./otlp.js";
+export type { OtlpAnyValue, OtlpJson, OtlpKeyValue, OtlpSpan, OtlpSpanEvent, ToOtlpJsonOptions } from "./otlp.js";
+
+export { fromOtelSpans } from "./ingest.js";
+export type { FromOtelSpansOptions, FromOtelSpansResult, IngestBinding } from "./ingest.js";
 
 export {
 	CANDIDATE_PATCH_SCHEMA,
@@ -113,6 +139,7 @@ export type { CreateTrainingEventInput, TrainingEvent, TrainingEventType, Traini
 
 export {
 	PromotionGateParseError,
+	evalResultFromScores,
 	evaluatePromotionGate,
 	parseEvalResult,
 	parsePromotionThresholds,

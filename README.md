@@ -40,11 +40,18 @@ declare (regions + trainable) ──▶ forward: capture trajectories ──▶ 
 
 2. **Trajectory capture** (`capture.ts`, `trajectory.ts`) — the forward phase.
    `trainable(fn, { runtime, run, method })` wraps an optimizable function so
-   every call records a trajectory (OpenInference span tree, payloads with
-   redaction rules, reward and/or general `Feedback`) into an append-only
-   event log; a throw is captured as error feedback and rethrown. Sensitive
-   payloads must be tokenized or run-scoped-encrypted before a trajectory may
-   enter a training run. `reconstructTrajectoryFromLog` and
+   every call records a trajectory into an append-only event log; a throw is
+   captured as error feedback with an ERROR span status and rethrown.
+   Trajectories collect a **superset** of the GenAI observability standards:
+   OpenInference span trees with OTel `status`, first-class `genAi` data per
+   span (model, provider, invocation params, token usage, cost, messages —
+   required on LLM spans), multiple named typed **`scores`** plus general
+   `Feedback`, session/user/tags/metadata/environment/release context, a
+   usage/cost/latency rollup, and mandatory **code attribution**
+   (`code.regionDigest` + candidate + champion/challenger arm). Message
+   content capture is mode-gated (`inline`/`ref`/`none`), and sensitive
+   payloads must be tokenized or run-scoped-encrypted with no raw values
+   retained. `reconstructTrajectoryFromLog` and
    `recoverCandidateTrajectorySet` are the hash-verified audit path.
 
 3. **The training-engine port** (`engine.ts`) — any optimizer (rule deriver,
@@ -109,6 +116,31 @@ gaps. Links: [repo](https://github.com/microsoft/Trace) ·
 [docs](https://microsoft.github.io/Trace/) ·
 [paper](https://arxiv.org/abs/2406.16218) ·
 [MSR blog](https://www.microsoft.com/en-us/research/blog/tracing-the-path-to-self-adapting-ai-agents/).
+
+## Standards interop (OTel GenAI · OpenInference · LangSmith · Langfuse)
+
+Trajectory capture is aligned with — and deliberately collects a superset of —
+the current GenAI observability standards, so future improvement
+methodologies and shifts in industry conventions don't force recapture:
+
+- **Dual attribute vocabularies** — `dualConventionAttributes` stamps both
+  OTel `gen_ai.*` and OpenInference `llm.*` keys on spans;
+  `fromConventionAttributes` reads either back. Constants exported as
+  `GEN_AI_ATTR`, `OPENINFERENCE_ATTR`, `AUTOCODE_ATTR`.
+- **OTLP export** — `toOtlpJson(trajectories)` emits standard OTLP/JSON any
+  OTel collector (or Langfuse/Phoenix) can ingest; scores and feedback ride
+  as span events; sensitive payloads export refs only, never raw values.
+- **OTLP ingest** — `fromOtelSpans(otlpJson, { bind? })` rebuilds
+  trajectories: lossless round-trip of our own export via `autocode.*`
+  binding attributes, or foreign `gen_ai.*`/OpenInference instrumentation
+  with a caller-supplied region binding. Unmappable traces are reported, not
+  dropped.
+- **Gate bridge** — `evalResultFromScores` turns captured multi-metric
+  scores (LangSmith-feedback / Langfuse-score shaped) into the three-lens
+  gate's `EvalResult`.
+
+The full field-by-field comparison and collection policy live in
+[`docs/observability-alignment.md`](docs/observability-alignment.md).
 
 ## Usage
 

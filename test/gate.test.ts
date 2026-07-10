@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	PromotionGateParseError,
+	evalResultFromScores,
 	evaluatePromotionGate,
 	parseEvalResult,
 	parsePromotionThresholds,
@@ -122,6 +123,37 @@ describe("evaluatePromotionGate", () => {
 
 		expect(decision.outcome).toBe("refuse");
 		expect(decision.passed).toEqual({ conformance: true, eval: true, policy: false });
+	});
+});
+
+describe("evalResultFromScores", () => {
+	it("aggregates captured trajectory scores into a gate-ready EvalResult", () => {
+		const evalFromScores = evalResultFromScores(
+			[
+				{ name: "categoryCorrect", value: 0.9, source: "live-eval" },
+				{ name: "categoryCorrect", value: 1, source: "live-eval" },
+				{ name: "categoryCorrect", value: 0.98, source: "live-eval" },
+				{ name: "piiSafe", value: true, source: "guardrail" },
+				{ name: "piiSafe", value: true, source: "guardrail" },
+				{ name: "piiSafe", value: true, source: "guardrail" },
+				{ name: "categoryLabel", value: "billing", source: "human-label" }, // categorical: skipped
+			],
+			{ rubricRef: "rubric://classify@1.0.0", source: "live-eval" },
+		);
+
+		expect(evalFromScores.sampleCount).toBe(3);
+		expect(evalFromScores.scores["categoryCorrect"]).toBeCloseTo(0.96, 5);
+		expect(evalFromScores.scores["piiSafe"]).toBe(1);
+		expect(evalFromScores.scores["categoryLabel"]).toBeUndefined();
+
+		const decision = evaluatePromotionGate({
+			candidateId: "candidate-1",
+			conformance: true,
+			policy: true,
+			evalResult: evalFromScores,
+			thresholds,
+		});
+		expect(decision.outcome).toBe("promote");
 	});
 });
 

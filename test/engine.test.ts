@@ -21,22 +21,65 @@ describe("validateTrajectory", () => {
 		expect(validateTrajectory(trajectory).ok).toBe(true);
 	});
 
-	it("accepts a rewardless trajectory carrying general feedback", () => {
+	it("accepts a scoreless trajectory carrying general feedback", () => {
 		const base = makeTrajectory({
 			id: "t-fb",
 			input: "billing invoice",
 			baselineLabel: "general-support",
 			expectedLabel: "billing-support",
 		});
-		const { reward: _reward, ...withoutReward } = base;
+		const { scores: _scores, ...withoutScores } = base;
 
-		expect(validateTrajectory(withoutReward).ok).toBe(false);
+		expect(validateTrajectory(withoutScores).ok).toBe(false);
 		expect(
 			validateTrajectory({
-				...withoutReward,
+				...withoutScores,
 				feedback: [{ kind: "error", message: "TypeError: label is undefined" }],
 			}).ok,
 		).toBe(true);
+	});
+
+	it("requires code.regionDigest and validates LLM spans carry model + usage", () => {
+		const base = makeTrajectory({
+			id: "t-llm",
+			input: "billing invoice",
+			baselineLabel: "general-support",
+			expectedLabel: "billing-support",
+		});
+
+		const { code: _code, ...withoutCode } = base;
+		const noCode = validateTrajectory(withoutCode);
+		expect(noCode.ok).toBe(false);
+		expect(noCode.errors.some((error) => error.includes("trajectory.code"))).toBe(true);
+
+		const llmSpan = base.spans[1]!;
+		const { genAi: _genAi, ...bareLlmSpan } = llmSpan;
+		const noGenAi = validateTrajectory({ ...base, spans: [base.spans[0], bareLlmSpan] });
+		expect(noGenAi.ok).toBe(false);
+		expect(noGenAi.errors.some((error) => error.includes("required on LLM spans"))).toBe(true);
+	});
+
+	it("validates named scores", () => {
+		const base = makeTrajectory({
+			id: "t-scores",
+			input: "billing invoice",
+			baselineLabel: "general-support",
+			expectedLabel: "billing-support",
+		});
+		const result = validateTrajectory({
+			...base,
+			scores: [
+				{ name: "quality", value: 0.9, source: "live-eval" },
+				{ name: "category", value: "billing", source: "human-label" },
+				{ name: "piiSafe", value: true, source: "guardrail" },
+				{ name: "", value: Number.NaN, source: "" },
+			],
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.errors).toContain("trajectory.scores.3.name must be a non-empty string");
+		expect(result.errors).toContain("trajectory.scores.3.value must be finite");
+		expect(result.errors).toContain("trajectory.scores.3.source must be a non-empty string");
 	});
 
 	it("rejects malformed feedback items", () => {
