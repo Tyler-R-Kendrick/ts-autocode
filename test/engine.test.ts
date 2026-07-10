@@ -7,7 +7,7 @@ import {
 	validateOptimizeRequest,
 	validateTrajectory,
 } from "../src/index.js";
-import { createOutOfRegionEngine, makeOptimizeRequest, makeTrajectory } from "./fixtures.js";
+import { createOutOfRegionEngine, makeDualRegionRequest, makeOptimizeRequest, makeTrajectory } from "./fixtures.js";
 
 describe("validateTrajectory", () => {
 	it("accepts a well-formed trajectory", () => {
@@ -19,6 +19,41 @@ describe("validateTrajectory", () => {
 		});
 
 		expect(validateTrajectory(trajectory).ok).toBe(true);
+	});
+
+	it("accepts a rewardless trajectory carrying general feedback", () => {
+		const base = makeTrajectory({
+			id: "t-fb",
+			input: "billing invoice",
+			baselineLabel: "general-support",
+			expectedLabel: "billing-support",
+		});
+		const { reward: _reward, ...withoutReward } = base;
+
+		expect(validateTrajectory(withoutReward).ok).toBe(false);
+		expect(
+			validateTrajectory({
+				...withoutReward,
+				feedback: [{ kind: "error", message: "TypeError: label is undefined" }],
+			}).ok,
+		).toBe(true);
+	});
+
+	it("rejects malformed feedback items", () => {
+		const base = makeTrajectory({
+			id: "t-bad-fb",
+			input: "billing invoice",
+			baselineLabel: "general-support",
+			expectedLabel: "billing-support",
+		});
+		const result = validateTrajectory({
+			...base,
+			feedback: [{ kind: "score", score: 1.5 }, { kind: "mystery" }],
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.errors).toContain("trajectory.feedback.0.score must be between 0 and 1");
+		expect(result.errors).toContain("trajectory.feedback.1.kind must be score, text, or error");
 	});
 
 	it("rejects sensitive payloads that are neither tokenized nor encrypted", () => {
@@ -37,6 +72,29 @@ describe("validateTrajectory", () => {
 		const result = validateTrajectory(trajectory);
 		expect(result.ok).toBe(false);
 		expect(result.errors).toContain("sensitive payload email must be tokenized or encrypted");
+	});
+
+	it("rejects sensitive payloads that retain a raw value alongside redaction refs", () => {
+		const base = makeTrajectory({
+			id: "t-leak",
+			input: "billing invoice",
+			baselineLabel: "general-support",
+			expectedLabel: "billing-support",
+		});
+		const result = validateTrajectory({
+			...base,
+			payloads: {
+				email: {
+					classification: "pii",
+					redaction: "tokenized",
+					tokenRef: "tok-1",
+					value: "user@example.com",
+				},
+			},
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.errors).toContain("sensitive payload email must not retain a raw value alongside tokenRef");
 	});
 
 	it("accepts encrypted sensitive payloads scoped to the run", () => {
@@ -84,29 +142,59 @@ describe("validateOptimizeRequest", () => {
 		expect(validateOptimizeRequest(makeOptimizeRequest()).ok).toBe(true);
 	});
 
-	it("requires the contract to bind to the requested region", () => {
+	it("accepts a joint multi-region request", () => {
+		const result = validateOptimizeRequest(makeDualRegionRequest());
+		expect(result.errors).toEqual([]);
+		expect(result.ok).toBe(true);
+	});
+
+	it("requires the contract to bind to the requested regions", () => {
 		const request = makeOptimizeRequest();
 		const result = validateOptimizeRequest({
 			...request,
-			contract: { ...request.contract, allowedRegionId: "some-other-region" },
+			contract: { ...request.contract, allowedRegionIds: ["some-other-region"] },
 		});
 
 		expect(result.ok).toBe(false);
-		expect(result.errors).toContain("request.contract.allowedRegionId must match request.generatedRegion.regionId");
+		expect(result.errors).toContain(
+			"request.contract.allowedRegionIds must match request.generatedRegions region ids",
+		);
+	});
+
+	it("rejects duplicate region ids and unknown regionSources keys", () => {
+		const request = makeOptimizeRequest();
+		const region = request.generatedRegions[0]!;
+		const result = validateOptimizeRequest({
+			...request,
+			generatedRegions: [region, region],
+			regionSources: { "not-a-region": "code" },
+		});
+
+		expect(result.ok).toBe(false);
+		expect(result.errors).toContain("request.generatedRegions.1.regionId must be unique");
+		expect(result.errors).toContain("request.regionSources.not-a-region must reference a requested region");
+	});
+
+	it("validates run-level feedback", () => {
+		const request = makeOptimizeRequest();
+		const result = validateOptimizeRequest({ ...request, feedback: [{ kind: "text", text: "" }] });
+
+		expect(result.ok).toBe(false);
+		expect(result.errors).toContain("request.feedback.0.text must be a non-empty string");
 	});
 });
 
 describe("optimizeCandidate", () => {
-	it("rejects a candidate whose edits leave the generated region", () => {
-		const result = optimizeCandidate(createOutOfRegionEngine(), makeOptimizeRequest());
+	it("rejects a candidate whose edits leave the generated region", async () => {
+		const result = await optimizeCandidate(createOutOfRegionEngine(), makeOptimizeRequest());
 
 		expect(result.ok).toBe(false);
 		expect(result.candidate).toBeNull();
 		expect(result.errors.some((error) => error.includes("must stay within generated region"))).toBe(true);
 	});
 
-	it("reports an engine that throws instead of propagating", () => {
-		const result = optimizeCandidate(
+	it("reports an engine that throws instead of propagating", async () => {
+		const result = await optimizeCandidate(
 			{
 				engineId: "boom",
 				optimize() {
@@ -119,18 +207,37 @@ describe("optimizeCandidate", () => {
 		expect(result.ok).toBe(false);
 		expect(result.errors[0]).toContain("engine threw during optimize: exploded");
 	});
+
+	it("supports async engines", async () => {
+		const builtIn = createBuiltInOptoEngine();
+		const asyncEngine = {
+			engineId: "async-wrapper",
+			optimize: async (request: Parameters<typeof builtIn.optimize>[0]) => builtIn.optimize(request),
+		};
+		const result = await optimizeCandidate(asyncEngine, makeOptimizeRequest());
+
+		expect(result.errors).toEqual([]);
+		expect(result.ok).toBe(true);
+	});
 });
 
 describe("runEngineConformance", () => {
-	it("certifies the built-in engine as deterministic and region-bound", () => {
-		const report = runEngineConformance(createBuiltInOptoEngine(), makeOptimizeRequest());
+	it("certifies the built-in engine as deterministic and region-bound", async () => {
+		const report = await runEngineConformance(createBuiltInOptoEngine(), makeOptimizeRequest());
 
 		expect(report.errors).toEqual([]);
 		expect(report.ok).toBe(true);
 	});
 
-	it("fails an engine that edits outside the region", () => {
-		const report = runEngineConformance(createOutOfRegionEngine(), makeOptimizeRequest());
+	it("certifies the built-in engine on a joint multi-region request", async () => {
+		const report = await runEngineConformance(createBuiltInOptoEngine(), makeDualRegionRequest());
+
+		expect(report.errors).toEqual([]);
+		expect(report.ok).toBe(true);
+	});
+
+	it("fails an engine that edits outside the region", async () => {
+		const report = await runEngineConformance(createOutOfRegionEngine(), makeOptimizeRequest());
 
 		expect(report.ok).toBe(false);
 	});

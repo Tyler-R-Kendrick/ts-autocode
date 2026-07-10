@@ -1,9 +1,12 @@
-// ts-autocode — the code-evolution loop as a library.
+// ts-autocode — the code-evolution loop as a library, inspired by Microsoft
+// Trace (OPTO: optimization with a trace oracle).
 //
-// The loop: capture trajectories from a marker-delimited generated region →
-// hand them to a training engine behind the optimizer port → screen the
-// candidate patch offline against held-out data and contract invariants →
-// pass the three-lens promotion gate (conformance, eval, policy) → promote
+// The loop: wrap optimizable calls with trainable() so invocations record
+// trajectories against marker-delimited generated regions → hand them to a
+// training engine behind the optimizer port (with general feedback: scores,
+// text, errors) → screen the candidate patch offline against held-out data
+// and contract invariants (iterating via runOptimizationLoop) → pass the
+// three-lens promotion gate (conformance, eval, policy) → promote
 // champion/challenger style (auto-apply or PR delta) with log-driven revert.
 
 export { canonicalJson, digest, DIGEST_PATTERN } from "./canonical.js";
@@ -22,9 +25,11 @@ export {
 	TRACEPARENT_PATTERN,
 	TRAJECTORY_SCHEMA,
 	hashTrajectory,
+	validateFeedbackList,
 	validateTrajectory,
 } from "./trajectory.js";
 export type {
+	Feedback,
 	Trajectory,
 	TrajectoryPayload,
 	TrajectoryReward,
@@ -42,6 +47,7 @@ export {
 	validateOptimizeRequest,
 } from "./engine.js";
 export type {
+	CandidateEdit,
 	CandidatePatch,
 	OptimizeContract,
 	OptimizeOutcome,
@@ -69,6 +75,31 @@ export type {
 	RewriteRule,
 	TrainingRunResult,
 } from "./optimizer.js";
+
+export { runOptimizationLoop } from "./loop.js";
+export type { OptimizationLoopInput, OptimizationLoopResult, OptimizationRound } from "./loop.js";
+
+export { renderOptimizeReport } from "./report.js";
+export type { RenderOptimizeReportOptions } from "./report.js";
+
+export {
+	CAPTURE_CONTRACT,
+	createCaptureRuntime,
+	reconstructTrajectoryFromLog,
+	recoverCandidateTrajectorySet,
+	trainable,
+} from "./capture.js";
+export type {
+	CaptureChildSpan,
+	CaptureInvocationInput,
+	CaptureMethod,
+	CaptureResult,
+	CaptureRun,
+	CaptureRuntime,
+	CaptureRuntimeOptions,
+	TrainableFunction,
+	TrainableOptions,
+} from "./capture.js";
 
 export {
 	TELEMETRY_ENVELOPE_SCHEMA,
@@ -102,6 +133,7 @@ export {
 	PROVENANCE_PAYLOAD_SCHEMA,
 	PromotionError,
 	createChampionChallengerPromotion,
+	createEd25519ProvenanceVerifier,
 	promoteCandidate,
 	revertPromotion,
 	validateSignedProvenance,
@@ -112,6 +144,7 @@ export type {
 	PromoteInput,
 	PromotionEvent,
 	PromotionResult,
+	ProvenanceVerifier,
 	RevertInput,
 	RevertResult,
 	ShadowSample,

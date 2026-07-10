@@ -29,6 +29,20 @@ describe("createTrainingEvent / validateTrainingEvent", () => {
 		expect(validateTrainingEvent(event).ok).toBe(true);
 	});
 
+	it("keeps reserved data fields even when the payload collides", () => {
+		const event = createTrainingEvent({
+			id: "run-1-started",
+			type: "training.RunStarted",
+			runId: "run-1",
+			seq: 0,
+			data: { runId: "spoofed-run", schema: "spoofed-schema" },
+		});
+
+		expect(event.data.runId).toBe("run-1");
+		expect(event.data.schema).toBe("ts-autocode.training.event/v1");
+		expect(validateTrainingEvent(event).ok).toBe(true);
+	});
+
 	it("rejects an envelope whose subject does not correlate to the run", () => {
 		const event = {
 			...createTrainingEvent({ id: "run-1-started", type: "training.RunStarted", runId: "run-1", seq: 0 }),
@@ -123,7 +137,9 @@ describe("replayTrainingRun", () => {
 			runId: "run-1",
 			status: "promoted",
 			trajectoryIds: [trajectory.id],
+			sampledOutIds: [],
 			rewardCount: 1,
+			spanCount: 0,
 			candidateIds: ["candidate-1"],
 			lastSeq: 3,
 		});

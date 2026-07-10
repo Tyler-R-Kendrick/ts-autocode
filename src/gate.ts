@@ -140,14 +140,18 @@ export function evaluatePromotionGate(input: PromotionGateInput): PromotionDecis
 		failures.push("conformance: hard contract not green");
 	}
 
+	let evalPassed = true;
 	if (input.evalResult.sampleCount < input.thresholds.minSamples) {
+		evalPassed = false;
 		failures.push(`eval: ${input.evalResult.sampleCount} samples below min ${input.thresholds.minSamples}`);
 	}
 	for (const [metric, floor] of Object.entries(input.thresholds.metricFloors)) {
 		const score = input.evalResult.scores[metric];
 		if (score === undefined) {
+			evalPassed = false;
 			failures.push(`eval: metric ${metric} missing from eval result`);
 		} else if (score < floor) {
+			evalPassed = false;
 			failures.push(`eval: ${metric} ${score} below floor ${floor}`);
 		}
 	}
@@ -156,7 +160,6 @@ export function evaluatePromotionGate(input: PromotionGateInput): PromotionDecis
 		failures.push("policy: promotion not allowed by policy");
 	}
 
-	const evalPassed = !failures.some((failure) => failure.startsWith("eval:"));
 	const promoted = failures.length === 0;
 
 	return deepFreeze({

@@ -7,12 +7,12 @@ import {
 	replayTrainingRun,
 	runBuiltInOptoTrainingRun,
 } from "../src/index.js";
-import { heldOutTrajectories, makeOptimizeRequest } from "./fixtures.js";
+import { heldOutTrajectories, makeDualRegionRequest, makeOptimizeRequest } from "./fixtures.js";
 
 describe("createBuiltInOptoEngine", () => {
-	it("derives keyword rules from mislabeled trajectories and renders a program", () => {
+	it("derives keyword rules from mislabeled trajectories and renders a program", async () => {
 		const request = makeOptimizeRequest();
-		const candidate = createBuiltInOptoEngine().optimize(request);
+		const candidate = await createBuiltInOptoEngine().optimize(request);
 
 		expect(candidate.edits).toHaveLength(1);
 		const replacement = candidate.edits[0]?.replacement ?? "";
@@ -26,9 +26,22 @@ describe("createBuiltInOptoEngine", () => {
 		expect(predictLabel(program, "unrelated question")).toBe("general-support");
 	});
 
-	it("records provenance binding the candidate to its evidence", () => {
+	it("emits one edit per region on a joint request", async () => {
+		const request = makeDualRegionRequest();
+		const candidate = await createBuiltInOptoEngine().optimize(request);
+
+		expect(candidate.edits).toHaveLength(2);
+		expect(candidate.edits.map((edit) => edit.regionId).sort()).toEqual(["classify-body", "fallback-body"]);
+		for (const edit of candidate.edits) {
+			const region = request.generatedRegions.find((r) => r.regionId === edit.regionId);
+			expect(edit.startOffset).toBe(region?.startOffset);
+			expect(edit.endOffset).toBe(region?.endOffset);
+		}
+	});
+
+	it("records provenance binding the candidate to its evidence", async () => {
 		const request = makeOptimizeRequest();
-		const candidate = createBuiltInOptoEngine().optimize(request);
+		const candidate = await createBuiltInOptoEngine().optimize(request);
 
 		expect(candidate.provenance.rubricRef).toBe(request.rubric.id);
 		expect(candidate.provenance.contractRef).toBe(request.contract.ref);
@@ -40,8 +53,8 @@ describe("createBuiltInOptoEngine", () => {
 });
 
 describe("runBuiltInOptoTrainingRun", () => {
-	it("produces a ready-for-gate candidate when held-out eval improves on baseline", () => {
-		const run = runBuiltInOptoTrainingRun({
+	it("produces a ready-for-gate candidate when held-out eval improves on baseline", async () => {
+		const run = await runBuiltInOptoTrainingRun({
 			request: makeOptimizeRequest(),
 			heldOutTrajectories: heldOutTrajectories(),
 		});
@@ -53,19 +66,38 @@ describe("runBuiltInOptoTrainingRun", () => {
 		expect(run.rejectionReasons).toEqual([]);
 	});
 
-	it("rejects when there is no held-out data", () => {
-		const run = runBuiltInOptoTrainingRun({
+	it("rejects when there is no held-out data, with a terminal Rejected event", async () => {
+		const run = await runBuiltInOptoTrainingRun({
 			request: makeOptimizeRequest(),
 			heldOutTrajectories: [],
 		});
 
 		expect(run.outcome).toBe("rejected");
 		expect(run.rejectionReasons).toContain("held-out.required");
+		expect(run.events.at(-1)?.type).toBe("training.Rejected");
+		expect(replayTrainingRun(run.events).status).toBe("rejected");
 	});
 
-	it("rejects a candidate whose fallback violates the contract", () => {
+	it("emits RunStarted + Rejected when the engine's patch is invalid", async () => {
+		const run = await runBuiltInOptoTrainingRun({
+			request: makeOptimizeRequest(),
+			heldOutTrajectories: heldOutTrajectories(),
+			engine: {
+				engineId: "broken",
+				optimize() {
+					throw new Error("no candidate");
+				},
+			},
+		});
+
+		expect(run.outcome).toBe("rejected");
+		expect(run.events.map((event) => event.type)).toEqual(["training.RunStarted", "training.Rejected"]);
+		expect(replayTrainingRun(run.events).status).toBe("rejected");
+	});
+
+	it("rejects a candidate whose fallback violates the contract", async () => {
 		const request = makeOptimizeRequest();
-		const run = runBuiltInOptoTrainingRun({
+		const run = await runBuiltInOptoTrainingRun({
 			request: {
 				...request,
 				contract: {
@@ -96,8 +128,8 @@ describe("runBuiltInOptoTrainingRun", () => {
 		expect(run.rejectionReasons).toContain("contract.required-fallback:identity-support");
 	});
 
-	it("emits a replayable event log for the run", () => {
-		const run = runBuiltInOptoTrainingRun({
+	it("emits a replayable event log for the run", async () => {
+		const run = await runBuiltInOptoTrainingRun({
 			request: makeOptimizeRequest({ requestId: "run-events-1" }),
 			heldOutTrajectories: heldOutTrajectories(),
 		});
@@ -115,12 +147,12 @@ describe("runBuiltInOptoTrainingRun", () => {
 		expect(projection.candidateIds).toEqual([run.candidate?.id]);
 	});
 
-	it("is deterministic: identical requests produce identical replay digests", () => {
-		const first = runBuiltInOptoTrainingRun({
+	it("is deterministic: identical requests produce identical replay digests", async () => {
+		const first = await runBuiltInOptoTrainingRun({
 			request: makeOptimizeRequest(),
 			heldOutTrajectories: heldOutTrajectories(),
 		});
-		const second = runBuiltInOptoTrainingRun({
+		const second = await runBuiltInOptoTrainingRun({
 			request: makeOptimizeRequest(),
 			heldOutTrajectories: heldOutTrajectories(),
 		});

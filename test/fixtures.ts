@@ -13,6 +13,7 @@ import {
 } from "../src/index.js";
 
 export const FIXTURE_TS = "2026-06-28T19:10:00.000Z";
+export const FIXTURE_TRACEPARENT = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
 export function classifierSource(): string {
 	return [
@@ -26,9 +27,34 @@ export function classifierSource(): string {
 	].join("\n");
 }
 
+/** A second trainable region in the same artifact, for joint optimization. */
+export function dualRegionSource(): string {
+	return [
+		"export function classify(input) {",
+		"  const handWrittenGuard = true;",
+		"  // autocode:generated-region begin region=classify-body owner=training-engine",
+		'  return "identity-support";',
+		"  // autocode:generated-region end region=classify-body",
+		"}",
+		"",
+		"export function classifyFallback(input) {",
+		"  // autocode:generated-region begin region=fallback-body owner=training-engine",
+		'  return "identity-support";',
+		"  // autocode:generated-region end region=fallback-body",
+		"}",
+		"",
+	].join("\n");
+}
+
 export function classifierRegion(source = classifierSource()) {
 	return findGeneratedRegion(source, "classify-body", {
 		artifactRef: "git://repo/src/classify.ts#classify",
+	});
+}
+
+export function fallbackRegion(source = dualRegionSource()) {
+	return findGeneratedRegion(source, "fallback-body", {
+		artifactRef: "git://repo/src/classify.ts#classifyFallback",
 	});
 }
 
@@ -50,7 +76,7 @@ export function makeTrajectory({
 	return {
 		schema: TRAJECTORY_SCHEMA,
 		id,
-		traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+		traceparent: FIXTURE_TRACEPARENT,
 		run: {
 			id: `run-${id}`,
 			tenantId: "tenant-a",
@@ -146,7 +172,7 @@ export function makeOptimizeRequest(overrides: Partial<OptimizeRequest> = {}): O
 	return {
 		schema: OPTIMIZE_REQUEST_SCHEMA,
 		requestId: "optimize-request-1",
-		generatedRegion: region,
+		generatedRegions: [region],
 		trajectories: billingTrajectories(),
 		rubric: {
 			id: "rubric://classify@1.0.0",
@@ -157,7 +183,7 @@ export function makeOptimizeRequest(overrides: Partial<OptimizeRequest> = {}): O
 		contract: {
 			ref: "contract://classify@1.0.0",
 			method: "classify",
-			allowedRegionId: region.regionId,
+			allowedRegionIds: [region.regionId],
 			invariants: {
 				allowedOutputs: ["billing-support", "identity-support", "general-support"],
 				forbiddenOutputs: ["admin-support"],
@@ -168,20 +194,46 @@ export function makeOptimizeRequest(overrides: Partial<OptimizeRequest> = {}): O
 	};
 }
 
+/** A joint request over both regions of dualRegionSource(). */
+export function makeDualRegionRequest(overrides: Partial<OptimizeRequest> = {}): OptimizeRequest {
+	const source = dualRegionSource();
+	const regions = [classifierRegion(source), fallbackRegion(source)];
+	return makeOptimizeRequest({
+		requestId: "optimize-request-dual",
+		generatedRegions: regions,
+		regionSources: Object.fromEntries(
+			regions.map((region) => [region.regionId, source.slice(region.startOffset, region.endOffset)]),
+		),
+		contract: {
+			ref: "contract://classify@1.0.0",
+			method: "classify",
+			allowedRegionIds: regions.map((region) => region.regionId),
+			invariants: {
+				allowedOutputs: ["billing-support", "identity-support", "general-support"],
+				forbiddenOutputs: ["admin-support"],
+				requiredFallback: "general-support",
+			},
+		},
+		...overrides,
+	});
+}
+
 /** An engine that edits outside the requested region — must be rejected. */
 export function createOutOfRegionEngine(): TrainingEngine {
 	return {
 		engineId: "example.training-engine/out-of-region@0.1.0",
 		optimize(request): CandidatePatch {
+			const region = request.generatedRegions[0] as OptimizeRequest["generatedRegions"][number];
 			return {
 				schema: CANDIDATE_PATCH_SCHEMA,
 				id: "candidate-out-of-region",
 				engineId: "example.training-engine/out-of-region@0.1.0",
-				region: structuredClone(request.generatedRegion),
+				regions: structuredClone(request.generatedRegions) as CandidatePatch["regions"],
 				edits: [
 					{
-						startOffset: request.generatedRegion.endOffset + 1,
-						endOffset: request.generatedRegion.endOffset + 4,
+						regionId: region.regionId,
+						startOffset: region.endOffset + 1,
+						endOffset: region.endOffset + 4,
 						replacement: "overwrite unrelated code",
 					},
 				],

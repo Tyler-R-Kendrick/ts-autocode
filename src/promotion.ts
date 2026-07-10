@@ -1,8 +1,9 @@
-import { DIGEST_PATTERN, digest, isNonEmptyString, isRecord } from "./canonical.js";
-import { type CandidatePatch, validateCandidatePatch } from "./engine.js";
+import { type KeyObject, createPublicKey, verify as cryptoVerify } from "node:crypto";
+
+import { DIGEST_PATTERN, canonicalJson, digest, isNonEmptyString, isRecord } from "./canonical.js";
+import { type CandidateEdit, type CandidatePatch, validateCandidatePatch } from "./engine.js";
 import {
 	type GeneratedRegion,
-	type RegionEdit,
 	type RegionMarkerOptions,
 	applyRegionEdits,
 	findGeneratedRegion,
@@ -63,9 +64,17 @@ export interface PromotionEvent {
 	readonly data: Record<string, unknown>;
 }
 
+/**
+ * Cryptographic check of the provenance signature. Shape validation alone
+ * cannot prove the payload was signed by a trusted key — supply a verifier
+ * (see createEd25519ProvenanceVerifier) to enforce that before promotion.
+ */
+export type ProvenanceVerifier = (provenance: SignedProvenance) => boolean;
+
 export interface PromoteInput {
 	readonly source: string;
-	readonly region: GeneratedRegion;
+	/** The current boundaries of every region the candidate rewrites. */
+	readonly regions: readonly GeneratedRegion[];
 	readonly candidate: CandidatePatch;
 	readonly gate: CertifiedGate;
 	readonly provenance: SignedProvenance;
@@ -75,6 +84,8 @@ export interface PromoteInput {
 	readonly riskClass?: string;
 	readonly ts?: string;
 	readonly markerOptions?: RegionMarkerOptions;
+	/** When provided, promotion refuses provenance whose signature does not verify. */
+	readonly verifySignature?: ProvenanceVerifier;
 }
 
 export interface PromotionResult {
@@ -83,9 +94,9 @@ export interface PromotionResult {
 	readonly source: string;
 	readonly delta: {
 		readonly kind: "source-pr-delta";
-		readonly regionId: string;
 		readonly candidateId: string;
-		readonly edits: readonly RegionEdit[];
+		readonly regionIds: readonly string[];
+		readonly edits: readonly CandidateEdit[];
 		readonly provenanceDigest: string;
 	} | null;
 	readonly events: readonly PromotionEvent[];
@@ -121,9 +132,11 @@ export interface ChampionChallengerPromotion {
 export function createChampionChallengerPromotion({
 	now = () => new Date().toISOString(),
 	markerOptions,
+	verifySignature,
 }: {
 	now?: () => string;
 	markerOptions?: RegionMarkerOptions;
+	verifySignature?: ProvenanceVerifier;
 } = {}): ChampionChallengerPromotion {
 	return Object.freeze({
 		shadowTraffic<Req, Res>({
@@ -161,6 +174,7 @@ export function createChampionChallengerPromotion({
 		promote(input: Omit<PromoteInput, "ts">): PromotionResult {
 			return promoteCandidate({
 				...(markerOptions === undefined ? {} : { markerOptions }),
+				...(verifySignature === undefined ? {} : { verifySignature }),
 				...input,
 				ts: now(),
 			});
@@ -173,14 +187,14 @@ export function createChampionChallengerPromotion({
 }
 
 /**
- * Applies a gate-certified candidate to the source. Low-risk, non-prod
- * promotions auto-apply in place (with a revert snapshot in the events);
- * prod or high-risk promotions return a PR delta for human review instead of
- * touching the source.
+ * Applies a gate-certified candidate to the source across every region it
+ * rewrites. Low-risk, non-prod promotions auto-apply in place (with one
+ * revert snapshot per region in the events); prod or high-risk promotions
+ * return a PR delta for human review instead of touching the source.
  */
 export function promoteCandidate({
 	source,
-	region,
+	regions,
 	candidate,
 	gate,
 	provenance,
@@ -188,23 +202,33 @@ export function promoteCandidate({
 	riskClass,
 	ts = new Date().toISOString(),
 	markerOptions,
+	verifySignature,
 }: PromoteInput): PromotionResult {
 	assertCertifiedGate(gate);
 	validateSignedProvenance(provenance);
+	if (verifySignature && !verifySignature(provenance)) {
+		throw new PromotionError("promotion.provenance_signature_invalid", "$.provenance.signature");
+	}
 
 	if (isCandidateAlreadyApplied(source, candidate, markerOptions)) {
 		return { schema: PROMOTION_SCHEMA, effect: "already-applied", source, delta: null, events: [] };
 	}
 
-	const currentRegion = assertRegionMatchesSource(source, region, markerOptions);
-	const patchValidation = validateCandidatePatch(candidate, currentRegion);
+	if (!Array.isArray(regions) || regions.length === 0) {
+		throw new PromotionError("promotion.regions_required", "$.regions");
+	}
+	const currentRegions = regions.map((region) => assertRegionMatchesSource(source, region, markerOptions));
+	const patchValidation = validateCandidatePatch(candidate, currentRegions);
 	if (!patchValidation.ok || patchValidation.value === null) {
 		throw new PromotionError("promotion.candidate_patch_invalid", "$.candidate", patchValidation.errors.join("; "));
 	}
 
+	// Promotion requires exactly one full-region replacement per region so
+	// the impl.Promoted snapshots (and therefore revert and idempotency)
+	// always describe the entire region, never a partial span.
+	assertFullRegionEdits(patchValidation.value.edits, currentRegions);
+
 	const edits = normalizeEdits(patchValidation.value.edits, source);
-	const firstEdit = edits[0] as RegionEdit;
-	const previousRegionSource = source.slice(currentRegion.startOffset, currentRegion.endOffset);
 	if (environment === "prod" || environment === "production" || riskClass === "high") {
 		return {
 			schema: PROMOTION_SCHEMA,
@@ -212,33 +236,47 @@ export function promoteCandidate({
 			source,
 			delta: {
 				kind: "source-pr-delta",
-				regionId: currentRegion.regionId,
 				candidateId: candidate.id,
+				regionIds: currentRegions.map((region) => region.regionId),
 				edits,
 				provenanceDigest: digest(provenance),
 			},
-			events: [promotionEvent("training.Promoted", candidate, currentRegion, ts, "pending-pr-delta")],
+			events: [
+				promotionEvent("training.Promoted", candidate, currentRegions.map((r) => r.regionId).join(","), ts, "pending-pr-delta"),
+			],
 		};
 	}
 
 	const nextSource = applyRegionEdits(source, edits);
-	const promotedRegionSource = firstEdit.replacement;
+	const regionById = new Map(currentRegions.map((region) => [region.regionId, region]));
+	const implEvents = edits.map((edit) => {
+		const region = regionById.get(edit.regionId) as GeneratedRegion;
+		// Snapshot offsets must locate the region in the PROMOTED source:
+		// edits at lower offsets shift everything after them by their length
+		// delta, so add the cumulative delta of all earlier edits.
+		const shift = edits
+			.filter((other) => other.startOffset < edit.startOffset)
+			.reduce((sum, other) => sum + (other.replacement.length - (other.endOffset - other.startOffset)), 0);
+		return promotionEvent("impl.Promoted", candidate, edit.regionId, ts, "auto-applied", {
+			previousRegionSource: source.slice(region.startOffset, region.endOffset),
+			promotedRegionSource: edit.replacement,
+			startOffset: edit.startOffset + shift,
+		});
+	});
 	return {
 		schema: PROMOTION_SCHEMA,
 		effect: "auto-applied",
 		source: nextSource,
 		delta: null,
 		events: [
-			promotionEvent("training.Promoted", candidate, currentRegion, ts, "auto-applied", {
-				previousRegionSource,
-				promotedRegionSource,
-				startOffset: firstEdit.startOffset,
-			}),
-			promotionEvent("impl.Promoted", candidate, currentRegion, ts, "auto-applied", {
-				previousRegionSource,
-				promotedRegionSource,
-				startOffset: firstEdit.startOffset,
-			}),
+			promotionEvent(
+				"training.Promoted",
+				candidate,
+				currentRegions.map((r) => r.regionId).join(","),
+				ts,
+				"auto-applied",
+			),
+			...implEvents,
 		],
 	};
 }
@@ -256,8 +294,9 @@ export interface RevertResult {
 }
 
 /**
- * Restores the region snapshot recorded by the matching `impl.Promoted`
- * event. Revert is log-driven: no snapshot in the log, no revert.
+ * Restores every region snapshot recorded by the candidate's `impl.Promoted`
+ * events (the latest per region). Revert is log-driven: no snapshot in the
+ * log, no revert.
  */
 export function revertPromotion({ source, events, candidateId }: RevertInput): RevertResult {
 	if (!isNonEmptyString(source)) {
@@ -270,31 +309,38 @@ export function revertPromotion({ source, events, candidateId }: RevertInput): R
 		throw new PromotionError("promotion.events_required", "$.events");
 	}
 
-	const promoted = [...events]
-		.reverse()
-		.find((event) => event.type === "impl.Promoted" && event.candidateId === candidateId);
-	const data = promoted?.data;
-	const previousRegionSource = data?.["previousRegionSource"];
-	const promotedRegionSource = data?.["promotedRegionSource"];
-	const startOffset = data?.["startOffset"];
-	if (
-		!isNonEmptyString(previousRegionSource) ||
-		!isNonEmptyString(promotedRegionSource) ||
-		!Number.isInteger(startOffset)
-	) {
+	// Latest impl.Promoted snapshot per region for this candidate.
+	const snapshots = new Map<string, { previous: string; promoted: string; startOffset: number }>();
+	for (const event of events) {
+		if (event.type !== "impl.Promoted" || event.candidateId !== candidateId) {
+			continue;
+		}
+		const data = event.data;
+		const previous = data?.["previousRegionSource"];
+		const promoted = data?.["promotedRegionSource"];
+		const startOffset = data?.["startOffset"];
+		if (!isNonEmptyString(previous) || !isNonEmptyString(promoted) || !Number.isInteger(startOffset)) {
+			continue;
+		}
+		snapshots.set(event.regionId, { previous, promoted, startOffset: startOffset as number });
+	}
+	if (snapshots.size === 0) {
 		throw new PromotionError("promotion.revert_snapshot_missing", "$.events");
 	}
 
-	const endOffset = (startOffset as number) + promotedRegionSource.length;
-	if (source.slice(startOffset as number, endOffset) !== promotedRegionSource) {
-		throw new PromotionError("promotion.revert_current_region_mismatch", "$.source");
+	// Verify every snapshot against the current source, then restore
+	// right-to-left so earlier offsets stay valid.
+	const ordered = [...snapshots.values()].sort((left, right) => right.startOffset - left.startOffset);
+	let nextSource = source;
+	for (const snapshot of ordered) {
+		const endOffset = snapshot.startOffset + snapshot.promoted.length;
+		if (nextSource.slice(snapshot.startOffset, endOffset) !== snapshot.promoted) {
+			throw new PromotionError("promotion.revert_current_region_mismatch", "$.source");
+		}
+		nextSource = `${nextSource.slice(0, snapshot.startOffset)}${snapshot.previous}${nextSource.slice(endOffset)}`;
 	}
 
-	return {
-		schema: PROMOTION_SCHEMA,
-		effect: "reverted",
-		source: `${source.slice(0, startOffset as number)}${previousRegionSource}${source.slice(endOffset)}`,
-	};
+	return { schema: PROMOTION_SCHEMA, effect: "reverted", source: nextSource };
 }
 
 function assertRegionMatchesSource(
@@ -307,7 +353,7 @@ function assertRegionMatchesSource(
 		...(markerOptions ?? {}),
 	});
 	if (currentRegion.startOffset !== region?.startOffset || currentRegion.endOffset !== region?.endOffset) {
-		throw new PromotionError("promotion.region_boundary_mismatch", "$.region");
+		throw new PromotionError("promotion.region_boundary_mismatch", "$.regions");
 	}
 	return currentRegion;
 }
@@ -318,20 +364,43 @@ function isCandidateAlreadyApplied(
 	markerOptions?: RegionMarkerOptions,
 ): boolean {
 	try {
-		const currentRegion = findGeneratedRegion(source, candidate?.region?.regionId, {
-			...(candidate?.region?.artifactRef === undefined ? {} : { artifactRef: candidate.region.artifactRef }),
-			...(markerOptions ?? {}),
-		});
-		const currentRegionSource = source.slice(currentRegion.startOffset, currentRegion.endOffset);
-		const replacement = candidate?.edits?.[0]?.replacement;
-		if (typeof replacement !== "string") {
+		const edits = candidate?.edits;
+		if (!Array.isArray(edits) || edits.length === 0) {
 			return false;
 		}
-		const normalizedReplacement =
-			currentRegionSource.endsWith("\n") && !replacement.endsWith("\n") ? `${replacement}\n` : replacement;
-		return currentRegionSource === normalizedReplacement;
+		return edits.every((edit) => {
+			const bound = candidate.regions?.find((region) => region.regionId === edit.regionId);
+			const currentRegion = findGeneratedRegion(source, edit.regionId, {
+				...(bound?.artifactRef === undefined ? {} : { artifactRef: bound.artifactRef }),
+				...(markerOptions ?? {}),
+			});
+			const currentRegionSource = source.slice(currentRegion.startOffset, currentRegion.endOffset);
+			if (typeof edit.replacement !== "string") {
+				return false;
+			}
+			const normalizedReplacement =
+				currentRegionSource.endsWith("\n") && !edit.replacement.endsWith("\n")
+					? `${edit.replacement}\n`
+					: edit.replacement;
+			return currentRegionSource === normalizedReplacement;
+		});
 	} catch {
 		return false;
+	}
+}
+
+function assertFullRegionEdits(edits: readonly CandidateEdit[], regions: readonly GeneratedRegion[]): void {
+	const regionById = new Map(regions.map((region) => [region.regionId, region]));
+	const seen = new Set<string>();
+	for (const edit of edits) {
+		const region = regionById.get(edit.regionId);
+		if (!region || edit.startOffset !== region.startOffset || edit.endOffset !== region.endOffset) {
+			throw new PromotionError("promotion.full_region_edit_required", "$.candidate.edits");
+		}
+		if (seen.has(edit.regionId)) {
+			throw new PromotionError("promotion.full_region_edit_required", "$.candidate.edits");
+		}
+		seen.add(edit.regionId);
 	}
 }
 
@@ -375,11 +444,12 @@ export function validateSignedProvenance(provenance: unknown): asserts provenanc
 	}
 }
 
-function normalizeEdits(edits: readonly RegionEdit[], source: string): RegionEdit[] {
+function normalizeEdits(edits: readonly CandidateEdit[], source: string): CandidateEdit[] {
 	return edits.map((edit) => {
 		const original = source.slice(edit.startOffset, edit.endOffset);
 		const needsTrailingNewline = original.endsWith("\n") && !edit.replacement.endsWith("\n");
 		return {
+			regionId: edit.regionId,
 			startOffset: edit.startOffset,
 			endOffset: edit.endOffset,
 			replacement: needsTrailingNewline ? `${edit.replacement}\n` : edit.replacement,
@@ -390,20 +460,43 @@ function normalizeEdits(edits: readonly RegionEdit[], source: string): RegionEdi
 function promotionEvent(
 	type: string,
 	candidate: CandidatePatch,
-	region: GeneratedRegion,
+	regionId: string,
 	ts: string,
 	effect: string,
 	data: Record<string, unknown> = {},
 ): PromotionEvent {
 	return {
 		schema: PROMOTION_SCHEMA,
-		id: `${candidate.id}:${type}`,
+		id: `${candidate.id}:${type}:${regionId}`,
 		type,
 		ts,
 		candidateId: candidate.id,
-		regionId: region.regionId,
+		regionId,
 		effect,
 		data,
+	};
+}
+
+/**
+ * Builds a ProvenanceVerifier that cryptographically checks the Ed25519
+ * signature: the payload digest must match the canonical payload bytes, and
+ * `signature.value` (base64) must verify over those bytes with the trusted
+ * public key. Wire it into promoteCandidate/createChampionChallengerPromotion
+ * so fabricated provenance cannot reach promotion.
+ */
+export function createEd25519ProvenanceVerifier(publicKey: KeyObject | string): ProvenanceVerifier {
+	const key = typeof publicKey === "string" ? createPublicKey(publicKey) : publicKey;
+	return (provenance) => {
+		try {
+			if (provenance.signature.payloadDigest !== digest(provenance.payload)) {
+				return false;
+			}
+			const payloadBytes = Buffer.from(canonicalJson(provenance.payload), "utf8");
+			const signatureBytes = Buffer.from(provenance.signature.value, "base64");
+			return cryptoVerify(null, payloadBytes, key, signatureBytes);
+		} catch {
+			return false;
+		}
 	};
 }
 

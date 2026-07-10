@@ -58,6 +58,45 @@ export interface TrajectoryReward {
 	readonly observedAt?: string;
 }
 
+/**
+ * General feedback, Trace-style: an optimizer signal need not be a scalar.
+ * A score, a natural-language critique, and a runtime error are all valid
+ * inputs to `.backward()`-equivalent propagation.
+ */
+export type Feedback =
+	| { readonly kind: "score"; readonly score: number }
+	| { readonly kind: "text"; readonly text: string }
+	| { readonly kind: "error"; readonly message: string; readonly detail?: string };
+
+export function validateFeedbackList(feedback: unknown, errors: string[], pathName: string): void {
+	if (!Array.isArray(feedback)) {
+		errors.push(`${pathName} must be an array`);
+		return;
+	}
+	for (const [index, item] of feedback.entries()) {
+		if (!isRecord(item)) {
+			errors.push(`${pathName}.${index} must be an object`);
+			continue;
+		}
+		if (item["kind"] === "score") {
+			const score = item["score"];
+			if (typeof score !== "number" || !Number.isFinite(score) || score < 0 || score > 1) {
+				errors.push(`${pathName}.${index}.score must be between 0 and 1`);
+			}
+		} else if (item["kind"] === "text") {
+			if (!isNonEmptyString(item["text"])) {
+				errors.push(`${pathName}.${index}.text must be a non-empty string`);
+			}
+		} else if (item["kind"] === "error") {
+			if (!isNonEmptyString(item["message"])) {
+				errors.push(`${pathName}.${index}.message must be a non-empty string`);
+			}
+		} else {
+			errors.push(`${pathName}.${index}.kind must be score, text, or error`);
+		}
+	}
+}
+
 export interface TrajectoryRun {
 	readonly id: string;
 	readonly tenantId?: string;
@@ -69,8 +108,9 @@ export interface TrajectoryRun {
 
 /**
  * One observed execution of an optimizable method: correlated spans, the
- * generated region it exercised, redaction-governed payloads, and the reward
- * signal the optimizer learns from.
+ * generated region it exercised, redaction-governed payloads, and the
+ * optimizer signal — a scored reward, general feedback (text/error), or both.
+ * At least one of `reward` / `feedback` must be present.
  */
 export interface Trajectory {
 	readonly schema: typeof TRAJECTORY_SCHEMA;
@@ -85,7 +125,8 @@ export interface Trajectory {
 	};
 	readonly spans: readonly TrajectorySpan[];
 	readonly payloads: Record<string, TrajectoryPayload>;
-	readonly reward: TrajectoryReward;
+	readonly reward?: TrajectoryReward;
+	readonly feedback?: readonly Feedback[];
 }
 
 export interface ValidationResult<T> {
@@ -128,7 +169,17 @@ export function validateTrajectory(trajectory: unknown): ValidationResult<Trajec
 		validateGeneratedRegionShape(subject["generatedRegion"], errors, "trajectory.subject.generatedRegion");
 	}
 	validateSpans(trajectory["spans"], errors);
-	validateReward(trajectory["reward"], errors);
+	const reward = trajectory["reward"];
+	const feedback = trajectory["feedback"];
+	if (reward === undefined && feedback === undefined) {
+		errors.push("trajectory must carry a reward, feedback, or both");
+	}
+	if (reward !== undefined) {
+		validateReward(reward, errors);
+	}
+	if (feedback !== undefined) {
+		validateFeedbackList(feedback, errors, "trajectory.feedback");
+	}
 	const runId = isRecord(trajectory["run"]) ? trajectory["run"]["id"] : undefined;
 	validatePayloads(trajectory["payloads"], typeof runId === "string" ? runId : "", errors);
 
@@ -258,6 +309,9 @@ function validatePayloads(payloads: unknown, runId: string, errors: string[]): v
 			continue;
 		}
 		if (payload["redaction"] === "tokenized" && isNonEmptyString(payload["tokenRef"])) {
+			if (isNonEmptyString(payload["value"])) {
+				errors.push(`sensitive payload ${name} must not retain a raw value alongside tokenRef`);
+			}
 			continue;
 		}
 		const encryptedRef = payload["encryptedRef"];
@@ -266,6 +320,9 @@ function validatePayloads(payloads: unknown, runId: string, errors: string[]): v
 			isNonEmptyString(encryptedRef) &&
 			encryptedRef.startsWith(`run://${runId}/`)
 		) {
+			if (isNonEmptyString(payload["value"])) {
+				errors.push(`sensitive payload ${name} must not retain a raw value alongside encryptedRef`);
+			}
 			continue;
 		}
 		errors.push(`sensitive payload ${name} must be tokenized or encrypted`);

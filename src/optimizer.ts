@@ -1,4 +1,5 @@
 import { digest } from "./canonical.js";
+import type { GeneratedRegion } from "./region.js";
 import {
 	CANDIDATE_PATCH_SCHEMA,
 	type CandidatePatch,
@@ -79,7 +80,7 @@ export function createBuiltInOptoEngine({
 			);
 			const candidateCore = {
 				engineId,
-				region: structuredClone(request.generatedRegion),
+				regions: structuredClone(request.generatedRegions),
 				rules,
 				replacement,
 				requestId: request.requestId,
@@ -89,14 +90,13 @@ export function createBuiltInOptoEngine({
 				schema: CANDIDATE_PATCH_SCHEMA,
 				id: `candidate-opto-${digest(candidateCore).slice(7, 19)}`,
 				engineId,
-				region: structuredClone(request.generatedRegion),
-				edits: [
-					{
-						startOffset: request.generatedRegion.startOffset,
-						endOffset: request.generatedRegion.endOffset,
-						replacement,
-					},
-				],
+				regions: structuredClone(request.generatedRegions) as GeneratedRegion[],
+				edits: request.generatedRegions.map((region) => ({
+					regionId: region.regionId,
+					startOffset: region.startOffset,
+					endOffset: region.endOffset,
+					replacement,
+				})),
 				provenance: {
 					optimizer: BUILT_IN_OPTO_ENGINE_CONTRACT,
 					trajectoryHashes: request.trajectories.map(hashTrajectory),
@@ -152,7 +152,7 @@ export interface TrainingRunResult {
  * `ready-for-gate` (hand the candidate to the promotion gate) or `rejected`
  * with every reason recorded.
  */
-export function runBuiltInOptoTrainingRun({
+export async function runBuiltInOptoTrainingRun({
 	request,
 	heldOutTrajectories,
 	engine = createBuiltInOptoEngine(),
@@ -160,16 +160,36 @@ export function runBuiltInOptoTrainingRun({
 	request: OptimizeRequest;
 	heldOutTrajectories: readonly Trajectory[];
 	engine?: TrainingEngine;
-}): TrainingRunResult {
-	const optimized = optimizeCandidate(engine, request);
+}): Promise<TrainingRunResult> {
+	const optimized = await optimizeCandidate(engine, request);
 	if (!optimized.ok || optimized.candidate === null) {
+		const runId = request?.requestId ?? "unknown-run";
+		const events = [
+			createTrainingEvent({
+				id: `${runId}-started`,
+				type: "training.RunStarted",
+				runId,
+				seq: 0,
+				data: { requestId: runId, engineId: engine.engineId },
+			}),
+			createTrainingEvent({
+				id: `${runId}-rejected`,
+				type: "training.Rejected",
+				runId,
+				seq: 1,
+				data: {
+					candidateId: "unproposed",
+					reason: optimized.errors.join("; ") || "optimize failed",
+				},
+			}),
+		];
 		return {
 			schema: BUILT_IN_OPTO_ENGINE_CONTRACT,
 			outcome: "rejected",
 			candidate: null,
 			screening: null,
 			evaluation: null,
-			events: [],
+			events,
 			replayDigest: digest({ requestId: request?.requestId, errors: optimized.errors }),
 			rejectionReasons: optimized.errors,
 		};
@@ -208,7 +228,7 @@ export function screenCandidateForPromotion({
 	candidate: CandidatePatch;
 	heldOutTrajectories: readonly Trajectory[];
 }): CandidateScreening {
-	const patch = validateCandidatePatch(candidate, request.generatedRegion);
+	const patch = validateCandidatePatch(candidate, request.generatedRegions);
 	const patchErrors = patch.ok ? [] : [...patch.errors];
 	const contractCheck = patch.ok
 		? validateCandidateRewriteContract(candidate, request.contract)
@@ -421,7 +441,12 @@ function candidateReplacement(candidate: CandidatePatch): string {
 	if (!Array.isArray(candidate?.edits)) {
 		return "";
 	}
-	return candidate.edits.map((edit) => (typeof edit?.replacement === "string" ? edit.replacement : "")).join("\n");
+	// Joint optimization renders the same program into every region; parse
+	// each distinct replacement once.
+	const distinct = [
+		...new Set(candidate.edits.map((edit) => (typeof edit?.replacement === "string" ? edit.replacement : ""))),
+	];
+	return distinct.join("\n");
 }
 
 function trainingRunEvents({
@@ -434,7 +459,7 @@ function trainingRunEvents({
 	screening: CandidateScreening;
 }): TrainingEvent[] {
 	const runId = request.requestId;
-	return [
+	const events = [
 		createTrainingEvent({
 			id: `${runId}-started`,
 			type: "training.RunStarted",
@@ -467,6 +492,23 @@ function trainingRunEvents({
 			},
 		}),
 	];
+	// A rejected run must end on a terminal fact, or replaying the log would
+	// leave the run "running" forever.
+	if (screening.outcome === "rejected") {
+		events.push(
+			createTrainingEvent({
+				id: `${runId}-rejected`,
+				type: "training.Rejected",
+				runId,
+				seq: 3,
+				data: {
+					candidateId: candidate.id,
+					reason: screening.rejectionReasons.join("; ") || "screening rejected",
+				},
+			}),
+		);
+	}
+	return events;
 }
 
 function extractInput(trajectory: Trajectory): string {

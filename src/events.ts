@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { isNonEmptyString, isRecord } from "./canonical.js";
+import { DIGEST_PATTERN, isNonEmptyString, isRecord } from "./canonical.js";
 import { validateCandidatePatch } from "./engine.js";
 import {
 	TRACEPARENT_PATTERN,
@@ -22,16 +22,18 @@ export const TRAINING_EVENT_SCHEMA = "ts-autocode.training.event/v1";
 export const TRAINING_EVENT_TYPES = Object.freeze([
 	"training.RunStarted",
 	"training.TrajectoryCaptured",
+	"training.TrajectorySampledOut",
 	"training.RewardObserved",
 	"training.CandidateProposed",
 	"training.CandidateEvaluated",
 	"training.Promoted",
 	"training.Rejected",
+	"telemetry.OpenInferenceSpanRecorded",
 ] as const);
 
 export type TrainingEventType = (typeof TRAINING_EVENT_TYPES)[number];
 
-const HASH_PATTERN = /^sha256:[a-f0-9]{64}$/;
+const HASH_PATTERN = DIGEST_PATTERN;
 
 export interface TrainingEvent {
 	readonly schema: typeof TELEMETRY_ENVELOPE_SCHEMA;
@@ -83,9 +85,12 @@ export function createTrainingEvent({
 		time,
 		meta: { traceparent },
 		data: {
+			// Reserved envelope fields win over caller payload keys so the
+			// subject/streamId ↔ data.runId correlation invariant cannot be
+			// broken by a field-name collision.
+			...(structuredClone(data) as Record<string, unknown>),
 			schema: TRAINING_EVENT_SCHEMA,
 			runId,
-			...(structuredClone(data) as Record<string, unknown>),
 		},
 	};
 }
@@ -145,7 +150,9 @@ export interface TrainingRunProjection {
 	runId: string | null;
 	status: "unknown" | "running" | "promoted" | "rejected";
 	trajectoryIds: string[];
+	sampledOutIds: string[];
 	rewardCount: number;
+	spanCount: number;
 	candidateIds: string[];
 	lastSeq: number;
 }
@@ -161,7 +168,9 @@ export function replayTrainingRun(events: readonly TrainingEvent[]): TrainingRun
 		runId: null,
 		status: "unknown",
 		trajectoryIds: [],
+		sampledOutIds: [],
 		rewardCount: 0,
+		spanCount: 0,
 		candidateIds: [],
 		lastSeq: -1,
 	};
@@ -179,6 +188,10 @@ export function replayTrainingRun(events: readonly TrainingEvent[]): TrainingRun
 			projection.status = "running";
 		} else if (event.type === "training.TrajectoryCaptured") {
 			addUnique(projection.trajectoryIds, String(event.data["trajectoryId"]));
+		} else if (event.type === "training.TrajectorySampledOut") {
+			addUnique(projection.sampledOutIds, String(event.data["trajectoryId"]));
+		} else if (event.type === "telemetry.OpenInferenceSpanRecorded") {
+			projection.spanCount += 1;
 		} else if (event.type === "training.RewardObserved") {
 			projection.rewardCount += 1;
 		} else if (event.type === "training.CandidateProposed") {
@@ -222,13 +235,23 @@ function validateTrainingEventPayload(event: Record<string, unknown>, errors: st
 			errors.push("RewardObserved.trajectoryId must be a non-empty string");
 		}
 		validateReward(data["reward"], errors);
+	} else if (type === "training.TrajectorySampledOut") {
+		if (!isNonEmptyString(data["trajectoryId"])) {
+			errors.push("TrajectorySampledOut.trajectoryId must be a non-empty string");
+		}
+		if (!isNonEmptyString(data["reason"])) {
+			errors.push("TrajectorySampledOut.reason must be a non-empty string");
+		}
+	} else if (type === "telemetry.OpenInferenceSpanRecorded") {
+		if (!isNonEmptyString(data["trajectoryId"])) {
+			errors.push("OpenInferenceSpanRecorded.trajectoryId must be a non-empty string");
+		}
+		const span = data["span"];
+		if (!isRecord(span) || !isNonEmptyString(span["id"])) {
+			errors.push("OpenInferenceSpanRecorded.span.id must be a non-empty string");
+		}
 	} else if (type === "training.CandidateProposed") {
-		const candidate = data["candidate"];
-		const region = isRecord(candidate) ? candidate["region"] : undefined;
-		const candidateValidation = validateCandidatePatch(
-			candidate,
-			isRecord(region) ? (region as never) : undefined,
-		);
+		const candidateValidation = validateCandidatePatch(data["candidate"]);
 		if (!candidateValidation.ok) {
 			errors.push(...candidateValidation.errors.map((error) => `CandidateProposed.${error}`));
 		}
