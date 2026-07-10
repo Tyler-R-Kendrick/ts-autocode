@@ -27,7 +27,6 @@ import { createMemoryTrainingStore, type TrainingRecord, type TrainingStore } fr
 import {
 	discoverTrainables,
 	findTrainable,
-	hasTrainingDirective,
 	type SourceSettings,
 	type TrainableTarget,
 } from "./source.js";
@@ -65,11 +64,6 @@ export interface TrainableOptions {
 	readonly mapInput?: (args: readonly unknown[]) => unknown;
 	readonly mapOutput?: (result: unknown) => unknown;
 	readonly runId?: () => string;
-}
-
-export interface UseTrainingOptions {
-	readonly training?: Training;
-	readonly namespace?: string;
 }
 
 export interface OptimizeInput {
@@ -391,35 +385,6 @@ export function trainable(identity: TrainableIdentity, options: TrainableOptions
 		};
 	};
 }
-
-/** Directive form: wraps methods whose first statement is `"use training"`. */
-export function useTraining<T extends object>(target: T, options: UseTrainingOptions = {}): T {
-	if (typeof target === "function") {
-		const method = target as unknown as (...args: unknown[]) => unknown;
-		if (!hasTrainingDirective(method)) throw new TypeError("useTraining function must contain a \"use training\" directive");
-		const name = method.name || "anonymous";
-		const token = defineTrainable(options.namespace ?? name);
-		return function (this: unknown, ...args: unknown[]) {
-			return runtime(options.training).invoke(this, method, args, token, name);
-		} as unknown as T;
-	}
-	const namespace = options.namespace ?? target.constructor.name;
-	const cache = new Map<PropertyKey, unknown>();
-	return new Proxy(target, {
-		get(object, property, receiver) {
-			const value = Reflect.get(object, property, receiver) as unknown;
-			if (typeof value !== "function" || !hasTrainingDirective(value)) return value;
-			if (cache.has(property)) return cache.get(property);
-			const token = defineTrainable(`${namespace}.${String(property)}`);
-			const wrapped = (...args: unknown[]) => runtime(options.training)
-				.invoke(object, value as (...args: unknown[]) => unknown, args, token, String(property));
-			cache.set(property, wrapped);
-			return wrapped;
-		},
-	});
-}
-
-export default useTraining;
 
 function runtime(training?: Training): TrainingRuntime {
 	if (training !== undefined) {

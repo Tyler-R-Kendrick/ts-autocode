@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import useTraining, {
-	createMemoryTrainingStore,
+import * as publicApi from "../src/index.js";
+import {
 	createTraining,
 	defineTrainable,
 	trainable,
@@ -18,6 +18,19 @@ const source = `class Router {
 const target = discoverInSource(source, "src/router.ts")[0]!;
 
 describe("trainable identity", () => {
+	it("marks methods with only the directive and exposes no wrapper API", () => {
+		class Router {
+			route(input: string): string {
+				"use training";
+				return input.toUpperCase();
+			}
+		}
+
+		expect(new Router().route("billing")).toBe("BILLING");
+		expect("useTraining" in publicApi).toBe(false);
+		expect("default" in publicApi).toBe(false);
+	});
+
 	it("uses a durable id and stable symbol", () => {
 		const first = defineTrainable("Router.route");
 		const second = defineTrainable("Router.route");
@@ -26,35 +39,6 @@ describe("trainable identity", () => {
 });
 
 describe("trainable method capture", () => {
-	it("uses the literal directive through the default useTraining export", async () => {
-		const store = createMemoryTrainingStore();
-		const training = createTraining({ store });
-		class Router {
-			route(input: string): string {
-				"use training";
-				return input.toUpperCase();
-			}
-		}
-		const router = useTraining(new Router(), { training });
-
-		expect(router.route("billing")).toBe("BILLING");
-		const [record] = await training.records("Router.route");
-		expect(record).toMatchObject({ trainableId: "Router.route", method: "route", succeeded: true });
-		expect(record?.trace.messages.map((message) => message.content)).toEqual(['["billing"]', "BILLING"]);
-	});
-
-	it("wraps directive-marked functions as well as class methods", async () => {
-		const training = createTraining({});
-		function normalize(input: string): string {
-			"use training";
-			return input.trim();
-		}
-		const trained = useTraining(normalize, { training });
-
-		expect(trained(" value ")).toBe("value");
-		expect(await training.records("normalize")).toHaveLength(1);
-	});
-
 	it("supports the decorator without external source metadata", async () => {
 		const training = createTraining({});
 		class Router {

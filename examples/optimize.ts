@@ -1,13 +1,9 @@
 import { ai } from "@ax-llm/ax";
 import type { EvalTestInput } from "@agentv/core";
 
-import useTraining, {
-	configureTraining,
-	defineTrainable,
-} from "../src/index.js";
+import { createTraining } from "../src/index.js";
 
-const route = defineTrainable("Router.route");
-const training = configureTraining({
+const training = createTraining({
 	source: { files: [import.meta.filename] },
 	secrets: { async get(name) { return process.env[name]; } },
 	ax: {
@@ -26,14 +22,14 @@ class Router {
 	}
 }
 
-const router = useTraining(new Router());
+const router = new Router();
 
 const tests = [
 	{ id: "billing", input: "Where is my invoice?", assert: [{ type: "equals", value: "billing" }] },
 	{ id: "fallback", input: "Reset my password", assert: [{ type: "equals", value: "fallback" }] },
 ] satisfies EvalTestInput[];
 const run = await training.train({
-	trainable: route,
+	trainable: "Router.route",
 	objective: "Keep billing routing correct and preserve the fallback",
 	evaluation: {
 		tests,

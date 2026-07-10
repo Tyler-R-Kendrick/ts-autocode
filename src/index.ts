@@ -1,9 +1,7 @@
-export { default } from "./training.js";
 export {
 	configureTraining,
 	createTraining,
 	trainable,
-	useTraining,
 } from "./training.js";
 export type {
 	CaptureSettings,
@@ -14,7 +12,6 @@ export type {
 	Training,
 	TrainingRun,
 	TrainingSettings,
-	UseTrainingOptions,
 } from "./training.js";
 
 export { defineTrainable } from "./token.js";

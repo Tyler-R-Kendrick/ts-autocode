@@ -6,15 +6,17 @@
 its runtime captures, AgentV evaluations, optimizer request, candidate, and
 promotion decision.
 
-Methods are marked with `@trainable(id)` or a first-statement `"use training"`
-directive. The TypeScript compiler API discovers the method directly and records
-its signature, parameter declarations, return type, body offsets, and source
-digest. No marker comments or caller-provided region objects are used.
+The first-statement `"use training"` directive is the consumer-facing marker.
+The TypeScript compiler API discovers the enclosing method directly and records
+its identity, signature, parameter declarations, return type, body offsets, and
+source digest. No registration wrapper or caller-provided source metadata is
+used.
 
 ## Runtime capture
 
-The decorator and the default `useTraining()` wrapper share the same capture
-runtime. Calls preserve `this`, arguments, synchronous or asynchronous return
+The optional `@trainable(id)` decorator adds runtime capture when an application
+needs it. It infers the target from the decorated method and accepts no source
+region. Calls preserve `this`, arguments, synchronous or asynchronous return
 behavior, and thrown errors. Capture storage is asynchronous and configurable.
 
 Captured traces use AgentV's `Trace`; spans use official OpenTelemetry and
