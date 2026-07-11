@@ -43,6 +43,20 @@ describe("student/teacher training harness", () => {
 		expect(teacher).toHaveBeenCalledOnce();
 	});
 
+	it("does not accept when cancellation occurs during the teacher turn", async () => {
+		const controller = new AbortController();
+		const harness = defineTrainingHarness<string, null, string>({ candidateId: (candidate) => candidate });
+
+		await expect(harness.run({
+			signal: controller.signal,
+			student: () => "candidate",
+			teacher: () => {
+				controller.abort();
+				return { accepted: true, assessment: null, feedback: [] };
+			},
+		})).rejects.toThrow();
+	});
+
 	it("creates default-deny MXC policy", () => {
 		const workspace = join(tmpdir(), "training");
 		const policy = createHarnessPolicy({ workspace });

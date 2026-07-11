@@ -88,6 +88,7 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 			if (candidateId === previousCandidate) return buildResult("stalled", rounds);
 			previousCandidate = candidateId;
 			const result = await input.teacher(candidate, turn);
+			input.signal?.throwIfAborted();
 			const entry = Object.freeze({ round, candidate, assessment: result.assessment });
 			rounds.push(entry);
 
