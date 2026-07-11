@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 
 import { buildTraceFromMessages, type EvalConfig } from "@agentv/core";
 import { OpenInferenceSpanKind, SemanticConventions } from "@arizeai/openinference-semantic-conventions";
 import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "@opentelemetry/api";
-import { defineTrainingHarness } from "ts-autocode-harness";
+import { defineTrainingHarness, WriteAheadAgentBus, type JudgeRequest } from "ts-autocode-harness";
 
 import {
 	optimizeCandidate,
@@ -106,6 +107,11 @@ export interface TrainingRun {
 	readonly final: TrainingRound;
 }
 
+type CandidateAssessment = Readonly<{
+	verification: TrainableEvalRun;
+	decision: PromotionDecision;
+}>;
+
 export interface Training {
 	records(trainable?: TrainableIdentity): Promise<readonly TrainingRecord[]>;
 	evaluate(trainable: TrainableIdentity, config: EvalConfig): Promise<TrainableEvalRun>;
@@ -193,14 +199,15 @@ class TrainingRuntime implements Training {
 		const baseline = await this.evaluate(input.trainable, input.evaluation);
 		const { task: _task, outputDir, ...candidateEvaluation } = input.evaluation;
 		let evaluations: readonly BoundEvaluation[] = baseline.evaluations;
-		const harness = defineTrainingHarness<CandidatePatch, {
-			readonly verification: TrainableEvalRun;
-			readonly decision: PromotionDecision;
-		}, string>({
+		const harness = defineTrainingHarness<CandidatePatch, CandidateAssessment, string>({
 			candidateId: (candidate) => candidate.id,
 			...(input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds }),
 		});
-		const result = await harness.run({
+		const bus = new WriteAheadAgentBus({ file: resolve(outputDir ?? ".agentv", "harness-actions.jsonl") });
+		const result = await harness.run<CandidateAssessment>({
+			bus,
+			task: { trainable: toTrainableToken(input.trainable).id, objective: input.objective },
+			rubric: promotionRubric(input),
 			...(input.signal === undefined ? {} : { signal: input.signal }),
 			student: async ({ feedback, signal }) => {
 				const constraints = [
@@ -231,8 +238,38 @@ class TrainingRuntime implements Training {
 					...(input.policy === undefined ? {} : { policy: input.policy }),
 				});
 				evaluations = [...evaluations, ...verification.evaluations];
-				return { accepted: decision.promote, assessment: { verification, decision }, feedback: decision.failures };
+				return { assessment: { verification, decision }, feedback: decision.failures };
 			},
+			judge: (input) => {
+				const request = input as JudgeRequest<CandidatePatch, CandidateAssessment, CandidateAssessment>;
+				if (request.subject === "action") return "pass";
+				if (request.subject === "candidate") return request.assessment.decision.promote ? "pass" : "fail";
+				if (!request.challenge.decision.promote) {
+					evaluations = [...evaluations, ...request.challenge.verification.evaluations];
+					return "pass";
+				}
+				return "fail";
+			},
+			adversary: async (candidate, { signal }) => {
+				const verification = await this.evaluateCandidate(candidate, {
+					...candidateEvaluation,
+					...(signal === undefined ? {} : { signal }),
+					outputDir: `${outputDir ?? ".agentv"}/adversary-${candidate.id}`,
+				});
+				const decision = await evaluatePromotionGate({
+					candidate,
+					evaluations: verification.evaluations,
+					conformance: input.conformance ?? true,
+					...(input.minScore === undefined ? {} : { minScore: input.minScore }),
+					...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
+					...(input.policy === undefined ? {} : { policy: input.policy }),
+				});
+				return { verification, decision };
+			},
+			reviseRubric: (challenge, { rubric }) => ({
+				rubric: `${rubric}\nAdversarial criteria: ${challenge.decision.failures.join("; ")}`,
+				feedback: challenge.decision.failures,
+			}),
 		});
 		const rounds = result.rounds.map(({ round, candidate, assessment }) =>
 			Object.freeze({ round, candidate, ...assessment }));
@@ -472,6 +509,15 @@ function evaluationArgs(input: string): readonly unknown[] {
 	} catch {
 		return [input];
 	}
+}
+
+function promotionRubric(input: TrainInput): string {
+	return [
+		input.conformance === false ? "Source conformance checks are disabled." : "Candidate must pass source conformance checks.",
+		`Minimum evaluation score: ${input.minScore ?? "evaluation default"}.`,
+		`Minimum evaluation pass rate: ${input.minPassRate ?? 1}.`,
+		input.policy === undefined ? "No additional promotion policy." : "Candidate must pass the configured promotion policy.",
+	].join(" ");
 }
 
 async function mapConcurrent<T, R>(items: readonly T[], concurrency: number, map: (item: T) => Promise<R>): Promise<R[]> {
