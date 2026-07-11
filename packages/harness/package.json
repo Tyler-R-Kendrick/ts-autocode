@@ -32,6 +32,10 @@
 		"build": "tsc -p tsconfig.json",
 		"prepublishOnly": "npm run build"
 	},
+	"dependencies": {
+		"@microsoft/mxc-sdk": "^0.7.0",
+		"deepagents": "^1.10.7"
+	},
 	"keywords": [
 		"agent",
 		"harness",
