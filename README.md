@@ -6,12 +6,14 @@ safely rewrite the function marked trainable.
 The normal path keeps the code primitives and agent loop in separate packages:
 
 ```text
-"use training" -> AgentV evals -> student/teacher harness -> guarded source update
+"use training" -> AgentV evals -> governed training harness -> guarded source update
 ```
 
 Ax is the default student optimizer. AgentV evaluation and the promotion gate
 form the teacher. `ts-autocode` delegates their iterative coordination to the
-independent `ts-autocode-harness` package.
+independent `ts-autocode-harness` package. Its single Flue-style callback loop
+supports configurable student, teacher, judge, and adversary Deep Agents, MXC
+execution, GEPA prompt evolution, and a write-ahead approval bus.
 
 ## Install
 
@@ -110,11 +112,14 @@ const promoted = await training.promote(run.final.candidate, run.final.decision)
 await training.revert(promoted.snapshot);
 ```
 
-`ts-autocode-harness` runs the bounded student → teacher → feedback loop. It
-stops when a candidate passes the gate, repeats, or exhausts the configured
-round limit. Baseline results are never treated as proof that a rewrite passes.
-The lower-level `evaluate`, `optimize`, `evaluateCandidate`, and promotion
-primitives remain available for custom orchestration.
+`ts-autocode-harness` owns bounded rounds, feedback, cancellation, and stall
+detection. The same callback path accepts arbitrary judge inputs, requires an
+exact pass/fail decision, tests
+approved candidates with an isolated adversary, and makes the teacher revise
+the rubric when the adversary exposes an accepted gap. Baseline results are
+never treated as proof that a rewrite passes. The lower-level `evaluate`,
+`optimize`, `evaluateCandidate`, and promotion primitives remain available for
+custom orchestration.
 
 No Ax program is supplied by the caller. The default engine derives its fields,
 descriptions, executable examples, and return contract from the TypeScript

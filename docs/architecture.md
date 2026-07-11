@@ -42,10 +42,20 @@ Baseline results can train the optimizer but cannot satisfy the promotion gate.
 ## Agent harness
 
 `ts-autocode` depends on the standalone `ts-autocode-harness` package. The
-harness knows only student and teacher callbacks; it owns bounded rounds,
-feedback propagation, cancellation, stall detection, and termination.
-`ts-autocode` supplies candidate optimization as the student and AgentV
-candidate evaluation plus the promotion gate as the teacher.
+harness supports independently configured student, teacher, judge, and
+adversary Deep Agents. A write-ahead bus records proposed actions before an
+exact pass/fail judge decision and prevents denied agent or MXC sandbox actions from
+executing. AgentV supplies objective evidence; judge rejection never invents
+feedback. Teacher feedback guides the student, and judge-approved adversarial
+challenges require the teacher to improve the rubric. Deep Agents and direct
+application functions both implement the same Flue-style callback contract;
+there is no separate agent execution path.
+
+Configured role datasets and metrics feed one multi-component GEPA run before
+the first training round. GEPA co-evolves the student, teacher, judge, and
+adversary system prompts through the `gepa-rpc` bridge to the official Python
+engine. Its evaluation workers remain configurable, while the resulting prompt
+set continues through the same judged callback loop.
 
 Independent `optimizeAll()` requests run concurrently with a caller-controlled
 limit. AgentV retains its own `workers` setting for eval parallelism.
