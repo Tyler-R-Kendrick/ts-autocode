@@ -1,11 +1,8 @@
 # ts-autocode-harness
 
-A small typed harness for bounded student/teacher training loops.
+A bounded student/teacher training harness built on LangChain Deep Agents. Agent tools execute through Microsoft MXC with default-deny, OpenShell-aligned policy settings.
 
-The package has no dependency on `ts-autocode`, model providers, evaluation
-frameworks, or telemetry libraries. Callers supply a student, a teacher, and a
-stable candidate identity. The harness owns feedback propagation, cancellation,
-stall detection, and termination.
+The package does not depend on `ts-autocode` or a specific model provider. The control loop and credentials stay outside the sandbox. Generated code, filesystem tools, shell commands, and candidate execution cross the MXC boundary. AgentV remains responsible for objective evaluation; the teacher consumes its evidence instead of inventing scores.
 
 ## Install
 
@@ -14,6 +11,25 @@ npm install ts-autocode-harness
 ```
 
 ## Use
+
+Create the host-side Deep Agents and their sandbox policy once:
+
+```ts
+import { createHarnessPolicy, createTrainingAgents } from "ts-autocode-harness";
+
+const workspace = "/absolute/path/to/training-output";
+const policy = createHarnessPolicy({ workspace, timeoutMs: 60_000 });
+const agents = createTrainingAgents({
+  student: { id: "student", workspace, policy },
+  teacher: { id: "teacher", workspace, policy },
+});
+```
+
+`defineTrainingHarness(...).runAgents(...)` invokes those agents for each bounded student/teacher round. Its small prompt/output adapters keep candidate and AgentV assessment types owned by the calling library instead of duplicating them in the harness.
+
+Network and UI access are denied by default. Add `allowedHosts` only when a sandboxed tool genuinely needs outbound access. Keep API keys in host-side model or tool configuration; do not write them into the workspace.
+
+Coordinate bounded rounds with the existing typed loop:
 
 ```ts
 import { defineTrainingHarness } from "ts-autocode-harness";
@@ -38,6 +54,9 @@ const run = await harness.run({
 
 The outcome is `accepted`, `stalled`, or `exhausted`. Every round retains the
 candidate and teacher assessment; `final` references the last round.
+
+> [!WARNING]
+> MXC is an early preview. Its upstream documentation warns that current profiles should not yet be treated as production security boundaries. Evaluate the selected MXC backend for your deployment.
 
 ## License
 
