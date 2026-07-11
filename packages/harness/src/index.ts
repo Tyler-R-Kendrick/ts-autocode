@@ -1,10 +1,9 @@
 import { judgeControl, type AgentAction, type AgentBusEntry, type JudgeDecision, type WriteAheadAgentBus } from "./bus.js";
 
 export { createTrainingAgents } from "./agents.js";
-export type { TrainingAgentRoleSettings, TrainingAgentSettings } from "./agents.js";
+export type { TrainingAgentCallbacks, TrainingAgentRoleSettings, TrainingAgentSettings } from "./agents.js";
 export { AgentActionDeniedError, parseJudgeDecision, WriteAheadAgentBus } from "./bus.js";
 export type { ActionJudge, AgentAction, AgentBusEntry, AgentBusSettings, AgentRole, JudgeDecision } from "./bus.js";
-export type { AgentEvolutionExample, AgentEvolutionScore, AgentEvolutionSettings, GepaSettings } from "./evolution.js";
 export { createHarnessPolicy } from "./policy.js";
 export type { HarnessPolicySettings } from "./policy.js";
 export { MxcSandbox } from "./sandbox.js";
@@ -54,7 +53,6 @@ export interface HarnessInput<TCandidate, TAssessment, TFeedback, TChallenge> {
 	readonly bus: WriteAheadAgentBus;
 	readonly task: unknown;
 	readonly rubric: string;
-	readonly evolve?: () => void | Promise<void>;
 	readonly student: (turn: StudentTurn<TFeedback>) => TCandidate | Promise<TCandidate>;
 	readonly teacher: (
 		candidate: TCandidate,
@@ -108,9 +106,6 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 				{ subject: "action", actionId: action.id },
 				() => judge(input, { subject: "action", action, context }),
 			));
-			await input.evolve?.();
-			input.signal?.throwIfAborted();
-
 			for (let round = 1; round <= maxRounds; round += 1) {
 				input.signal?.throwIfAborted();
 				const turn = await studentTurn(input, round, rubric, feedback);

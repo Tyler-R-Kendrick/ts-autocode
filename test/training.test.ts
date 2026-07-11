@@ -1,3 +1,7 @@
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import * as publicApi from "../src/index.js";
@@ -94,6 +98,61 @@ describe("training execution", () => {
 			target,
 		})));
 		expect(maxActive).toBe(2);
+	});
+
+	it("evolves source from successful live traces and AgentV evals", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-live-"));
+		const artifact = join(directory, "normalize.ts");
+		await writeFile(artifact, `export function liveNormalize(input: string): string {
+  "use training";
+  return input;
+}\n`);
+		const optimize = vi.fn<TrainingEngine["optimize"]>(async (request) => {
+			expect(request.records).toHaveLength(2);
+			expect(request.evaluations).toHaveLength(2);
+			return { implementation: "return input.toUpperCase();" };
+		});
+		const training = configureTraining({
+			engine: { id: "live-test", optimize },
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+		});
+		class RuntimeNormalizer {
+			normalize(input: string): string { return input.toUpperCase(); }
+		}
+		applyMethodDecorator(RuntimeNormalizer, "normalize", trainable("liveNormalize"));
+		const normalize = new RuntimeNormalizer();
+		normalize.normalize("alpha");
+		normalize.normalize("beta");
+
+		const result = await training.evolve({
+			trainable: "liveNormalize",
+			objective: "Preserve behavior observed in live traces",
+			minTraces: 2,
+			evaluation: { workers: 2, outputDir: join(directory, "agentv") },
+		});
+
+		expect(result.training.outcome).toBe("ready");
+		expect(result.training.baseline.run.summary.passed).toBe(2);
+		expect(result.training.final.verification.run.summary.passed).toBe(2);
+		expect(result.promotion.source).toContain("return input.toUpperCase();");
+		expect(await readFile(artifact, "utf8")).toContain("return input.toUpperCase();");
+		expect(await readFile(artifact, "utf8")).toContain('"use training"');
+	});
+
+	it("requires enough successful runtime traces before evolving code", async () => {
+		const training = configureTraining({ tracing: { enabled: false } });
+		class Router {
+			route(input: string): string { return input; }
+		}
+		applyMethodDecorator(Router, "route", trainable("Router.live"));
+		new Router().route("one");
+
+		await expect(training.evolve({
+			trainable: "Router.live",
+			objective: "Improve routing",
+			minTraces: 2,
+		})).rejects.toThrow("requires 2 distinct successful runtime traces; found 1");
 	});
 });
 

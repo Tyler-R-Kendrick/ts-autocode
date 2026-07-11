@@ -13,7 +13,9 @@ Ax is the default student optimizer. AgentV evaluation and the promotion gate
 form the teacher. `ts-autocode` delegates their iterative coordination to the
 independent `ts-autocode-harness` package. Its single Flue-style callback loop
 supports configurable student, teacher, judge, and adversary Deep Agents, MXC
-execution, GEPA prompt evolution, and a write-ahead approval bus.
+execution, and a write-ahead approval bus. Consumers can supply callbacks from
+their own agent lifecycle or optimization pipeline without coupling it to this
+code-evolution library.
 
 ## Install
 
@@ -112,6 +114,34 @@ const promoted = await training.promote(run.final.candidate, run.final.decision)
 await training.revert(promoted.snapshot);
 ```
 
+## Evolve from live traces
+
+When runtime capture is enabled, `evolve()` turns successful captured calls into
+AgentV equality evals, trains a replacement, verifies the candidate against the
+same cases, applies the promotion gate, and updates the marked TypeScript body.
+The write is explicit: capturing traffic alone never changes source code.
+
+```ts
+const result = await training.evolve({
+  trainable: route,
+  objective: "Preserve routing behavior observed in production",
+  minTraces: 20,
+  evaluation: {
+    workers: 4,
+    outputDir: ".agentv/live-router",
+  },
+});
+
+console.log(result.promotion.snapshot.candidateId);
+```
+
+Only successful traces with both captured input and output become eval cases.
+Repeated inputs use the latest observed output, avoiding contradictory replay
+cases. Capture redaction and serialization still come from global settings, so
+secrets do not need to enter optimizer or eval artifacts. `evolve()` refuses to
+write unless the candidate passes candidate-bound AgentV evals and every
+configured promotion policy.
+
 `ts-autocode-harness` owns bounded rounds, feedback, cancellation, and stall
 detection. The same callback path accepts arbitrary judge inputs, requires an
 exact pass/fail decision, tests
@@ -136,6 +166,10 @@ Runtime dependencies enter through `TrainingSettings`:
 - `source` overrides TypeScript project discovery when the default `tsconfig.json`
   is not the desired project.
 - `concurrency` limits `optimizeAll()`; independent work runs concurrently.
+
+AgentV's `workers` option parallelizes live-trace and candidate evals. Independent
+trainables can be evolved concurrently by the application, while the configured
+engine and store remain injectable.
 
 `configureTraining(settings)` is the single public runtime configuration entry
 point. Settings are optional. The default Ax implementation reads
