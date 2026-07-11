@@ -13,7 +13,6 @@ import {
 	parseJudgeDecision,
 	WriteAheadAgentBus,
 } from "../src/index.js";
-import { evolvePrompts } from "../src/evolution.js";
 
 describe("training harness", () => {
 	it("uses one callback loop for teacher feedback, judge decisions, and adversarial review", async () => {
@@ -39,32 +38,6 @@ describe("training harness", () => {
 		expect(result.final.adversary).toEqual({ challenge: "counterexample", decision: "fail" });
 		expect((await callbacks.bus.context("judge")).every(({ kind }) => kind === "agent.decide")).toBe(true);
 		expect((await callbacks.bus.context("judge")).length).toBeGreaterThan(0);
-	});
-
-	it("evolves configured callbacks before the first training round", async () => {
-		const callbacks = await loopCallbacks(["pass", "fail"]);
-		const order: string[] = [];
-		const harness = defineTrainingHarness<string, string, string>({ candidateId: (candidate) => candidate });
-		await harness.run({
-			...callbacks,
-			task: "task",
-			rubric: "rubric",
-			evolve: () => { order.push("evolve"); },
-			student: () => { order.push("student"); return "candidate"; },
-			teacher: () => ({ assessment: "evidence", feedback: [] }),
-			adversary: () => "challenge",
-			reviseRubric: () => ({ rubric: "revised", feedback: [] }),
-		});
-		expect(order).toEqual(["evolve", "student"]);
-	});
-
-	it("rejects GEPA roles without evaluation examples", async () => {
-		await expect(evolvePrompts([{
-			name: "student",
-			seed: "seed",
-			settings: { examples: [], evaluate: () => 1 },
-			run: async () => "candidate",
-		}])).rejects.toThrow("student evolution requires at least one example");
 	});
 
 	it("does not accept when cancellation occurs during the teacher turn", async () => {
@@ -182,7 +155,6 @@ describe("training harness", () => {
 				revision: () => ({ rubric: "revised", feedback: [] }),
 			},
 		});
-		expect(callbacks.evolve).toBeTypeOf("function");
 		expect(callbacks.student).toBeTypeOf("function");
 		expect(callbacks.teacher).toBeTypeOf("function");
 		expect(callbacks.judge).toBeTypeOf("function");

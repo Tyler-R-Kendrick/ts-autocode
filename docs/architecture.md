@@ -23,6 +23,11 @@ arguments, synchronous or asynchronous return behavior, and thrown errors.
 Captured traces use AgentV's `Trace`; spans use official OpenTelemetry and
 OpenInference APIs.
 
+`evolve()` is the explicit runtime-to-source bridge. It converts distinct,
+successful captured inputs and outputs into official AgentV eval cases, replays
+them as the baseline, and evaluates generated TypeScript against those same
+cases. Runtime capture never initiates a source write on its own.
+
 ## Evaluation and optimization
 
 AgentV's TypeScript `evaluate()` API runs eval cases and binds results to the
@@ -38,24 +43,23 @@ the root configuration contract.
 
 Candidate bodies are evaluated separately through AgentV before promotion.
 Baseline results can train the optimizer but cannot satisfy the promotion gate.
+Live-trace evals use AgentV's worker pool, and optimizer requests receive both
+the original traces and the bound baseline results.
 
 ## Agent harness
 
 `ts-autocode` depends on the standalone `ts-autocode-harness` package. The
 harness supports independently configured student, teacher, judge, and
 adversary Deep Agents. A write-ahead bus records proposed actions before an
-exact pass/fail judge decision and prevents denied agent or MXC sandbox actions from
-executing. AgentV supplies objective evidence; judge rejection never invents
+exact pass/fail judge decision and prevents denied agent or MXC sandbox actions
+from executing. AgentV supplies objective evidence; judge rejection never invents
 feedback. Teacher feedback guides the student, and judge-approved adversarial
 challenges require the teacher to improve the rubric. Deep Agents and direct
 application functions both implement the same Flue-style callback contract;
 there is no separate agent execution path.
-
-Configured role datasets and metrics feed one multi-component GEPA run before
-the first training round. GEPA co-evolves the student, teacher, judge, and
-adversary system prompts through the `gepa-rpc` bridge to the official Python
-engine. Its evaluation workers remain configurable, while the resulting prompt
-set continues through the same judged callback loop.
+Agent and skill optimization are deliberately outside the harness. Consumers
+may evolve agents independently and inject the resulting callbacks into the
+same run contract; the library remains focused on evaluated code evolution.
 
 Independent `optimizeAll()` requests run concurrently with a caller-controlled
 limit. AgentV retains its own `workers` setting for eval parallelism.

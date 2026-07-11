@@ -1,7 +1,7 @@
 {
 	"name": "ts-autocode-harness",
 	"version": "0.1.0",
-	"description": "Typed student/teacher training-loop harness.",
+	"description": "Policy-enforced agent harness for evaluated code evolution.",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/Tyler-R-Kendrick/ts-autocode.git",
@@ -34,8 +34,7 @@
 	},
 	"dependencies": {
 		"@microsoft/mxc-sdk": "^0.7.0",
-		"deepagents": "^1.10.7",
-		"gepa-rpc": "^0.2.2"
+		"deepagents": "^1.10.7"
 	},
 	"keywords": [
 		"agent",

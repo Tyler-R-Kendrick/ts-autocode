@@ -5,6 +5,8 @@ export {
 export type {
 	CaptureSettings,
 	CandidateEvalConfig,
+	EvolveInput,
+	EvolveResult,
 	OptimizeInput,
 	TrainInput,
 	Training,

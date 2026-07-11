@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { buildTraceFromMessages, type EvalConfig } from "@agentv/core";
+import { buildTraceFromMessages, getTextContent, type EvalConfig, type EvalTestInput } from "@agentv/core";
 import { OpenInferenceSpanKind, SemanticConventions } from "@arizeai/openinference-semantic-conventions";
 import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "@opentelemetry/api";
 import { defineTrainingHarness, WriteAheadAgentBus, type JudgeRequest } from "ts-autocode-harness";
@@ -93,6 +93,16 @@ export interface TrainInput {
 	readonly policy?: (candidate: CandidatePatch) => boolean | Promise<boolean>;
 }
 
+export interface EvolveInput extends Omit<TrainInput, "evaluation"> {
+	readonly evaluation?: Omit<EvalConfig, "specFile" | "target" | "task" | "tests">;
+	readonly minTraces?: number;
+}
+
+export interface EvolveResult {
+	readonly training: TrainingRun;
+	readonly promotion: PromotionResult;
+}
+
 export interface TrainingRound {
 	readonly round: number;
 	readonly candidate: CandidatePatch;
@@ -117,6 +127,7 @@ export interface Training {
 	evaluate(trainable: TrainableIdentity, config: EvalConfig): Promise<TrainableEvalRun>;
 	evaluateCandidate(candidate: CandidatePatch, config: CandidateEvalConfig): Promise<TrainableEvalRun>;
 	train(input: TrainInput): Promise<TrainingRun>;
+	evolve(input: EvolveInput): Promise<EvolveResult>;
 	optimize(input: OptimizeInput): Promise<CandidatePatch>;
 	optimizeAll(inputs: readonly OptimizeInput[]): Promise<readonly CandidatePatch[]>;
 	promote(candidate: CandidatePatch, decision: PromotionDecision): Promise<PromotionResult>;
@@ -278,6 +289,37 @@ class TrainingRuntime implements Training {
 			baseline,
 			rounds: Object.freeze(rounds),
 			final: rounds.at(-1) as TrainingRound,
+		});
+	}
+
+	async evolve(input: EvolveInput): Promise<EvolveResult> {
+		const { evaluation = {}, minTraces = 1, ...training } = input;
+		if (!Number.isInteger(minTraces) || minTraces < 1) {
+			throw new TypeError("minTraces must be a positive integer");
+		}
+		const examples = liveEvalCases(await this.records(input.trainable));
+		if (examples.length < minTraces) {
+			throw new Error(`code evolution requires ${minTraces} distinct successful runtime trace${minTraces === 1 ? "" : "s"}; found ${examples.length}`);
+		}
+		const expected = new Map(examples.map((test) => [String(test.input), test.expectedOutput ?? ""]));
+		const run = await this.train({
+			...training,
+			evaluation: {
+				...evaluation,
+				tests: examples,
+				task: (value) => {
+					const output = expected.get(value);
+					if (output === undefined) throw new Error(`live trace was not found for eval input: ${value}`);
+					return output;
+				},
+			},
+		});
+		if (run.outcome !== "ready") {
+			throw new Error(`code evolution did not produce a promotable candidate: ${run.outcome}`);
+		}
+		return Object.freeze({
+			training: run,
+			promotion: await this.promote(run.final.candidate, run.final.decision),
 		});
 	}
 
@@ -509,6 +551,25 @@ function evaluationArgs(input: string): readonly unknown[] {
 	} catch {
 		return [input];
 	}
+}
+
+function liveEvalCases(records: readonly TrainingRecord[]): readonly EvalTestInput[] {
+	const examples = new Map<string, EvalTestInput>();
+	for (const record of [...records].sort((left, right) => left.recordedAt.localeCompare(right.recordedAt))) {
+		if (!record.succeeded) continue;
+		const input = record.trace.messages.find((message) => message.role === "user");
+		const output = record.trace.messages.findLast((message) => message.role === "assistant");
+		if (!input || !output) continue;
+		const value = getTextContent(input.content);
+		const expectedOutput = getTextContent(output.content);
+		examples.set(value, {
+			id: `trace-${record.id}`,
+			input: value,
+			expectedOutput,
+			assert: [{ type: "equals", value: expectedOutput }],
+		});
+	}
+	return [...examples.values()];
 }
 
 function promotionRubric(input: TrainInput): string {

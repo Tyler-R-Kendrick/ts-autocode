@@ -1,6 +1,6 @@
 # ts-autocode-harness
 
-A policy-enforced training harness built on LangChain Deep Agents, Microsoft MXC, and GEPA.
+A policy-enforced code-training harness built on LangChain Deep Agents and Microsoft MXC.
 
 The harness coordinates four independently configurable roles:
 
@@ -40,11 +40,10 @@ const role = (name: string) => {
 const agents = createTrainingAgents({
   bus: { file: join(root, "actions.jsonl") },
   model: "openai:gpt-5.4-mini",
-  gepa: { reflection_lm: "openai/gpt-5.4", numThreads: 4, auto: "light" },
-  student: { ...role("student"), systemPrompt: "Propose minimal TypeScript improvements.", evolution: studentEvolution },
-  teacher: { ...role("teacher"), systemPrompt: "Assess AgentV evidence and maintain the rubric.", evolution: teacherEvolution },
-  judge: { ...role("judge"), model: "openai:gpt-5.4", systemPrompt: "Return exactly pass or fail.", evolution: judgeEvolution },
-  adversary: { ...role("adversary"), systemPrompt: "Find concrete failures in the supplied artifact.", evolution: adversaryEvolution },
+  student: { ...role("student"), systemPrompt: "Propose minimal TypeScript improvements." },
+  teacher: { ...role("teacher"), systemPrompt: "Assess AgentV evidence and maintain the rubric." },
+  judge: { ...role("judge"), model: "openai:gpt-5.4", systemPrompt: "Return exactly pass or fail." },
+  adversary: { ...role("adversary"), systemPrompt: "Find concrete failures in the supplied artifact." },
   outputs: {
     student: decodeCandidate,
     teacher: decodeAssessment,
@@ -56,28 +55,9 @@ const agents = createTrainingAgents({
 
 The bus file must be outside every writable sandbox workspace. Network, local-network, UI, clipboard, and input access are denied by default. Add `allowedHosts` only when a sandboxed tool genuinely needs outbound access.
 
-## Evolve every role with GEPA
-
-Each role can provide independent examples and a metric. GEPA co-evolves all configured system prompts in one multi-component optimization, then the same callbacks continue with the selected prompts. This uses the official Python GEPA engine through `gepa-rpc`; install [uv](https://docs.astral.sh/uv/getting-started/installation/) on the host so its `uvx` command is available.
-
-```ts
-const judgeEvolution = {
-  examples: [
-    { input: { candidate: passingCandidate }, expected: "pass" },
-    { input: { candidate: brokenCandidate }, expected: "fail" },
-  ],
-  evaluate: ({ expected }, output) => ({
-    score: output === expected ? 1 : 0,
-    feedback: output === expected ? "Correct decision" : `Expected ${expected}`,
-  }),
-};
-```
-
-Evolution inputs mirror their callbacks: a student example contains a `StudentTurn`; teacher examples contain `{ candidate, turn }`, or `{ operation: "revision", challenge, turn }`; judge examples may contain any value; adversary examples contain `{ candidate, turn }`. Metrics return a score and should include concise diagnostic feedback so GEPA has actionable side information. Evolution is judge-approved and written to the agent bus before it executes.
-
 ## Run the loop
 
-There is one Flue-style callback run model. `createTrainingAgents` adapts evolved Deep Agents to those callbacks; applications can replace any callback without selecting a separate execution path.
+There is one Flue-style callback run model. `createTrainingAgents` adapts configurable Deep Agents to those callbacks; applications can replace any callback without selecting a separate execution path.
 
 ```ts
 const harness = defineTrainingHarness<Candidate, Assessment, string>({
@@ -93,6 +73,30 @@ const result = await harness.run({
 ```
 
 The judge first evaluates the candidate. A `fail` carries no judge feedback; the next student turn receives only teacher feedback. A passing candidate is challenged by the adversary. The candidate is accepted only when that challenge fails. If the challenge passes, the teacher must revise the rubric before the next round.
+
+## Bring your own agents
+
+Agent lifecycle management is outside this package. Consumers may use any agent or skill evolution pipeline, then inject the resulting callbacks directly:
+
+```ts
+import type { TrainingAgentCallbacks } from "ts-autocode-harness";
+
+const evolved: TrainingAgentCallbacks<Candidate, Assessment, string, Challenge> =
+  await myAgentPipeline.prepare();
+
+const result = await harness.run({
+  bus,
+  task,
+  rubric,
+  student: evolved.student,
+  teacher: evolved.teacher,
+  judge: evolved.judge,
+  adversary: evolved.adversary,
+  reviseRubric: evolved.reviseRubric,
+});
+```
+
+This keeps the harness focused on code candidates, objective evidence, policy enforcement, and promotion decisions. It neither selects nor mutates consumer agents.
 
 ## Write-ahead enforcement
 
