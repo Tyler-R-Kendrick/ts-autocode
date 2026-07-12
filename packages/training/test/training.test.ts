@@ -1,8 +1,10 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
+
+import "./wiring.js";
 
 import * as publicApi from "../src/index.js";
 import {
@@ -234,6 +236,34 @@ describe("training execution", () => {
 
 		expect(run.outcome).toBe("ready");
 		expect(run.final.decision.failures).toEqual([]);
+	});
+
+	it("routes eval artifacts through the configured output directory", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-output-"));
+		const artifact = join(directory, "echo.ts");
+		await writeFile(artifact, `export function echoOut(input: string): string {
+  "use training";
+  return input;
+}\n`);
+		const training = configureTraining({
+			engine: { id: "output-test", optimize: async () => ({ implementation: "return input.toUpperCase();" }) },
+			executor: functionExecutor,
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+			outputDir: join(directory, "runs"),
+		});
+
+		const run = await training.train({
+			trainable: defineTrainable("echoOut").symbol,
+			objective: "Uppercase the input",
+			evaluation: {
+				tests: [{ id: "upper", input: "abc", assert: [{ type: "equals", value: "ABC" }] }],
+				task: (input) => input.toUpperCase(),
+			},
+		});
+
+		expect(run.outcome).toBe("ready");
+		await expect(stat(join(directory, "runs"))).resolves.toBeTruthy();
 	});
 
 	it("requires enough successful runtime traces before training from captured traffic", async () => {

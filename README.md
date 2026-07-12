@@ -224,6 +224,10 @@ Runtime dependencies enter through `TrainingSettings`:
 - `store`, `capture`, and `tracing` configure recording globally.
 - `source` overrides TypeScript project discovery when the default `tsconfig.json`
   is not the desired project.
+- `outputDir` relocates run artifacts and eval output (default `.agentv`,
+  exported as `defaultOutputDir`); a run's `EvalConfig.outputDir` still
+  overrides it. `createHarnessLoop({ actionLogFile })` renames the write-ahead
+  action log inside that directory.
 
 AgentV's `workers` option parallelizes live-trace and candidate evals. Independent
 trainables can be trained concurrently by the application, while the configured
@@ -233,6 +237,11 @@ Configuration is optional: the exported `training` runtime works out of the
 box, and `configureTraining(settings)` only overrides its settings. The default
 Ax implementation reads `OPENAI_API_KEY` from the configured secret provider or
 process environment.
+All cross-package wiring lives in this root package: importing `ts-autocode`
+connects `ts-autocode-rewrite` (weaving, guarded promotion) and
+`ts-autocode-harness` (governed rounds) into `ts-autocode-training`'s provider
+ports via `provideTrainingDefaults`. The sibling packages never import each
+other, so any structurally compatible implementation can replace them.
 Provider-specific Ax tuning remains isolated to the optional `ts-autocode/ax`
 adapter and is passed through the provider-neutral `engine` slot.
 

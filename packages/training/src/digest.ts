@@ -1,16 +1,16 @@
 import { createHash } from "node:crypto";
 
-function canonicalJson(value: unknown): string {
-	return `${JSON.stringify(sortKeys(value), null, 2)}\n`;
-}
-
+/** Content addressing for discovered bodies and candidates. The algorithm —
+ * sha256 over canonical (key-sorted, two-space, newline-terminated) JSON — is a
+ * shared protocol with ts-autocode-rewrite: its guarded application refuses any
+ * candidate whose target body digest no longer matches, so both packages must
+ * digest identical content to identical values. */
 export function digest(value: unknown): string {
 	return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
 }
 
-/** Invariant guard: throws with `message` when `condition` fails, narrowing on success. */
-export function check(condition: unknown, message: string): asserts condition {
-	if (!condition) throw new Error(message);
+function canonicalJson(value: unknown): string {
+	return `${JSON.stringify(sortKeys(value), null, 2)}\n`;
 }
 
 /** Plain objects only: class instances (Date, Map, Error, ...) fall through to

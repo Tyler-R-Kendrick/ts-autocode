@@ -2,12 +2,26 @@ import { dirname, extname, resolve } from "node:path";
 
 import ts from "typescript";
 
-import { digest, type Marker } from "ts-autocode-rewrite";
+import { digest } from "./digest.js";
 import { trainableIdFromKey, type TrainableId } from "./token.js";
 
+/** A `"use <name>"` directive. Structural mirror of ts-autocode-rewrite's Marker,
+ * so training markers apply anywhere a rewriter marker is expected. */
+export type Marker = `use ${string}`;
+
 /** The directive that marks a method for training; the marker training registers
- * with the generic rewrite engine. */
+ * with the wired weaver. */
 export const trainingMarker: Marker = "use training";
+
+/** Where `discoverTrainables` looks when `SourceSettings.tsconfig` is unset. */
+export const defaultTsconfig = "tsconfig.json";
+
+/** Artifact reference recorded for targets discovered from an in-memory string. */
+export const inMemoryArtifactRef = "memory://source.ts";
+
+// Source discovery recognizes this package's public API by name.
+const trainableDecoratorName = "trainable";
+const defineTrainableName = "defineTrainable";
 
 export interface TrainableParameter {
 	readonly name: string;
@@ -63,7 +77,7 @@ export function findTrainable(id: TrainableId, settings: SourceSettings = {}): T
 	return matches[0] as TrainableTarget;
 }
 
-export function discoverInSource(source: string, artifactRef = "memory://source.ts"): readonly TrainableTarget[] {
+export function discoverInSource(source: string, artifactRef = inMemoryArtifactRef): readonly TrainableTarget[] {
 	const sourceFile = ts.createSourceFile(artifactRef, source, ts.ScriptTarget.Latest, true, scriptKind(artifactRef));
 	return discoverSourceFile(sourceFile, artifactRef);
 }
@@ -155,7 +169,7 @@ function firstDirective(body: ts.Block): ts.ExpressionStatement | undefined {
 function trainableDecorator(node: ts.MethodDeclaration): ts.Decorator | undefined {
 	return ts.getDecorators(node)?.find((item) => {
 		const expression = ts.isCallExpression(item.expression) ? item.expression.expression : item.expression;
-		return ts.isIdentifier(expression) && expression.text === "trainable";
+		return ts.isIdentifier(expression) && expression.text === trainableDecoratorName;
 	});
 }
 
@@ -199,7 +213,7 @@ function tokenDeclarations(sourceFile: ts.SourceFile): ReadonlyMap<string, strin
 			if (!ts.isIdentifier(declaration.name) || !declaration.initializer || !ts.isCallExpression(declaration.initializer)) {
 				continue;
 			}
-			if (!ts.isIdentifier(declaration.initializer.expression) || declaration.initializer.expression.text !== "defineTrainable") {
+			if (!ts.isIdentifier(declaration.initializer.expression) || declaration.initializer.expression.text !== defineTrainableName) {
 				continue;
 			}
 			const value = declaration.initializer.arguments[0];
@@ -241,7 +255,7 @@ function resolveLocalImport(artifactRef: string, specifier: string): string | un
 	return candidates.find(ts.sys.fileExists);
 }
 
-function projectFiles(cwd: string, tsconfig = "tsconfig.json"): readonly string[] {
+function projectFiles(cwd: string, tsconfig = defaultTsconfig): readonly string[] {
 	const configPath = resolve(cwd, tsconfig);
 	const config = ts.readConfigFile(configPath, ts.sys.readFile);
 	if (config.error) throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, "\n"));

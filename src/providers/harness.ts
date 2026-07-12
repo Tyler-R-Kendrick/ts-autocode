@@ -5,17 +5,26 @@ import type { CandidatePatch, CandidateReview, TrainingLoop } from "ts-autocode-
 
 type Request = JudgeRequest<CandidatePatch, CandidateReview, CandidateReview>;
 
+/** Where the write-ahead action log lands inside the run's output directory
+ * when `createHarnessLoop` is not given a filename. */
+export const defaultActionLogFile = "harness-actions.jsonl";
+
+export interface HarnessLoopOptions {
+	readonly actionLogFile?: string;
+}
+
 /** Adapts the governed ts-autocode-harness loop to the provider-neutral
  * TrainingLoop contract: a write-ahead action bus, an exact pass/fail judge on
  * the promotion decision, adversarial re-verification of accepted candidates,
  * and rubric revision when a challenge exposes a gap. */
-export function createHarnessLoop(): TrainingLoop {
+export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoop {
+	const actionLogFile = options.actionLogFile ?? defaultActionLogFile;
 	return async (input) => {
 		const harness = defineTrainingHarness<CandidatePatch, CandidateReview, string>({
 			candidateId: (candidate) => candidate.id,
 			...(input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds }),
 		});
-		const bus = new WriteAheadAgentBus({ file: resolve(input.outputDir, "harness-actions.jsonl") });
+		const bus = new WriteAheadAgentBus({ file: resolve(input.outputDir, actionLogFile) });
 		const result = await harness.run<CandidateReview>({
 			bus,
 			task: { trainable: input.trainableId, objective: input.objective },

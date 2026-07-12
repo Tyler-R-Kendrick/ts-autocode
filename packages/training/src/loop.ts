@@ -52,9 +52,12 @@ export interface TrainingLoopRun {
  * the governed ts-autocode-harness loop) without this package depending on it. */
 export type TrainingLoop = (input: TrainingLoopInput) => Promise<TrainingLoopRun>;
 
+/** How many propose/review rounds a loop runs when `maxRounds` is unset. */
+export const defaultMaxRounds = 3;
+
 /** Default loop: propose, review, stop on promotion, feed failures back. */
 export const sequentialLoop: TrainingLoop = async (input) => {
-	const maxRounds = input.maxRounds ?? 3;
+	const maxRounds = input.maxRounds ?? defaultMaxRounds;
 	if (!Number.isInteger(maxRounds) || maxRounds < 1) throw new TypeError("maxRounds must be a positive integer");
 	const signal = input.signal === undefined ? {} : { signal: input.signal };
 	const rounds: TrainingRound[] = [];
