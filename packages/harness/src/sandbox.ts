@@ -9,6 +9,7 @@ import {
 	type FileUploadResponse,
 } from "deepagents";
 
+import { attemptAsync } from "./attempt.js";
 import { WriteAheadAgentBus } from "./bus.js";
 import { dispatchAction, type ActionGate } from "./dispatch.js";
 import { createSandboxPolicy } from "./policy.js";
@@ -77,34 +78,26 @@ export class HarnessSandbox extends BaseSandbox {
 
 	async uploadFiles(files: Array<[string, Uint8Array]>): Promise<FileUploadResponse[]> {
 		return this.#perform("sandbox.upload", { sandbox: this.id, paths: files.map(([path]) => path) }, () =>
-			Promise.all(files.map(async ([path, content]) => {
-				try {
-					const target = this.#path(path);
-					await mkdir(this.#workspace, { recursive: true });
-					// Preflight before mkdir: a symlinked ancestor would otherwise create directories outside.
-					await this.#assertContained(await existingAncestor(dirname(target), this.#workspace));
-					await mkdir(dirname(target), { recursive: true });
-					await this.#assertContained(dirname(target));
-					if (await isSymlink(target)) throw new Error("path escapes sandbox workspace");
-					await writeFile(target, content);
-					return { path, error: null };
-				} catch {
-					return { path, error: "permission_denied" as const };
-				}
-			})));
+			Promise.all(files.map(([path, content]) => attemptAsync<FileUploadResponse>(async () => {
+				const target = this.#path(path);
+				await mkdir(this.#workspace, { recursive: true });
+				// Preflight before mkdir: a symlinked ancestor would otherwise create directories outside.
+				await this.#assertContained(await existingAncestor(dirname(target), this.#workspace));
+				await mkdir(dirname(target), { recursive: true });
+				await this.#assertContained(dirname(target));
+				if (await isSymlink(target)) throw new Error("path escapes sandbox workspace");
+				await writeFile(target, content);
+				return { path, error: null };
+			}, () => ({ path, error: "permission_denied" as const })))));
 	}
 
 	async downloadFiles(paths: string[]): Promise<FileDownloadResponse[]> {
 		return this.#perform("sandbox.download", { sandbox: this.id, paths }, () =>
-			Promise.all(paths.map(async (path) => {
-				try {
-					const target = this.#path(path);
-					await this.#assertContained(target);
-					return { path, content: await readFile(target), error: null };
-				} catch {
-					return { path, content: null, error: "file_not_found" as const };
-				}
-			})));
+			Promise.all(paths.map((path) => attemptAsync<FileDownloadResponse>(async () => {
+				const target = this.#path(path);
+				await this.#assertContained(target);
+				return { path, content: await readFile(target), error: null };
+			}, () => ({ path, content: null, error: "file_not_found" as const })))));
 	}
 
 	#perform<T>(kind: string, payload: unknown, execute: () => Promise<T>): Promise<T> {
@@ -127,12 +120,8 @@ export class HarnessSandbox extends BaseSandbox {
 	}
 }
 
-async function isSymlink(path: string): Promise<boolean> {
-	try {
-		return (await lstat(path)).isSymbolicLink();
-	} catch {
-		return false;
-	}
+function isSymlink(path: string): Promise<boolean> {
+	return attemptAsync(async () => (await lstat(path)).isSymbolicLink(), () => false);
 }
 
 async function existingAncestor(path: string, root: string): Promise<string> {
@@ -141,11 +130,9 @@ async function existingAncestor(path: string, root: string): Promise<string> {
 	return current;
 }
 
-async function exists(path: string): Promise<boolean> {
-	try {
+function exists(path: string): Promise<boolean> {
+	return attemptAsync(async () => {
 		await lstat(path);
 		return true;
-	} catch {
-		return false;
-	}
+	}, () => false);
 }

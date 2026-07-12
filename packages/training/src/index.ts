@@ -11,6 +11,7 @@ export type {
 	Activation,
 	AppliedPromotion,
 	CaptureSettings,
+	ErrorPhase,
 	EvolutionSettings,
 	PromotionApplier,
 	TrainInput,
@@ -20,6 +21,9 @@ export type {
 	TrainingSettings,
 	TracingSettings,
 } from "./training.js";
+
+export { defaultRetry, OperationTimeoutError, withPolicy } from "./resilience.js";
+export type { ResiliencePolicy, ResilienceSettings, RetryOptions } from "./resilience.js";
 
 export { defaultFanOut, defaultMaxRounds, sequentialLoop, trainingRounds } from "./loop.js";
 export type {

@@ -11,10 +11,12 @@ import {
 	captureTrainable,
 	configureTraining,
 	defineTrainable,
+	MemoryTrainingStore,
 	training as defaultTraining,
 	type Activation,
 	type ImplementationExecutor,
 	type TrainingEngine,
+	type TrainingStore,
 } from "../src/index.js";
 
 describe("trainable identity", () => {
@@ -232,6 +234,88 @@ describe("training execution", () => {
 			objective: "Improve routing",
 			minTraces: 2,
 		})).rejects.toThrow("requires 2 distinct successful runtime traces; found 1");
+	});
+});
+
+describe("training resilience policies", () => {
+	it("retries store appends under a store policy without surfacing an error", async () => {
+		const inner = new MemoryTrainingStore();
+		let failures = 1;
+		const store: TrainingStore = {
+			append: async (record) => {
+				if (failures > 0) {
+					failures -= 1;
+					throw new Error("flaky store");
+				}
+				await inner.append(record);
+			},
+			list: (trainableId) => inner.list(trainableId),
+		};
+		const onError = vi.fn();
+		const training = configureTraining({
+			store,
+			onError,
+			tracing: { enabled: false },
+			resilience: { store: { retry: { attempts: 2, delayMs: 1, jitter: false } } },
+		});
+
+		captureTrainable("Router.storeRetry", "route", undefined, (input: string) => input, ["billing"]);
+		await training.flush();
+
+		expect(onError).not.toHaveBeenCalled();
+		expect(await training.records(defineTrainable("Router.storeRetry"))).toHaveLength(1);
+	});
+
+	it("routes store failures to onError when no store policy is configured", async () => {
+		const failure = new Error("store down");
+		const onError = vi.fn();
+		const training = configureTraining({
+			store: { append: async () => { throw failure; }, list: async () => [] },
+			onError,
+			tracing: { enabled: false },
+		});
+
+		captureTrainable("Router.storeDown", "route", undefined, (input: string) => input, ["billing"]);
+		await training.flush();
+
+		expect(onError).toHaveBeenCalledWith(failure, "store");
+	});
+
+	it("retries engine proposals under a propose policy", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-propose-retry-"));
+		const artifact = join(directory, "echo.ts");
+		await writeFile(artifact, `export function echoRetry(input: string): string {
+  "use training";
+  return input;
+}\n`);
+		let failures = 1;
+		const optimize = vi.fn<TrainingEngine["optimize"]>(async () => {
+			if (failures > 0) {
+				failures -= 1;
+				throw new Error("rate limited");
+			}
+			return { implementation: "return input.toUpperCase();" };
+		});
+		const training = configureTraining({
+			engine: { id: "propose-retry-test", optimize },
+			executor: functionExecutor,
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+			resilience: { propose: { retry: { attempts: 2, delayMs: 1, jitter: false } } },
+		});
+
+		const run = await training.train({
+			trainable: defineTrainable("echoRetry").symbol,
+			objective: "Uppercase the input",
+			evaluation: {
+				tests: [{ id: "upper", input: "abc", assert: [{ type: "equals", value: "ABC" }] }],
+				task: (input) => input.toUpperCase(),
+				outputDir: join(directory, "agentv"),
+			},
+		});
+
+		expect(run.outcome).toBe("ready");
+		expect(optimize).toHaveBeenCalledTimes(2);
 	});
 });
 
