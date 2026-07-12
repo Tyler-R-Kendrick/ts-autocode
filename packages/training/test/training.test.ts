@@ -15,15 +15,6 @@ import {
 	type ImplementationExecutor,
 	type TrainingEngine,
 } from "../src/index.js";
-import { discoverInSource } from "../src/source.js";
-
-const source = `class Router {
-  route(input: string): string {
-    "use training";
-    return input;
-  }
-}`;
-const target = discoverInSource(source, "src/router.ts")[0]!;
 
 describe("trainable identity", () => {
 	it("marks methods with only the directive and exposes no wrapper API", () => {
@@ -136,30 +127,7 @@ describe("trainable method capture", () => {
 });
 
 describe("training execution", () => {
-	it("parallelizes independent trainables with a configured cap", async () => {
-		let active = 0;
-		let maxActive = 0;
-		const engine: TrainingEngine = {
-			id: "parallel",
-			async optimize() {
-				active += 1;
-				maxActive = Math.max(maxActive, active);
-				await new Promise((resolve) => setTimeout(resolve, 10));
-				active -= 1;
-				return { implementation: "return input;" };
-			},
-		};
-		const training = configureTraining({ engine, concurrency: 2 });
-
-		await training.optimizeAll(["one", "two"].map((objective) => ({
-			trainable: defineTrainable("Router.route").symbol,
-			objective,
-			target,
-		})));
-		expect(maxActive).toBe(2);
-	});
-
-	it("evolves source from successful live traces and AgentV evals", async () => {
+	it("trains from successful live traces and promotes the gated candidate", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-live-"));
 		const artifact = join(directory, "normalize.ts");
 		await writeFile(artifact, `export function liveNormalize(input: string): string {
@@ -186,17 +154,18 @@ describe("training execution", () => {
 		normalize.normalize("alpha");
 		normalize.normalize("beta");
 
-		const result = await training.evolve({
+		const run = await training.train({
 			trainable: liveNormalize.symbol,
 			objective: "Preserve behavior observed in live traces",
 			minTraces: 2,
 			evaluation: { workers: 2, outputDir: join(directory, "agentv") },
 		});
+		expect(run.outcome).toBe("ready");
+		expect(run.baseline.run.summary.passed).toBe(2);
+		expect(run.final.verification.run.summary.passed).toBe(2);
 
-		expect(result.training.outcome).toBe("ready");
-		expect(result.training.baseline.run.summary.passed).toBe(2);
-		expect(result.training.final.verification.run.summary.passed).toBe(2);
-		expect(result.promotion.source).toContain("return input.toUpperCase();");
+		const promotion = await training.promote(run.final.candidate, run.final.decision);
+		expect(promotion.source).toContain("return input.toUpperCase();");
 		expect(await readFile(artifact, "utf8")).toContain("return input.toUpperCase();");
 		expect(await readFile(artifact, "utf8")).toContain('"use training"');
 	});
@@ -239,7 +208,7 @@ describe("training execution", () => {
 		expect(await readFile(artifact, "utf8")).toContain('"use training"');
 	});
 
-	it("waives the conformance requirement instead of rejecting every candidate", async () => {
+	it("treats engine validation as source conformance at the promotion gate", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-conformance-"));
 		const artifact = join(directory, "echo.ts");
 		await writeFile(artifact, `export function echo(input: string): string {
@@ -256,7 +225,6 @@ describe("training execution", () => {
 		const run = await training.train({
 			trainable: defineTrainable("echo").symbol,
 			objective: "Uppercase the input",
-			conformance: false,
 			evaluation: {
 				tests: [{ id: "upper", input: "abc", assert: [{ type: "equals", value: "ABC" }] }],
 				task: (input) => input,
@@ -268,7 +236,7 @@ describe("training execution", () => {
 		expect(run.final.decision.failures).toEqual([]);
 	});
 
-	it("requires enough successful runtime traces before evolving code", async () => {
+	it("requires enough successful runtime traces before training from captured traffic", async () => {
 		const training = configureTraining({ tracing: { enabled: false } });
 		class Router {
 			route(input: string): string { return input; }
@@ -277,7 +245,7 @@ describe("training execution", () => {
 		applyMethodDecorator(Router, "route", trainable(live.symbol));
 		new Router().route("one");
 
-		await expect(training.evolve({
+		await expect(training.train({
 			trainable: live.symbol,
 			objective: "Improve routing",
 			minTraces: 2,

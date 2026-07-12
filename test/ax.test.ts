@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { configureTraining, defineTrainable, type BoundEvaluation } from "../src/index.js";
+import { defineTrainable, type BoundEvaluation } from "../src/index.js";
 import { createAxEngine } from "../src/providers/ax.js";
 import { discoverInSource } from "ts-autocode-training";
 
@@ -55,13 +55,11 @@ describe("default Ax engine", () => {
 	afterEach(() => vi.unstubAllEnvs());
 
 	it("derives the Ax program and executable metric from the method signature", async () => {
-		const training = configureTraining({ engine: createAxEngine({ studentAI: {} as never }) });
-		const candidate = await training.optimize({
-			trainable: token,
-			objective: "uppercase the result",
-			target,
-			evaluations,
-		});
+		const engine = createAxEngine({ studentAI: {} as never });
+		const candidate = await engine.optimize(
+			{ trainableId: token.id, objective: "uppercase the result", target, records: [], evaluations },
+			{ variables: {} },
+		);
 
 		const signature = mocks.ax.mock.calls[0]?.[0] as {
 			description: string;
@@ -75,7 +73,8 @@ describe("default Ax engine", () => {
 		]);
 		expect(signature.inputs[0]?.description).toBe("input: string");
 		expect(mocks.optimize).toHaveBeenCalledOnce();
-		expect(candidate).toMatchObject({ engineId: "@ax-llm/ax", implementation: "return input.toUpperCase();" });
+		expect(engine.id).toBe("@ax-llm/ax");
+		expect(candidate).toMatchObject({ implementation: "return input.toUpperCase();" });
 	});
 
 	it("uses standard environment credentials without provider-specific root settings", async () => {

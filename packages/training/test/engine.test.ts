@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { applyCandidate } from "ts-autocode-rewrite";
+
 import {
-	applyCandidate,
 	defineTrainable,
 	type CandidatePatch,
 	type TrainingEngine,

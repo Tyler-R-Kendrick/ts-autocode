@@ -2,20 +2,25 @@ import { provideTrainingDefaults } from "ts-autocode-training";
 
 import { executeImplementation } from "./execution.js";
 import { createAxEngine } from "./providers/ax.js";
+import { createHarnessLoop } from "./providers/harness.js";
 
-provideTrainingDefaults({ engine: () => createAxEngine(), executor: executeImplementation });
+// This package connects the provider-neutral training runtime to its concrete
+// providers: Ax optimizes and executes candidates, and the governed agent
+// harness drives training rounds.
+provideTrainingDefaults({
+	engine: () => createAxEngine(),
+	executor: executeImplementation,
+	loop: createHarnessLoop(),
+});
+
+export { createHarnessLoop } from "./providers/harness.js";
 
 export {
-	applyCandidate,
 	configureTraining,
 	createMemoryTrainingStore,
 	defineTrainable,
 	discoverTrainables,
 	evaluatePromotionGate,
-	promoteCandidate,
-	restoreImplementation,
-	revertPromotion,
-	swapImplementation,
 	trainable,
 	training,
 } from "ts-autocode-training";
@@ -23,28 +28,29 @@ export type {
 	BoundEvaluation,
 	CandidateEvalConfig,
 	CandidatePatch,
+	CandidateReview,
 	CaptureSettings,
 	EngineCandidate,
 	EngineContext,
 	EvolutionSettings,
-	EvolveInput,
 	EvolveResult,
 	ImplementationExecutor,
-	OptimizeInput,
 	OptimizeRequest,
 	PromotionDecision,
 	PromotionGateInput,
-	PromotionResult,
-	PromotionSnapshot,
 	SecretProvider,
 	SourceSettings,
 	TrainInput,
+	TrainableEvalRun,
 	TrainableId,
 	TrainableIdentity,
 	TrainableTarget,
 	TrainableToken,
 	Training,
 	TrainingEngine,
+	TrainingLoop,
+	TrainingLoopInput,
+	TrainingLoopRun,
 	TrainingRecord,
 	TrainingRound,
 	TrainingRun,
@@ -52,3 +58,12 @@ export type {
 	TrainingStore,
 	TracingSettings,
 } from "ts-autocode-training";
+
+export {
+	applyCandidate,
+	promoteCandidate,
+	restoreImplementation,
+	revertPromotion,
+	swapImplementation,
+} from "ts-autocode-rewrite";
+export type { PromotionResult, PromotionSnapshot } from "ts-autocode-rewrite";
