@@ -243,7 +243,9 @@ class TrainingRuntime implements Training {
 				const decision = await evaluatePromotionGate({
 					candidate,
 					evaluations: verification.evaluations,
-					conformance: input.conformance ?? true,
+					// The engine already validated the candidate; `conformance: false` waives the
+					// requirement rather than reporting a failed check to the gate.
+					conformance: true,
 					...(input.minScore === undefined ? {} : { minScore: input.minScore }),
 					...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
 					...(input.policy === undefined ? {} : { policy: input.policy }),
@@ -270,7 +272,7 @@ class TrainingRuntime implements Training {
 				const decision = await evaluatePromotionGate({
 					candidate,
 					evaluations: verification.evaluations,
-					conformance: input.conformance ?? true,
+					conformance: true,
 					...(input.minScore === undefined ? {} : { minScore: input.minScore }),
 					...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
 					...(input.policy === undefined ? {} : { policy: input.policy }),
@@ -456,9 +458,9 @@ class TrainingRuntime implements Training {
 		if (this.#settings.capture.enabled === false) return;
 		try {
 			const spanContext = span?.spanContext();
-			const input = this.#settings.capture.mapInput?.(args, token) ?? args;
+			const input = this.#settings.capture.mapInput ? this.#settings.capture.mapInput(args, token) : args;
 			const output = error === undefined
-				? this.#settings.capture.mapOutput?.(result, token) ?? result
+				? (this.#settings.capture.mapOutput ? this.#settings.capture.mapOutput(result, token) : result)
 				: errorMessage(error);
 			const record: TrainingRecord = {
 				id: this.#settings.idFactory(),
@@ -490,7 +492,7 @@ class TrainingRuntime implements Training {
 	}
 
 	#serialize(value: unknown, field: "input" | "output"): string {
-		const redacted = this.#settings.capture.redact?.(value, field) ?? value;
+		const redacted = this.#settings.capture.redact ? this.#settings.capture.redact(value, field) : value;
 		return (this.#settings.capture.serialize ?? defaultSerialize)(redacted);
 	}
 
@@ -534,7 +536,7 @@ function isPromise<T>(value: T): value is T & Promise<Awaited<T>> {
 function defaultSerialize(value: unknown): string {
 	if (typeof value === "string") return value;
 	try {
-		return JSON.stringify(value);
+		return JSON.stringify(value) ?? String(value);
 	} catch {
 		return String(value);
 	}

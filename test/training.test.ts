@@ -60,6 +60,22 @@ describe("trainable method capture", () => {
 		expect(await training.records("Router.route")).toEqual([]);
 	});
 
+	it("lets capture mappers redact values to undefined", async () => {
+		const training = configureTraining({
+			tracing: { enabled: false },
+			capture: { mapInput: () => undefined, mapOutput: () => undefined },
+		});
+		class Router {
+			route(input: string): string { return input; }
+		}
+		applyMethodDecorator(Router, "route", trainable("Router.redacted"));
+
+		expect(new Router().route("secret-input")).toBe("secret-input");
+		const [record] = await training.records("Router.redacted");
+		expect(record?.succeeded).toBe(true);
+		expect(JSON.stringify(record)).not.toContain("secret-input");
+	});
+
 	it("supports the decorator without external source metadata", async () => {
 		const training = configureTraining({});
 		class Router {
@@ -138,6 +154,34 @@ describe("training execution", () => {
 		expect(result.promotion.source).toContain("return input.toUpperCase();");
 		expect(await readFile(artifact, "utf8")).toContain("return input.toUpperCase();");
 		expect(await readFile(artifact, "utf8")).toContain('"use training"');
+	});
+
+	it("waives the conformance requirement instead of rejecting every candidate", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-conformance-"));
+		const artifact = join(directory, "echo.ts");
+		await writeFile(artifact, `export function echo(input: string): string {
+  "use training";
+  return input;
+}\n`);
+		const training = configureTraining({
+			engine: { id: "conformance-test", optimize: async () => ({ implementation: "return input.toUpperCase();" }) },
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+		});
+
+		const run = await training.train({
+			trainable: "echo",
+			objective: "Uppercase the input",
+			conformance: false,
+			evaluation: {
+				tests: [{ id: "upper", input: "abc", assert: [{ type: "equals", value: "ABC" }] }],
+				task: (input) => input,
+				outputDir: join(directory, "agentv"),
+			},
+		});
+
+		expect(run.outcome).toBe("ready");
+		expect(run.final.decision.failures).toEqual([]);
 	});
 
 	it("requires enough successful runtime traces before evolving code", async () => {

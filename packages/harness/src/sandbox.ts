@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 import {
@@ -72,9 +72,11 @@ export class MxcSandbox extends BaseSandbox {
 				try {
 					const target = this.#path(path);
 					await mkdir(dirname(target), { recursive: true });
+					await this.#assertContained(dirname(target));
+					if (await isSymlink(target)) throw new Error("path escapes sandbox workspace");
 					await writeFile(target, content);
 					return { path, error: null };
-				} catch (error) {
+				} catch {
 					return { path, error: "permission_denied" as const };
 				}
 			})));
@@ -84,8 +86,10 @@ export class MxcSandbox extends BaseSandbox {
 		return this.#perform("sandbox.download", { sandbox: this.id, paths }, () =>
 			Promise.all(paths.map(async (path) => {
 				try {
-					return { path, content: await readFile(this.#path(path)), error: null };
-				} catch (error) {
+					const target = this.#path(path);
+					await this.#assertContained(target);
+					return { path, content: await readFile(target), error: null };
+				} catch {
 					return { path, content: null, error: "file_not_found" as const };
 				}
 			})));
@@ -102,5 +106,21 @@ export class MxcSandbox extends BaseSandbox {
 		const fromWorkspace = relative(this.#workspace, target);
 		if (fromWorkspace.startsWith("..") || isAbsolute(fromWorkspace)) throw new Error("path escapes sandbox workspace");
 		return target;
+	}
+
+	/** Host file access follows symlinks, so containment must hold after resolving them too. */
+	async #assertContained(path: string): Promise<void> {
+		const fromWorkspace = relative(await realpath(this.#workspace), await realpath(path));
+		if (fromWorkspace.startsWith("..") || isAbsolute(fromWorkspace)) {
+			throw new Error("path escapes sandbox workspace");
+		}
+	}
+}
+
+async function isSymlink(path: string): Promise<boolean> {
+	try {
+		return (await lstat(path)).isSymbolicLink();
+	} catch {
+		return false;
 	}
 }
