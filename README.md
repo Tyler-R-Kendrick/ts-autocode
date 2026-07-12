@@ -79,7 +79,7 @@ name:
 ```ts
 import { defineTrainable, trainable } from "ts-autocode";
 
-const route = defineTrainable("legacy.route");
+const route = defineTrainable("acme.route");
 
 class Router {
   @trainable(route.symbol)

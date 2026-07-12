@@ -24,15 +24,14 @@ export async function evaluatePromotionGate(input: PromotionGateInput): Promise<
 	const minPassRate = input.minPassRate ?? 1;
 	assertUnitInterval(minScore, "minScore");
 	assertUnitInterval(minPassRate, "minPassRate");
-	const mismatched = input.evaluations.some((evaluation) => evaluation.trainableId !== input.candidate.trainableId);
-	const wrongCandidate = input.evaluations.some((evaluation) =>
-		evaluation.trainableId === input.candidate.trainableId && evaluation.candidateId !== input.candidate.id
-	);
-	const results = input.evaluations
-		.filter((evaluation) =>
-			evaluation.trainableId === input.candidate.trainableId && evaluation.candidateId === input.candidate.id
-		)
-		.map((evaluation) => evaluation.result);
+	let mismatched = false;
+	let wrongCandidate = false;
+	const results: EvaluationResult[] = [];
+	for (const evaluation of input.evaluations) {
+		if (evaluation.trainableId !== input.candidate.trainableId) mismatched = true;
+		else if (evaluation.candidateId !== input.candidate.id) wrongCandidate = true;
+		else results.push(evaluation.result);
+	}
 	const meanScore = average(results.map((result) => result.score));
 	const passRate = average(results.map((result) => Number(passed(result, minScore))));
 	const failures: string[] = [];
