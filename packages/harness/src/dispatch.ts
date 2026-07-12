@@ -41,24 +41,30 @@ export async function dispatchAction<T>(
 		try {
 			decision = requireDecision(await gate(action, await bus.read()));
 		} catch (error) {
+			// The gate error is the outcome; a failing failure record must not replace it.
 			await bus.append({
 				actor,
 				kind: `${kind}.failed`,
 				payload: { actionId: action.id, stage: "gate", message: errorMessage(error) },
-			});
+			}).catch(() => undefined);
 			throw error;
 		}
 		await bus.append({ actor: "judge", kind: decisionKind, payload: { subject: "action", actionId: action.id, decision } });
 		if (decision === "fail") throw new AgentActionDeniedError(action);
 	}
+	let result: T;
 	try {
-		const result = await execute();
-		await bus.append({ actor, kind: `${kind}.completed`, payload: { actionId: action.id, result } });
-		return result;
+		result = await execute();
 	} catch (error) {
-		await bus.append({ actor, kind: `${kind}.failed`, payload: { actionId: action.id, message: errorMessage(error) } });
+		// Likewise: the execution error is the outcome, recorded best-effort.
+		await bus.append({ actor, kind: `${kind}.failed`, payload: { actionId: action.id, message: errorMessage(error) } })
+			.catch(() => undefined);
 		throw error;
 	}
+	// Recorded after the fact, outside the catch: a failing completion append
+	// surfaces as a bus error, never as a failed action.
+	await bus.append({ actor, kind: `${kind}.completed`, payload: { actionId: action.id, result } });
+	return result;
 }
 
 export function requireDecision(value: unknown): JudgeDecision {

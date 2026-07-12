@@ -100,19 +100,28 @@ export function trainingRounds(input: TrainingLoopInput): RoundSequence {
 				closed = true;
 				input.signal?.removeEventListener("abort", forwardAbort);
 			};
+			// Guard every subscriber callback: the drive promise floats, so a
+			// throwing observer would otherwise become an unhandled rejection.
+			const guarded = (deliver: () => void) => {
+				try {
+					deliver();
+				} catch {
+					// A subscriber's own callback failure has nowhere better to go.
+				}
+			};
 			void drive({ ...input, maxRounds, fanOut }, controller.signal, {
 				next: (round) => {
-					if (!closed) observer.next?.(round);
+					if (!closed) guarded(() => observer.next?.(round));
 				},
 				complete: (outcome) => {
 					if (closed) return;
 					settle();
-					observer.complete?.(outcome);
+					guarded(() => observer.complete?.(outcome));
 				},
 				error: (error) => {
 					if (closed) return;
 					settle();
-					observer.error?.(error);
+					guarded(() => observer.error?.(error));
 				},
 			});
 			return () => {
