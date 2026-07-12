@@ -10,10 +10,9 @@ export {
 	wrapTrainable,
 } from "./training.js";
 export type {
+	Activation,
 	CaptureSettings,
-	CandidateEvalConfig,
 	EvolutionSettings,
-	EvolveResult,
 	TrainInput,
 	Training,
 	TrainingProviders,

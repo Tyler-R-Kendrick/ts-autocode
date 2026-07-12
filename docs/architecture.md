@@ -34,8 +34,9 @@ OpenInference APIs.
 `ts-autocode-rewrite` owns candidate application. Marked methods are woven with
 an AspectJS `Trainable` annotation whose around advice dispatches through a
 hot-swap registry, then a single pluggable interceptor (runtime capture), then
-the original implementation. `training.promote()` writes the digest-guarded
-source rewrite and swaps async targets live; `revert()` restores both. All
+the original implementation. Activating a training run (`run.activate()`)
+writes the digest-guarded source rewrite and swaps async targets live; the
+activation's `rollback()` restores both. All
 AspectJS decorators are applied programmatically, keeping consumer projects on
 standard TC39 decorators.
 
@@ -68,9 +69,9 @@ loop, and the rewrite package as the weaver and promoter, all via
 Training, optimization, and evolution are one operation: `train()` without
 explicit eval tests converts distinct, successful captured inputs and outputs
 into official AgentV eval cases, replays them as the baseline, and evaluates
-generated TypeScript against those same cases. `promote()` is the only
-runtime-to-source bridge; runtime capture never initiates a source write on
-its own.
+generated TypeScript against those same cases. Activating the resulting run is
+the only runtime-to-source bridge; runtime capture never initiates a source
+write on its own.
 
 ## Evaluation and optimization
 
@@ -118,5 +119,5 @@ AgentV retains its own `workers` setting for eval parallelism.
 
 Candidates can replace only the discovered method body. Application verifies the
 body digest before editing. Promotion additionally requires conformance, AgentV
-thresholds, and optional policy. Revert stores only the previous and promoted
-method body and refuses to overwrite subsequent edits.
+thresholds, and optional policy. An activation's rollback stores only the
+previous and promoted method body and refuses to overwrite subsequent edits.

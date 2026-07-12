@@ -8,7 +8,6 @@ import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "
 import type {
 	MethodWeaver,
 	PromotionResult,
-	PromotionSnapshot,
 	SourcePromoter,
 } from "./ports.js";
 import {
@@ -21,7 +20,7 @@ import {
 } from "./engine.js";
 import { evaluateTrainable, type TrainableEvalRun } from "./evaluation.js";
 import { sequentialLoop, type TrainingLoop, type TrainingRound } from "./loop.js";
-import { evaluatePromotionGate, type PromotionDecision } from "./promotion.js";
+import { evaluatePromotionGate } from "./promotion.js";
 import { createMemoryTrainingStore, type TrainingRecord, type TrainingStore } from "./records.js";
 import {
 	findTrainable,
@@ -78,7 +77,7 @@ export interface EvolutionSettings {
 	readonly minTraces?: number;
 	readonly objective?: string;
 	readonly evaluation?: Omit<EvalConfig, "specFile" | "target" | "task" | "tests">;
-	readonly onEvolved?: (result: EvolveResult) => void;
+	readonly onEvolved?: (activation: Activation) => void;
 }
 
 /** What background evolution uses when `EvolutionSettings.minTraces` is unset. */
@@ -110,8 +109,6 @@ export interface TrainingSettings {
 	readonly onError?: (error: unknown, phase: "capture" | "store" | "evolve") => void;
 }
 
-export type CandidateEvalConfig = Omit<EvalConfig, "task"> & { readonly signal?: AbortSignal };
-
 export interface TrainInput {
 	readonly trainable: TrainableIdentity;
 	/** Optimization goal; defaults to preserving the evaluated behavior. */
@@ -131,25 +128,31 @@ export interface TrainInput {
 	readonly policy?: (candidate: CandidatePatch) => boolean | Promise<boolean>;
 }
 
-export interface EvolveResult {
-	readonly training: TrainingRun;
-	readonly promotion: PromotionResult;
-}
-
 export interface TrainingRun {
 	readonly outcome: "ready" | "stalled" | "exhausted";
 	readonly baseline: TrainableEvalRun;
 	readonly rounds: readonly TrainingRound[];
 	readonly final: TrainingRound;
+	/** Apply the final gated candidate: digest-guarded source rewrite plus live
+	 * hot-swap for async targets. Throws unless the candidate passed the gate. */
+	activate(): Promise<Activation>;
 }
+
+/** An applied training result. */
+export interface Activation {
+	readonly run: TrainingRun;
+	readonly promotion: PromotionResult;
+	/** Restore the pre-activation source and live implementation; refuses to
+	 * overwrite edits made after activation. */
+	rollback(): Promise<void>;
+}
+
+type CandidateEvalConfig = Omit<EvalConfig, "task"> & { readonly signal?: AbortSignal };
 
 export interface Training {
 	records(trainable?: TrainableIdentity): Promise<readonly TrainingRecord[]>;
 	evaluate(trainable: TrainableIdentity, config: EvalConfig): Promise<TrainableEvalRun>;
-	evaluateCandidate(candidate: CandidatePatch, config: CandidateEvalConfig): Promise<TrainableEvalRun>;
 	train(input: TrainInput): Promise<TrainingRun>;
-	promote(candidate: CandidatePatch, decision: PromotionDecision): Promise<PromotionResult>;
-	revert(snapshot: PromotionSnapshot): Promise<void>;
 	flush(): Promise<void>;
 }
 
@@ -217,8 +220,7 @@ class TrainingRuntime implements Training {
 			if (run.outcome !== "ready") {
 				throw new Error(`background training did not produce a promotable candidate: ${run.outcome}`);
 			}
-			const promotion = await this.promote(run.final.candidate, run.final.decision);
-			evolution.onEvolved?.({ training: run, promotion });
+			evolution.onEvolved?.(await run.activate());
 		})()
 			.catch((error) => this.#settings.onError?.(error, "evolve"))
 			.finally(() => {
@@ -242,7 +244,7 @@ class TrainingRuntime implements Training {
 		return run;
 	}
 
-	async evaluateCandidate(candidate: CandidatePatch, config: CandidateEvalConfig): Promise<TrainableEvalRun> {
+	async #evaluateCandidate(candidate: CandidatePatch, config: CandidateEvalConfig): Promise<TrainableEvalRun> {
 		const token = defineTrainable(candidate.trainableId);
 		const execute = this.#executorOrThrow();
 		const { signal, ...evaluation } = config;
@@ -292,7 +294,7 @@ class TrainingRuntime implements Training {
 				...(signal === undefined ? {} : { signal }),
 			}),
 			review: async (candidate, { label, signal }) => {
-				const verification = await this.evaluateCandidate(candidate, {
+				const verification = await this.#evaluateCandidate(candidate, {
 					...candidateEvaluation,
 					...(signal === undefined ? {} : { signal }),
 					outputDir: `${outputDir}/${label}`,
@@ -311,12 +313,14 @@ class TrainingRuntime implements Training {
 		});
 		const final = result.rounds.at(-1);
 		if (!final) throw new Error(`training loop returned no rounds: ${result.outcome}`);
-		return Object.freeze({
+		const run: TrainingRun = Object.freeze({
 			outcome: result.outcome,
 			baseline,
 			rounds: Object.freeze([...result.rounds]),
 			final,
+			activate: () => this.#activate(run),
 		});
+		return run;
 	}
 
 	/** Training from live traffic is the same operation as training from explicit
@@ -375,21 +379,24 @@ class TrainingRuntime implements Training {
 		);
 	}
 
-	async promote(candidate: CandidatePatch, decision: PromotionDecision): Promise<PromotionResult> {
+	async #activate(run: TrainingRun): Promise<Activation> {
+		const { candidate, decision } = run.final;
 		const promoter = promoterOrThrow();
 		const source = await readFile(candidate.target.artifactRef, "utf8");
-		const promoted = promoter.promote({ source, candidate, decision });
-		await writeFile(candidate.target.artifactRef, promoted.source, "utf8");
+		const promotion = promoter.promote({ source, candidate, decision });
+		await writeFile(candidate.target.artifactRef, promotion.source, "utf8");
 		this.#hotSwap(candidate);
-		return promoted;
-	}
-
-	async revert(snapshot: PromotionSnapshot): Promise<void> {
-		const promoter = promoterOrThrow();
-		const source = await readFile(snapshot.artifactRef, "utf8");
-		await writeFile(snapshot.artifactRef, promoter.revert(source, snapshot), "utf8");
-		// A swap only exists where a weaver dispatched calls in the first place.
-		defaultProviders.weaver?.restore(snapshot.trainableId);
+		return Object.freeze({
+			run,
+			promotion,
+			rollback: async () => {
+				const snapshot = promotion.snapshot;
+				const current = await readFile(snapshot.artifactRef, "utf8");
+				await writeFile(snapshot.artifactRef, promoter.revert(current, snapshot), "utf8");
+				// A swap only exists where a weaver dispatched calls in the first place.
+				defaultProviders.weaver?.restore(snapshot.trainableId);
+			},
+		});
 	}
 
 	/** Promoted candidates go live in-process through the hot-swappable advice.
@@ -585,10 +592,7 @@ function promoterOrThrow(): SourcePromoter {
 export const training: Training = Object.freeze<Training>({
 	records: (identity) => runtime().records(identity),
 	evaluate: (identity, config) => runtime().evaluate(identity, config),
-	evaluateCandidate: (candidate, config) => runtime().evaluateCandidate(candidate, config),
 	train: (input) => runtime().train(input),
-	promote: (candidate, decision) => runtime().promote(candidate, decision),
-	revert: (snapshot) => runtime().revert(snapshot),
 	flush: () => runtime().flush(),
 });
 

@@ -37,15 +37,14 @@ export {
 	trainingMarker,
 } from "ts-autocode-training";
 export type {
+	Activation,
 	BoundEvaluation,
-	CandidateEvalConfig,
 	CandidatePatch,
 	CandidateReview,
 	CaptureSettings,
 	EngineCandidate,
 	EngineContext,
 	EvolutionSettings,
-	EvolveResult,
 	ImplementationExecutor,
 	MethodWeaver,
 	OptimizeRequest,
