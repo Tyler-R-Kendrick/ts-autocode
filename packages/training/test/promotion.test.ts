@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { promoteCandidate, revertPromotion } from "ts-autocode-rewrite";
+import { commitRewrite, revertRewrite } from "ts-autocode-rewrite";
 
 import {
 	defineTrainable,
@@ -41,11 +41,14 @@ describe("promotion", () => {
 			evaluations: evaluated.evaluations.map((evaluation) => ({ ...evaluation, candidateId: patch.id })),
 			conformance: true,
 		});
-		const promoted = promoteCandidate({ source, candidate: patch, decision });
+		// The gate decides; the training-agnostic rewrite commit is only reached
+		// once the consumer has checked it — mirroring the wired applier.
+		expect(decision.promote).toBe(true);
+		const committed = commitRewrite(source, patch);
 
-		expect(promoted.source).toContain('return "new";');
-		expect(revertPromotion(promoted.source, promoted.snapshot)).toBe(source);
-		expect(() => revertPromotion(promoted.source.replace('return "new";', 'return "changed";'), promoted.snapshot))
+		expect(committed.source).toContain('return "new";');
+		expect(revertRewrite(committed.source, committed.snapshot)).toBe(source);
+		expect(() => revertRewrite(committed.source.replace('return "new";', 'return "changed";'), committed.snapshot))
 			.toThrow("changed before revert");
 	});
 

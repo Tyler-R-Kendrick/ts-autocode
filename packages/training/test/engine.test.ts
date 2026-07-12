@@ -53,7 +53,7 @@ describe("provider-neutral engine", () => {
 			implementation: "return input.toUpperCase();",
 		};
 		const changed = source.replace("return input;", "return input.trim();");
-		expect(() => applyCandidate(changed, candidate)).toThrow("changed after optimization started");
+		expect(() => applyCandidate(changed, candidate)).toThrow("changed after discovery");
 	});
 
 	it("rejects invalid TypeScript returned by an engine", async () => {

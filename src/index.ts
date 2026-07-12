@@ -82,9 +82,9 @@ export type {
 
 export {
 	applyCandidate,
-	promoteCandidate,
+	commitRewrite,
 	restoreImplementation,
-	revertPromotion,
+	revertRewrite,
 	swapImplementation,
 } from "ts-autocode-rewrite";
-export type { PromotionResult, PromotionSnapshot } from "ts-autocode-rewrite";
+export type { AppliedRewrite, RewriteCandidate, RewriteSnapshot, RewriteTarget } from "ts-autocode-rewrite";
