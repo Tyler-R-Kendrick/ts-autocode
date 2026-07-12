@@ -168,15 +168,16 @@ alter application calls. Set `TS_AUTOCODE_EVOLVE=off` (or configure
 `evolution: { enabled: false }`) to capture without rewriting, and use
 `evolution.onEvolved` to observe applied rewrites.
 
-## Evolve from live traces explicitly
+## Train from live traces
 
-Without the register patch, `evolve()` is the explicit form of the same loop:
-it turns successful captured calls into AgentV equality evals, trains a
-replacement, verifies the candidate against the same cases, applies the
-promotion gate, and updates the marked TypeScript body.
+Training, optimization, and evolution are one operation. `train()` without
+explicit `evaluation.tests` runs the same loop against captured traffic: it
+turns successful captured calls into AgentV equality evals, trains a
+replacement, verifies the candidate against the same cases, and applies the
+promotion gate. `promote()` then updates the marked TypeScript body.
 
 ```ts
-const result = await training.evolve({
+const run = await training.train({
   trainable: route,
   objective: "Preserve routing behavior observed in production",
   minTraces: 20,
@@ -186,14 +187,15 @@ const result = await training.evolve({
   },
 });
 
-console.log(result.promotion.snapshot.candidateId);
+const promoted = await training.promote(run.final.candidate, run.final.decision);
+console.log(promoted.snapshot.candidateId);
 ```
 
 Only successful traces with both captured input and output become eval cases.
 Repeated inputs use the latest observed output, avoiding contradictory replay
 cases. Capture redaction and serialization still come from global settings, so
-secrets do not need to enter optimizer or eval artifacts. `evolve()` refuses to
-write unless the candidate passes candidate-bound AgentV evals and every
+secrets do not need to enter optimizer or eval artifacts. `promote()` refuses
+to write unless the candidate passed candidate-bound AgentV evals and every
 configured promotion policy.
 
 Training rounds run through the provider-neutral `TrainingLoop` contract.
@@ -204,7 +206,7 @@ exact pass/fail decision, tests
 approved candidates with an isolated adversary, and makes the teacher revise
 the rubric when the adversary exposes an accepted gap. Baseline results are
 never treated as proof that a rewrite passes. Set `TrainingSettings.loop` to
-substitute your own orchestration; the lower-level `evaluate`, `optimize`,
+substitute your own orchestration; the lower-level `evaluate`,
 `evaluateCandidate`, and promotion primitives also remain available.
 
 No Ax program is supplied by the caller. The default engine derives its fields,
@@ -222,10 +224,9 @@ Runtime dependencies enter through `TrainingSettings`:
 - `store`, `capture`, and `tracing` configure recording globally.
 - `source` overrides TypeScript project discovery when the default `tsconfig.json`
   is not the desired project.
-- `concurrency` limits `optimizeAll()`; independent work runs concurrently.
 
 AgentV's `workers` option parallelizes live-trace and candidate evals. Independent
-trainables can be evolved concurrently by the application, while the configured
+trainables can be trained concurrently by the application, while the configured
 engine and store remain injectable.
 
 Configuration is optional: the exported `training` runtime works out of the

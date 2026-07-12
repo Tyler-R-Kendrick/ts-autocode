@@ -4,8 +4,8 @@
 
 `TrainableToken` is the durable join key. A token id binds a trainable method to
 its runtime captures, AgentV evaluations, optimizer request, candidate, and
-promotion decision. Training APIs (`train`, `evaluate`, `evolve`, `optimize`,
-`records`) identify their target by the token or its symbol, never by a raw
+promotion decision. Training APIs (`train`, `evaluate`, `records`) identify
+their target by the token or its symbol, never by a raw
 string; the `@trainable()` decorator auto-generates a token when no symbol is
 passed, and `defineTrainable(id)` recreates the same token and symbol anywhere,
 so tests and evals can bind to a training target directly.
@@ -46,18 +46,20 @@ instrumentation to every application module containing a `"use training"`
 directive, wiring each discovered class method or function declaration into the
 same capture path as the decorator. It also enables background evolution by
 default: after `evolution.minTraces` successful captures, the runtime runs the
-same `evolve()` pipeline — replay evals, candidate verification, promotion
-gate, guarded rewrite — off the hot path, reporting failures through
+same train-and-promote pipeline — replay evals, candidate verification,
+promotion gate, guarded rewrite — off the hot path, reporting failures through
 `onError("evolve")`. Calls made during a module's own top-level evaluation
 precede its instrumentation; traffic after startup is captured. The training
 runtime itself lives in the provider-neutral `ts-autocode-training` package;
 `ts-autocode` wires Ax as the default engine and executor and the harness as
 the default training loop via `provideTrainingDefaults`.
 
-`evolve()` is the explicit runtime-to-source bridge. It converts distinct,
-successful captured inputs and outputs into official AgentV eval cases, replays
-them as the baseline, and evaluates generated TypeScript against those same
-cases. Runtime capture never initiates a source write on its own.
+Training, optimization, and evolution are one operation: `train()` without
+explicit eval tests converts distinct, successful captured inputs and outputs
+into official AgentV eval cases, replays them as the baseline, and evaluates
+generated TypeScript against those same cases. `promote()` is the only
+runtime-to-source bridge; runtime capture never initiates a source write on
+its own.
 
 ## Evaluation and optimization
 
@@ -99,8 +101,7 @@ Agent and skill optimization are deliberately outside the harness. Consumers
 may evolve agents independently and inject the resulting callbacks into the
 same run contract; the library remains focused on evaluated code evolution.
 
-Independent `optimizeAll()` requests run concurrently with a caller-controlled
-limit. AgentV retains its own `workers` setting for eval parallelism.
+AgentV retains its own `workers` setting for eval parallelism.
 
 ## Promotion
 

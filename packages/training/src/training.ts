@@ -30,11 +30,9 @@ import { sequentialLoop, type TrainingLoop, type TrainingRound } from "./loop.js
 import { evaluatePromotionGate, type PromotionDecision } from "./promotion.js";
 import { createMemoryTrainingStore, type TrainingRecord, type TrainingStore } from "./records.js";
 import {
-	discoverTrainables,
 	findTrainable,
 	trainingMarker,
 	type SourceSettings,
-	type TrainableTarget,
 } from "./source.js";
 import {
 	defineTrainable,
@@ -94,28 +92,23 @@ export interface TrainingSettings {
 	readonly store?: TrainingStore;
 	readonly secrets?: SecretProvider;
 	readonly variables?: Readonly<Record<string, string>>;
-	readonly concurrency?: number;
 	readonly capture?: CaptureSettings;
 	readonly tracing?: TracingSettings;
 	readonly onError?: (error: unknown, phase: "capture" | "store" | "evolve") => void;
-}
-
-export interface OptimizeInput {
-	readonly trainable: TrainableIdentity;
-	readonly objective: string;
-	readonly target?: TrainableTarget;
-	readonly constraints?: readonly string[];
-	readonly evaluations?: readonly BoundEvaluation[];
-	readonly engine?: TrainingEngine;
-	readonly signal?: AbortSignal;
 }
 
 export type CandidateEvalConfig = Omit<EvalConfig, "task"> & { readonly signal?: AbortSignal };
 
 export interface TrainInput {
 	readonly trainable: TrainableIdentity;
-	readonly objective: string;
-	readonly evaluation: EvalConfig;
+	/** Optimization goal; defaults to preserving the evaluated behavior. */
+	readonly objective?: string;
+	/** AgentV evaluation. When `tests` are omitted, distinct successful captured
+	 * runtime traces are replayed as equality eval cases instead. */
+	readonly evaluation?: EvalConfig;
+	/** Minimum distinct successful traces required before training from replayed
+	 * captures; ignored when explicit `evaluation.tests` are given. */
+	readonly minTraces?: number;
 	readonly constraints?: readonly string[];
 	readonly engine?: TrainingEngine;
 	readonly signal?: AbortSignal;
@@ -123,11 +116,6 @@ export interface TrainInput {
 	readonly minScore?: number;
 	readonly minPassRate?: number;
 	readonly policy?: (candidate: CandidatePatch) => boolean | Promise<boolean>;
-}
-
-export interface EvolveInput extends Omit<TrainInput, "evaluation"> {
-	readonly evaluation?: Omit<EvalConfig, "specFile" | "target" | "task" | "tests">;
-	readonly minTraces?: number;
 }
 
 export interface EvolveResult {
@@ -147,9 +135,6 @@ export interface Training {
 	evaluate(trainable: TrainableIdentity, config: EvalConfig): Promise<TrainableEvalRun>;
 	evaluateCandidate(candidate: CandidatePatch, config: CandidateEvalConfig): Promise<TrainableEvalRun>;
 	train(input: TrainInput): Promise<TrainingRun>;
-	evolve(input: EvolveInput): Promise<EvolveResult>;
-	optimize(input: OptimizeInput): Promise<CandidatePatch>;
-	optimizeAll(inputs: readonly OptimizeInput[]): Promise<readonly CandidatePatch[]>;
 	promote(candidate: CandidatePatch, decision: PromotionDecision): Promise<PromotionResult>;
 	revert(snapshot: PromotionSnapshot): Promise<void>;
 	flush(): Promise<void>;
@@ -162,7 +147,6 @@ export type TrainableDecorator = <This, Args extends unknown[], Result>(
 
 class TrainingRuntime implements Training {
 	readonly #settings: TrainingSettings;
-	readonly #concurrency: number;
 	readonly #variables: Readonly<Record<string, string>>;
 	readonly #store: TrainingStore;
 	readonly #tracer: Tracer;
@@ -172,12 +156,7 @@ class TrainingRuntime implements Training {
 	readonly #evolutionState = new Map<string, { running: boolean; queued: boolean; attempted: number }>();
 
 	constructor(settings: TrainingSettings) {
-		const concurrency = settings.concurrency ?? Number.POSITIVE_INFINITY;
-		if (!(concurrency === Number.POSITIVE_INFINITY || (Number.isInteger(concurrency) && concurrency > 0))) {
-			throw new TypeError("concurrency must be a positive integer");
-		}
 		this.#settings = settings;
-		this.#concurrency = concurrency;
 		this.#variables = Object.freeze({ ...settings.variables });
 		this.#store = settings.store ?? createMemoryTrainingStore();
 		this.#tracer = settings.tracing?.tracer ?? trace.getTracer("ts-autocode");
@@ -216,13 +195,17 @@ class TrainingRuntime implements Training {
 			const successes = (await this.#store.list(token.id)).filter((record) => record.succeeded).length;
 			if (successes < state.attempted + minTraces) return;
 			state.attempted = successes;
-			const result = await this.evolve({
+			const run = await this.train({
 				trainable: token,
-				objective: evolution.objective ?? "Preserve behavior observed in successful runtime traces",
 				minTraces,
+				...(evolution.objective === undefined ? {} : { objective: evolution.objective }),
 				...(evolution.evaluation === undefined ? {} : { evaluation: evolution.evaluation }),
 			});
-			evolution.onEvolved?.(result);
+			if (run.outcome !== "ready") {
+				throw new Error(`background training did not produce a promotable candidate: ${run.outcome}`);
+			}
+			const promotion = await this.promote(run.final.candidate, run.final.decision);
+			evolution.onEvolved?.({ training: run, promotion });
 		})()
 			.catch((error) => this.#settings.onError?.(error, "evolve"))
 			.finally(() => {
@@ -274,29 +257,27 @@ class TrainingRuntime implements Training {
 
 	async train(input: TrainInput): Promise<TrainingRun> {
 		const token = toTrainableToken(input.trainable);
-		const baseline = await this.evaluate(token, input.evaluation);
-		const { task: _task, outputDir = ".agentv", ...candidateEvaluation } = input.evaluation;
+		const objective = input.objective ?? "Preserve behavior demonstrated by the evaluation cases";
+		const evaluation = input.evaluation?.tests ? input.evaluation : await this.#replayEvaluation(token, input);
+		const baseline = await this.evaluate(token, evaluation);
+		const { task: _task, outputDir = ".agentv", ...candidateEvaluation } = evaluation;
 		const loop = this.#settings.loop ?? defaultProviders.loop ?? sequentialLoop;
 		const result = await loop({
 			trainableId: token.id,
-			objective: input.objective,
+			objective,
 			rubric: promotionRubric(input),
 			outputDir,
 			...(input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds }),
 			...(input.signal === undefined ? {} : { signal: input.signal }),
-			propose: ({ feedback, signal }) => {
-				const constraints = [
+			propose: ({ feedback, signal }) => this.#propose(token, {
+				objective,
+				constraints: [
 					...(input.constraints ?? []),
 					...feedback.map((failure) => `Previous candidate rejection: ${failure}`),
-				];
-				return this.optimize({
-					trainable: token,
-					objective: input.objective,
-					...(constraints.length === 0 ? {} : { constraints }),
-					...(input.engine === undefined ? {} : { engine: input.engine }),
-					...(signal === undefined ? {} : { signal }),
-				});
-			},
+				],
+				...(input.engine === undefined ? {} : { engine: input.engine }),
+				...(signal === undefined ? {} : { signal }),
+			}),
 			review: async (candidate, { label, signal }) => {
 				const verification = await this.evaluateCandidate(candidate, {
 					...candidateEvaluation,
@@ -325,35 +306,27 @@ class TrainingRuntime implements Training {
 		});
 	}
 
-	async evolve(input: EvolveInput): Promise<EvolveResult> {
-		const { evaluation = {}, minTraces = 1, ...training } = input;
+	/** Training from live traffic is the same operation as training from explicit
+	 * tests: distinct successful captured traces become equality eval cases. */
+	async #replayEvaluation(token: TrainableToken, input: TrainInput): Promise<EvalConfig> {
+		const minTraces = input.minTraces ?? 1;
 		if (!Number.isInteger(minTraces) || minTraces < 1) {
 			throw new TypeError("minTraces must be a positive integer");
 		}
-		const examples = liveEvalCases(await this.records(input.trainable));
-		if (examples.length < minTraces) {
-			throw new Error(`code evolution requires ${minTraces} distinct successful runtime trace${minTraces === 1 ? "" : "s"}; found ${examples.length}`);
+		const tests = liveEvalCases(await this.records(token));
+		if (tests.length < minTraces) {
+			throw new Error(`training from captured traffic requires ${minTraces} distinct successful runtime trace${minTraces === 1 ? "" : "s"}; found ${tests.length}`);
 		}
-		const expected = new Map(examples.map((test) => [String(test.input), test.expectedOutput ?? ""]));
-		const run = await this.train({
-			...training,
-			evaluation: {
-				...evaluation,
-				tests: examples,
-				task: (value) => {
-					const output = expected.get(value);
-					if (output === undefined) throw new Error(`live trace was not found for eval input: ${value}`);
-					return output;
-				},
+		const expected = new Map(tests.map((test) => [String(test.input), test.expectedOutput ?? ""]));
+		return {
+			...input.evaluation,
+			tests,
+			task: (value) => {
+				const output = expected.get(value);
+				if (output === undefined) throw new Error(`live trace was not found for eval input: ${value}`);
+				return output;
 			},
-		});
-		if (run.outcome !== "ready") {
-			throw new Error(`code evolution did not produce a promotable candidate: ${run.outcome}`);
-		}
-		return Object.freeze({
-			training: run,
-			promotion: await this.promote(run.final.candidate, run.final.decision),
-		});
+		};
 	}
 
 	#remember(run: TrainableEvalRun): void {
@@ -363,9 +336,13 @@ class TrainingRuntime implements Training {
 		this.#evaluations.set(token.id, evaluations);
 	}
 
-	async optimize(input: OptimizeInput): Promise<CandidatePatch> {
-		const token = toTrainableToken(input.trainable);
-		const target = input.target ?? findTrainable(token.id, this.#settings.source);
+	async #propose(token: TrainableToken, input: {
+		readonly objective: string;
+		readonly constraints: readonly string[];
+		readonly engine?: TrainingEngine;
+		readonly signal?: AbortSignal;
+	}): Promise<CandidatePatch> {
+		const target = findTrainable(token.id, this.#settings.source);
 		const records = await this.records(token);
 		return optimizeCandidate(
 			this.#engineFor(input.engine),
@@ -374,8 +351,8 @@ class TrainingRuntime implements Training {
 				objective: input.objective,
 				target,
 				records,
-				evaluations: input.evaluations ?? this.#evaluations.get(token.id) ?? [],
-				...(input.constraints === undefined ? {} : { constraints: input.constraints }),
+				evaluations: this.#evaluations.get(token.id) ?? [],
+				...(input.constraints.length === 0 ? {} : { constraints: input.constraints }),
 			},
 			{
 				variables: this.#variables,
@@ -383,19 +360,6 @@ class TrainingRuntime implements Training {
 				...(input.signal === undefined ? {} : { signal: input.signal }),
 			},
 		);
-	}
-
-	async optimizeAll(inputs: readonly OptimizeInput[]): Promise<readonly CandidatePatch[]> {
-		const needsDiscovery = inputs.some((input) => input.target === undefined);
-		const targets = needsDiscovery ? targetsById(discoverTrainables(this.#settings.source)) : new Map();
-		const prepared = inputs.map((input): OptimizeInput => {
-			if (input.target) return input;
-			const id = toTrainableToken(input.trainable).id;
-			const target = targets.get(id);
-			if (!target) throw new Error(`trainable source was not found: ${id}`);
-			return { ...input, target };
-		});
-		return mapConcurrent(prepared, this.#concurrency, (input) => this.optimize(input));
 	}
 
 	async promote(candidate: CandidatePatch, decision: PromotionDecision): Promise<PromotionResult> {
@@ -584,9 +548,6 @@ export const training: Training = Object.freeze<Training>({
 	evaluate: (identity, config) => runtime().evaluate(identity, config),
 	evaluateCandidate: (candidate, config) => runtime().evaluateCandidate(candidate, config),
 	train: (input) => runtime().train(input),
-	evolve: (input) => runtime().evolve(input),
-	optimize: (input) => runtime().optimize(input),
-	optimizeAll: (inputs) => runtime().optimizeAll(inputs),
 	promote: (candidate, decision) => runtime().promote(candidate, decision),
 	revert: (snapshot) => runtime().revert(snapshot),
 	flush: () => runtime().flush(),
@@ -718,25 +679,3 @@ function promotionRubric(input: TrainInput): string {
 	].join(" ");
 }
 
-async function mapConcurrent<T, R>(items: readonly T[], concurrency: number, map: (item: T) => Promise<R>): Promise<R[]> {
-	if (items.length === 0) return [];
-	const limit = concurrency === Number.POSITIVE_INFINITY ? items.length : Math.min(concurrency, items.length);
-	const results = new Array<R>(items.length);
-	let next = 0;
-	await Promise.all(Array.from({ length: limit }, async () => {
-		while (next < items.length) {
-			const index = next++;
-			results[index] = await map(items[index] as T);
-		}
-	}));
-	return results;
-}
-
-function targetsById(targets: readonly TrainableTarget[]): ReadonlyMap<string, TrainableTarget> {
-	const result = new Map<string, TrainableTarget>();
-	for (const target of targets) {
-		if (result.has(target.id)) throw new Error(`trainable id must resolve to exactly one method: ${target.id}`);
-		result.set(target.id, target);
-	}
-	return result;
-}

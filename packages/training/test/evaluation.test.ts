@@ -38,30 +38,26 @@ describe("AgentV evaluation", () => {
 	});
 
 	it("feeds token-bound AgentV results into any configured engine", async () => {
-		const source = `class Router {
-  route(input: string): string {
-    "use training";
-    return input;
-  }
-}`;
-		const target = discoverInSource(source, "src/router.ts")[0]!;
 		const engine: TrainingEngine = {
 			id: "assert-evals",
 			async optimize(request) {
-				expect(request.evaluations).toHaveLength(1);
-				expect(request.evaluations[0]?.trainableId).toBe("Router.route");
+				// The standalone evaluation and the training baseline are both remembered.
+				expect(request.evaluations).toHaveLength(2);
+				expect(request.evaluations.every((evaluation) => evaluation.trainableId === "pipelineTarget")).toBe(true);
 				return { implementation: "return input;" };
 			},
 		};
-		const route = defineTrainable("Router.route");
-		const training = configureTraining({ engine, executor: functionExecutor });
-		await training.evaluate(route.symbol, {
-			tests: [{ id: "identity", input: "hello", assert: [{ type: "equals", value: "hello" }] }],
-			task: (input) => input,
+		const route = defineTrainable("pipelineTarget");
+		const training = configureTraining({ engine, executor: functionExecutor, source: { files: [import.meta.filename] } });
+		const evaluation = {
+			tests: [{ id: "identity", input: "hello", assert: [{ type: "equals" as const, value: "hello" }] }],
+			task: (input: string) => input,
 			outputDir: "test/output/agentv-training",
-		});
+		};
+		await training.evaluate(route.symbol, evaluation);
 
-		await training.optimize({ trainable: route.symbol, objective: "retain identity", target });
+		const run = await training.train({ trainable: route.symbol, objective: "retain identity", evaluation });
+		expect(run.outcome).toBe("ready");
 	});
 
 	it("runs AgentV against the candidate body before promotion", async () => {
