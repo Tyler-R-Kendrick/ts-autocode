@@ -38,8 +38,9 @@ type AnyMethod = (this: unknown, ...args: unknown[]) => unknown;
 const configs = new Map<string, RewriteConfig>();
 const swaps = new Map<string, AnyMethod>();
 
-/** Normalizes a `"use <name>"` directive to its canonical single-spaced form. */
-function normalizeMarker(marker: string): string {
+/** Normalizes a `"use <name>"` directive to its canonical single-spaced form.
+ * Package-internal: emit.ts validates rewriter markers with it; not re-exported. */
+export function normalizeMarker(marker: string): string {
 	const trimmed = marker.trim().replace(/\s+/g, " ");
 	if (!/^use \S/.test(trimmed)) throw new TypeError(`rewrite marker must be a "use <name>" directive: ${marker}`);
 	return trimmed;

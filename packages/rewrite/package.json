@@ -34,7 +34,8 @@
 	},
 	"dependencies": {
 		"@aspectjs/common": "^0.5.4",
-		"@aspectjs/core": "^0.5.4"
+		"@aspectjs/core": "^0.5.4",
+		"typescript": "^5.9.3"
 	},
 	"keywords": [
 		"aop",

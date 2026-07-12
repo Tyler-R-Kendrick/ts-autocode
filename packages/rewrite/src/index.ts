@@ -1,4 +1,9 @@
-export { digest } from "./canonical.js";
+export { check, digest } from "./canonical.js";
+
+export { installInstrumentation, installedInstrumentation, instrumentKey } from "./instrument.js";
+export type { InstrumentEntry, InstrumentRegistry, InstrumentTarget, Instrumentation, Marker } from "./instrument.js";
+
+export { createRewriter, emitInstrumentation } from "./emit.js";
 
 export { applyCandidate } from "./apply.js";
 export type { RewriteCandidate, RewriteTarget } from "./apply.js";

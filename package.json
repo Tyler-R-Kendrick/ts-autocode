@@ -62,6 +62,7 @@
 	},
 	"dependencies": {
 		"@ax-llm/ax": "^23.0.0",
+		"ts-autocode-rewrite": "0.1.0",
 		"ts-autocode-training": "0.1.0",
 		"typescript": "^5.9.3"
 	},

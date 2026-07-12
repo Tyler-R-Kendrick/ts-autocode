@@ -33,6 +33,7 @@ import { createMemoryTrainingStore, type TrainingRecord, type TrainingStore } fr
 import {
 	discoverTrainables,
 	findTrainable,
+	trainingMarker,
 	type SourceSettings,
 	type TrainableTarget,
 } from "./source.js";
@@ -45,10 +46,6 @@ import {
 } from "./token.js";
 
 const trainableAttribute = "ts_autocode.trainable.id";
-
-/** Training is one consumer of the generic rewrite engine; this is the marker it
- * configures. The `"use training"` directive is the shorthand that weaves a method. */
-const trainingMarker = "use training";
 
 // Register training's rewrite behavior once: every method woven under the
 // "use training" marker routes through runtime capture, and `proceed` resolves

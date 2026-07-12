@@ -2,10 +2,12 @@ import { dirname, extname, resolve } from "node:path";
 
 import ts from "typescript";
 
-import { digest } from "ts-autocode-rewrite";
+import { digest, type Marker } from "ts-autocode-rewrite";
 import { trainableIdFromKey, type TrainableId } from "./token.js";
 
-const trainingDirective = "use training";
+/** The directive that marks a method for training; the marker training registers
+ * with the generic rewrite engine. */
+export const trainingMarker: Marker = "use training";
 
 export interface TrainableParameter {
 	readonly name: string;
@@ -145,7 +147,7 @@ function targetFor(
 function firstDirective(body: ts.Block): ts.ExpressionStatement | undefined {
 	const statement = body.statements[0];
 	return statement && ts.isExpressionStatement(statement) && ts.isStringLiteral(statement.expression) &&
-		statement.expression.text === trainingDirective
+		statement.expression.text === trainingMarker
 		? statement
 		: undefined;
 }
