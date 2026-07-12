@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, readFile, symlink, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -161,6 +161,10 @@ describe("training harness", () => {
 		]);
 		await expect(readFile(join(outside, "implant.txt"))).rejects.toThrow();
 		expect(await readFile(join(outside, "secret.txt"), "utf8")).toBe("secret");
+
+		expect(await sandbox.uploadFiles([["leak/sub/nested.txt", new TextEncoder().encode("x")]]))
+			.toEqual([{ path: "leak/sub/nested.txt", error: "permission_denied" }]);
+		await expect(stat(join(outside, "sub"))).rejects.toThrow();
 	});
 
 	it("creates configurable Deep Agent callbacks for the same run model", async () => {

@@ -71,6 +71,9 @@ export class MxcSandbox extends BaseSandbox {
 			Promise.all(files.map(async ([path, content]) => {
 				try {
 					const target = this.#path(path);
+					await mkdir(this.#workspace, { recursive: true });
+					// Preflight before mkdir: a symlinked ancestor would otherwise create directories outside.
+					await this.#assertContained(await existingAncestor(dirname(target), this.#workspace));
 					await mkdir(dirname(target), { recursive: true });
 					await this.#assertContained(dirname(target));
 					if (await isSymlink(target)) throw new Error("path escapes sandbox workspace");
@@ -120,6 +123,21 @@ export class MxcSandbox extends BaseSandbox {
 async function isSymlink(path: string): Promise<boolean> {
 	try {
 		return (await lstat(path)).isSymbolicLink();
+	} catch {
+		return false;
+	}
+}
+
+async function existingAncestor(path: string, root: string): Promise<string> {
+	let current = path;
+	while (current !== root && !(await exists(current))) current = dirname(current);
+	return current;
+}
+
+async function exists(path: string): Promise<boolean> {
+	try {
+		await lstat(path);
+		return true;
 	} catch {
 		return false;
 	}
