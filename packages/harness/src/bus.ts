@@ -9,6 +9,10 @@ export type AgentBusAccess =
 	| Readonly<{ operation: "append"; actor: string; kind: string }>
 	| Readonly<{ operation: "read"; actor?: string }>;
 
+/** Appends messages for one bound agent: the actor is fixed once, so each
+ * entry needs only its kind and optional payload. */
+export type AgentWriter = (kind: string, payload?: unknown) => Promise<AgentBusEntry>;
+
 /** Entries live under this key prefix in the configured storage. */
 const entryPrefix = "entry";
 
@@ -46,6 +50,12 @@ export class WriteAheadAgentBus {
 		this.#now = settings.now ?? (() => new Date());
 		this.#redact = settings.redact ?? ((value) => value);
 		this.#allow = settings.allow ?? (() => true);
+	}
+
+	/** Binds one agent to this bus: the returned writer appends that agent's
+	 * messages without restating the actor at every call site. */
+	agent(actor: string): AgentWriter {
+		return (kind, payload) => this.append({ actor, kind, ...(payload === undefined ? {} : { payload }) });
 	}
 
 	/** Appends one message and returns the recorded entry. */
