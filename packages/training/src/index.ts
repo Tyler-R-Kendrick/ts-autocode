@@ -28,7 +28,6 @@ export type { TrainableId, TrainableIdentity, TrainableToken } from "./token.js"
 export { discoverInSource, discoverTrainables } from "./source.js";
 export type { SourceSettings, TrainableTarget } from "./source.js";
 
-export { applyCandidate } from "./engine.js";
 export type {
 	BoundEvaluation,
 	CandidatePatch,
@@ -40,13 +39,17 @@ export type {
 	TrainingEngine,
 } from "./engine.js";
 
-export { evaluatePromotionGate, promoteCandidate, revertPromotion } from "./promotion.js";
-export type {
-	PromotionDecision,
-	PromotionGateInput,
-	PromotionResult,
-	PromotionSnapshot,
-} from "./promotion.js";
+export { evaluatePromotionGate } from "./promotion.js";
+export type { PromotionDecision, PromotionGateInput } from "./promotion.js";
+
+export {
+	applyCandidate,
+	promoteCandidate,
+	restoreImplementation,
+	revertPromotion,
+	swapImplementation,
+} from "ts-autocode-rewrite";
+export type { PromotionResult, PromotionSnapshot } from "ts-autocode-rewrite";
 
 export { createMemoryTrainingStore } from "./records.js";
 export type { TrainingRecord, TrainingStore } from "./records.js";

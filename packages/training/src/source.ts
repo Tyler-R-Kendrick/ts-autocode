@@ -2,7 +2,7 @@ import { dirname, extname, resolve } from "node:path";
 
 import ts from "typescript";
 
-import { digest } from "./canonical.js";
+import { digest } from "ts-autocode-rewrite";
 import { trainableIdFromKey, type TrainableId } from "./token.js";
 
 const trainingDirective = "use training";

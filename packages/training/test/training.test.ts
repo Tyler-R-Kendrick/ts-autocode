@@ -285,6 +285,7 @@ function applyMethodDecorator<Class extends abstract new (...args: never[]) => o
 ): void {
 	const prototype = constructor.prototype as Record<string, unknown>;
 	const method = prototype[name] as (...args: unknown[]) => unknown;
+	const initializers: Array<(this: object) => void> = [];
 	const replacement = decorator(method, {
 		kind: "method",
 		name,
@@ -294,8 +295,11 @@ function applyMethodDecorator<Class extends abstract new (...args: never[]) => o
 			has: (value: unknown) => name in (value as object),
 			get: (value: unknown) => (value as Record<string, unknown>)[name] as (...args: unknown[]) => unknown,
 		},
-		addInitializer() {},
+		addInitializer(initializer: (this: object) => void) {
+			initializers.push(initializer);
+		},
 		metadata: undefined,
 	} as unknown as ClassMethodDecoratorContext);
 	Object.defineProperty(prototype, name, { value: replacement, configurable: true, writable: true });
+	for (const initializer of initializers) initializer.call(Object.create(constructor.prototype) as object);
 }

@@ -39,14 +39,15 @@
 		"url": "https://github.com/Tyler-R-Kendrick/ts-autocode/issues"
 	},
 	"scripts": {
-		"build": "npm run build:harness && npm run build:training && npm run build:core",
+		"build": "npm run build:harness && npm run build:rewrite && npm run build:training && npm run build:core",
 		"build:core": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json",
 		"build:harness": "node -e \"require('node:fs').rmSync('packages/harness/dist', { recursive: true, force: true })\" && tsc -p packages/harness/tsconfig.json",
-		"typecheck": "npm run build:harness && npm run build:training && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p packages/harness/tsconfig.test.json && tsc --noEmit -p packages/training/tsconfig.test.json",
+		"typecheck": "npm run build:harness && npm run build:rewrite && npm run build:training && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p packages/harness/tsconfig.test.json && tsc --noEmit -p packages/rewrite/tsconfig.test.json && tsc --noEmit -p packages/training/tsconfig.test.json",
 		"test": "node test/run.mjs",
 		"check": "npm run typecheck && npm test && npm run build:core",
 		"prepublishOnly": "npm run check",
-		"build:training": "node -e \"require('node:fs').rmSync('packages/training/dist', { recursive: true, force: true })\" && tsc -p packages/training/tsconfig.json"
+		"build:training": "node -e \"require('node:fs').rmSync('packages/training/dist', { recursive: true, force: true })\" && tsc -p packages/training/tsconfig.json",
+		"build:rewrite": "node -e \"require('node:fs').rmSync('packages/rewrite/dist', { recursive: true, force: true })\" && tsc -p packages/rewrite/tsconfig.json"
 	},
 	"keywords": [
 		"agentv",

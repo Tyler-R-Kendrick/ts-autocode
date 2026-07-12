@@ -6,6 +6,17 @@ import { buildTraceFromMessages, getTextContent, type EvalConfig, type EvalTestI
 import { OpenInferenceSpanKind, SemanticConventions } from "@arizeai/openinference-semantic-conventions";
 import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "@opentelemetry/api";
 import { defineTrainingHarness, WriteAheadAgentBus, type JudgeRequest } from "ts-autocode-harness";
+import {
+	annotateTrainable,
+	dispatchTrainable,
+	promoteCandidate,
+	restoreImplementation,
+	revertPromotion,
+	setTrainableInterceptor,
+	swapImplementation,
+	type PromotionResult,
+	type PromotionSnapshot,
+} from "ts-autocode-rewrite";
 
 import {
 	optimizeCandidate,
@@ -16,14 +27,7 @@ import {
 	type TrainingEngine,
 } from "./engine.js";
 import { evaluateTrainable, type TrainableEvalRun } from "./evaluation.js";
-import {
-	evaluatePromotionGate,
-	promoteCandidate,
-	revertPromotion,
-	type PromotionDecision,
-	type PromotionResult,
-	type PromotionSnapshot,
-} from "./promotion.js";
+import { evaluatePromotionGate, type PromotionDecision } from "./promotion.js";
 import { createMemoryTrainingStore, type TrainingRecord, type TrainingStore } from "./records.js";
 import {
 	discoverTrainables,
@@ -441,12 +445,25 @@ class TrainingRuntime implements Training {
 		const source = await readFile(candidate.target.artifactRef, "utf8");
 		const promoted = promoteCandidate({ source, candidate, decision });
 		await writeFile(candidate.target.artifactRef, promoted.source, "utf8");
+		this.#hotSwap(candidate);
 		return promoted;
 	}
 
 	async revert(snapshot: PromotionSnapshot): Promise<void> {
 		const source = await readFile(snapshot.artifactRef, "utf8");
 		await writeFile(snapshot.artifactRef, revertPromotion(source, snapshot), "utf8");
+		restoreImplementation(snapshot.trainableId);
+	}
+
+	/** Promoted candidates go live in-process through the hot-swappable advice.
+	 * Only async targets swap: the executor returns a promise, so swapping a
+	 * synchronous method would change its calling convention. */
+	#hotSwap(candidate: CandidatePatch): void {
+		if (!candidate.target.async) return;
+		const executor = this.#settings.executor ?? defaultProviders.executor;
+		if (!executor) return;
+		swapImplementation(candidate.trainableId, (...args: unknown[]) =>
+			executor(candidate.target, candidate.implementation, args));
 	}
 
 	async flush(): Promise<void> {
@@ -614,9 +631,22 @@ export const training: Training = Object.freeze<Training>({
 
 const wrappedMarker = Symbol.for("ts-autocode.wrapped");
 
+// Every woven or wrapped trainable dispatches through ts-autocode-rewrite's
+// hot-swappable advice; this interceptor routes each invocation into runtime
+// capture, and `proceed` resolves the live (possibly swapped) implementation.
+setTrainableInterceptor(({ id, methodName, thisValue, args, proceed }) =>
+	runtime().invoke(
+		thisValue,
+		function (this: unknown, ...next: unknown[]) { return proceed(...next); },
+		[...args],
+		defineTrainable(id),
+		methodName,
+	));
+
 /** Decorator form: `@trainable()`. Identity is inferred from the decorated class and
  * method; pass a symbol (for example `defineTrainable("Router.route").symbol`) only
- * to override the inferred id. */
+ * to override the inferred id. The method is woven through the ts-autocode-rewrite
+ * aspect at first construction, so promoted candidates can hot-swap it. */
 export function trainable(identity?: symbol): TrainableDecorator {
 	if (identity !== undefined && typeof identity !== "symbol") {
 		throw new TypeError("trainable identity must be a symbol; omit it to infer from the decorated method");
@@ -627,45 +657,37 @@ export function trainable(identity?: symbol): TrainableDecorator {
 		context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
 	) {
 		const name = String(context.name);
-		let token = explicit;
-		const wrapped = function (this: This, ...args: Args): Result {
-			token ??= defineTrainable(`${inferredClassName(this) ?? "Anonymous"}.${name}`);
-			return runtime().invoke(this, method, args, token, name);
-		};
-		return markWrapped(wrapped);
+		context.addInitializer(function (this: This) {
+			const owner = (context.static ? this : (this as object).constructor) as abstract new (...args: never[]) => unknown;
+			const id = explicit?.id ?? `${inferredClassName(context.static ? owner : this) ?? "Anonymous"}.${name}`;
+			annotateTrainable(owner, name, id);
+		});
+		return method;
 	};
 }
 
-/** Load-time instrumentation (`ts-autocode/register`): capture-wrap a directive-marked
- * function. Idempotent — already-wrapped functions (decorator or register) pass through. */
+/** Load-time instrumentation (`ts-autocode/register`): wrap a directive-marked free
+ * function through the same hot-swappable dispatch as woven methods. Idempotent. */
 export function wrapTrainable<F extends (...args: never[]) => unknown>(fn: F, id: string): F {
 	if ((fn as Partial<Record<typeof wrappedMarker, boolean>>)[wrappedMarker]) return fn;
-	const token = defineTrainable(id);
-	const name = fn.name || token.id;
+	const name = fn.name || id;
 	const method = fn as unknown as (this: unknown, ...args: unknown[]) => unknown;
 	const wrapped = function (this: unknown, ...args: unknown[]): unknown {
-		return runtime().invoke(this, method, args, token, name);
+		return dispatchTrainable(id, name, method, this, args);
 	};
 	Object.defineProperty(wrapped, "name", { value: name, configurable: true });
-	return markWrapped(wrapped) as unknown as F;
+	Object.defineProperty(wrapped, wrappedMarker, { value: true });
+	return wrapped as unknown as F;
 }
 
-/** Load-time instrumentation (`ts-autocode/register`): capture-wrap a directive-marked
- * class method in place. Idempotent and tolerant of missing members. */
+/** Load-time instrumentation (`ts-autocode/register`): weave a directive-marked
+ * class method through the ts-autocode-rewrite aspect. Idempotent. */
 export function instrumentTrainable(
 	owner: abstract new (...args: never[]) => unknown,
 	methodName: string,
 	id: string,
 ): void {
-	const container = (Object.hasOwn(owner, methodName) ? owner : owner.prototype) as Record<string, unknown>;
-	const method = container?.[methodName];
-	if (typeof method !== "function") return;
-	container[methodName] = wrapTrainable(method as (...args: never[]) => unknown, id);
-}
-
-function markWrapped<F>(fn: F): F {
-	Object.defineProperty(fn, wrappedMarker, { value: true });
-	return fn;
+	annotateTrainable(owner, methodName, id);
 }
 
 function inferredClassName(thisValue: unknown): string | undefined {

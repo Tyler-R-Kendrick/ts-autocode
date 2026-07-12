@@ -12,8 +12,9 @@ The normal path keeps the code primitives and agent loop in separate packages:
 Ax is the default student optimizer. AgentV evaluation and the promotion gate
 form the teacher. The provider-neutral runtime lives in the independent
 `ts-autocode-training` package (this package re-exports it with Ax wired in as
-the default engine and executor), and iterative coordination is delegated to
-the independent `ts-autocode-harness` package. Its single Flue-style callback loop
+the default engine and executor), guarded rewriting and hot-swappable AspectJS
+interception live in `ts-autocode-rewrite`, and iterative coordination is
+delegated to the independent `ts-autocode-harness` package. Its single Flue-style callback loop
 supports configurable student, teacher, judge, and adversary Deep Agents, MXC
 execution, and a write-ahead approval bus. Consumers can supply callbacks from
 their own agent lifecycle or optimization pipeline without coupling it to this
@@ -129,6 +130,11 @@ const promoted = await training.promote(run.final.candidate, run.final.decision)
 // Refuses to overwrite later changes.
 await training.revert(promoted.snapshot);
 ```
+
+Promotion writes the gated source rewrite and, for async targets, hot-swaps the
+running implementation through `ts-autocode-rewrite`'s AspectJS advice — woven
+methods dispatch to the promoted candidate immediately, no restart required.
+`revert()` restores both the source and the live implementation.
 
 ## Zero-config evolution
 

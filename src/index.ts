@@ -13,7 +13,9 @@ export {
 	discoverTrainables,
 	evaluatePromotionGate,
 	promoteCandidate,
+	restoreImplementation,
 	revertPromotion,
+	swapImplementation,
 	trainable,
 	training,
 } from "ts-autocode-training";

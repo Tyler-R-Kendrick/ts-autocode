@@ -25,6 +25,16 @@ arguments, synchronous or asynchronous return behavior, and thrown errors.
 Captured traces use AgentV's `Trace`; spans use official OpenTelemetry and
 OpenInference APIs.
 
+## Hot-swappable weaving
+
+`ts-autocode-rewrite` owns candidate application. Marked methods are woven with
+an AspectJS `Trainable` annotation whose around advice dispatches through a
+hot-swap registry, then a single pluggable interceptor (runtime capture), then
+the original implementation. `training.promote()` writes the digest-guarded
+source rewrite and swaps async targets live; `revert()` restores both. All
+AspectJS decorators are applied programmatically, keeping consumer projects on
+standard TC39 decorators.
+
 ## Zero-config runtime patch
 
 `ts-autocode/register` installs a `node:module` load hook that appends guarded
