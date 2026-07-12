@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { configureTraining, defineTrainable, type BoundEvaluation } from "../src/index.js";
 import { createAxEngine } from "../src/providers/ax.js";
-import { discoverInSource } from "../src/source.js";
+import { discoverInSource } from "ts-autocode-training";
 
 const mocks = vi.hoisted(() => ({
 	ax: vi.fn(),

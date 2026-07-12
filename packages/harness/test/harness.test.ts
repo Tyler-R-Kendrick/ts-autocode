@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -137,6 +137,34 @@ describe("training harness", () => {
 		const unsafe = new WriteAheadAgentBus({ file: join(workspace, "actions.jsonl") });
 		expect(() => new MxcSandbox({ id: "unsafe", workspace, policy: createHarnessPolicy({ workspace }), bus: unsafe, role: "student" }))
 			.toThrow("outside the writable sandbox");
+	});
+
+	it("refuses symlinked paths that resolve outside the workspace", async () => {
+		const workspace = await mkdtemp(join(tmpdir(), "ts-autocode-sandbox-links-"));
+		const outside = await mkdtemp(join(tmpdir(), "ts-autocode-outside-"));
+		await writeFile(join(outside, "secret.txt"), "secret", "utf8");
+		await symlink(outside, join(workspace, "leak"));
+		await symlink(join(outside, "secret.txt"), join(workspace, "alias.txt"));
+		const { bus } = await approvedBus();
+		const sandbox = new MxcSandbox({ id: "links", workspace, policy: createHarnessPolicy({ workspace }), bus, role: "student" });
+
+		expect(await sandbox.downloadFiles(["leak/secret.txt", "alias.txt"])).toEqual([
+			{ path: "leak/secret.txt", content: null, error: "file_not_found" },
+			{ path: "alias.txt", content: null, error: "file_not_found" },
+		]);
+		expect(await sandbox.uploadFiles([
+			["leak/implant.txt", new TextEncoder().encode("x")],
+			["alias.txt", new TextEncoder().encode("x")],
+		])).toEqual([
+			{ path: "leak/implant.txt", error: "permission_denied" },
+			{ path: "alias.txt", error: "permission_denied" },
+		]);
+		await expect(readFile(join(outside, "implant.txt"))).rejects.toThrow();
+		expect(await readFile(join(outside, "secret.txt"), "utf8")).toBe("secret");
+
+		expect(await sandbox.uploadFiles([["leak/sub/nested.txt", new TextEncoder().encode("x")]]))
+			.toEqual([{ path: "leak/sub/nested.txt", error: "permission_denied" }]);
+		await expect(stat(join(outside, "sub"))).rejects.toThrow();
 	});
 
 	it("creates configurable Deep Agent callbacks for the same run model", async () => {

@@ -8,7 +8,8 @@ import {
 	type AxOptimizeOptions,
 } from "@ax-llm/ax";
 
-import type { EngineContext, OptimizeRequest, TrainingEngine } from "../engine.js";
+import type { EngineContext, OptimizeRequest, TrainingEngine } from "ts-autocode-training";
+
 import { executeImplementation } from "../execution.js";
 
 type Service = AxAIService | ((context: EngineContext) => AxAIService | Promise<AxAIService>);

@@ -6,25 +6,29 @@ import { buildTraceFromMessages, getTextContent, type EvalConfig, type EvalTestI
 import { OpenInferenceSpanKind, SemanticConventions } from "@arizeai/openinference-semantic-conventions";
 import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "@opentelemetry/api";
 import { defineTrainingHarness, WriteAheadAgentBus, type JudgeRequest } from "ts-autocode-harness";
+import {
+	annotateRewrite,
+	configureRewrite,
+	declaringContainer,
+	dispatchRewrite,
+	promoteCandidate,
+	restoreImplementation,
+	revertPromotion,
+	swapImplementation,
+	type PromotionResult,
+	type PromotionSnapshot,
+} from "ts-autocode-rewrite";
 
 import {
 	optimizeCandidate,
 	type BoundEvaluation,
 	type CandidatePatch,
+	type ImplementationExecutor,
 	type SecretProvider,
 	type TrainingEngine,
 } from "./engine.js";
 import { evaluateTrainable, type TrainableEvalRun } from "./evaluation.js";
-import { executeImplementation } from "./execution.js";
-import {
-	evaluatePromotionGate,
-	promoteCandidate,
-	revertPromotion,
-	type PromotionDecision,
-	type PromotionResult,
-	type PromotionSnapshot,
-} from "./promotion.js";
-import { createAxEngine } from "./providers/ax.js";
+import { evaluatePromotionGate, type PromotionDecision } from "./promotion.js";
 import { createMemoryTrainingStore, type TrainingRecord, type TrainingStore } from "./records.js";
 import {
 	discoverTrainables,
@@ -32,9 +36,34 @@ import {
 	type SourceSettings,
 	type TrainableTarget,
 } from "./source.js";
-import { defineTrainable, toTrainableToken, type TrainableIdentity, type TrainableToken } from "./token.js";
+import {
+	defineTrainable,
+	toTrainableToken,
+	trainableTokenFromSymbol,
+	type TrainableIdentity,
+	type TrainableToken,
+} from "./token.js";
 
 const trainableAttribute = "ts_autocode.trainable.id";
+
+/** Training is one consumer of the generic rewrite engine; this is the marker it
+ * configures. The `"use training"` directive is the shorthand that weaves a method. */
+const trainingMarker = "use training";
+
+// Register training's rewrite behavior once: every method woven under the
+// "use training" marker routes through runtime capture, and `proceed` resolves
+// the live (possibly hot-swapped) implementation so captures reflect what ran.
+configureRewrite({
+	marker: trainingMarker,
+	intercept: ({ id, methodName, thisValue, args, proceed }) =>
+		runtime().invoke(
+			thisValue,
+			function (this: unknown, ...next: unknown[]) { return proceed(...next); },
+			[...args],
+			defineTrainable(id),
+			methodName,
+		),
+});
 
 export interface CaptureSettings {
 	readonly enabled?: boolean;
@@ -53,8 +82,20 @@ export interface TracingSettings {
 	readonly attributes?: Attributes;
 }
 
+/** Background code evolution driven by captured traffic; disabled unless enabled here
+ * or via `ts-autocode/register`. Rewrites still pass the full gate before applying. */
+export interface EvolutionSettings {
+	readonly enabled?: boolean;
+	readonly minTraces?: number;
+	readonly objective?: string;
+	readonly evaluation?: Omit<EvalConfig, "specFile" | "target" | "task" | "tests">;
+	readonly onEvolved?: (result: EvolveResult) => void;
+}
+
 export interface TrainingSettings {
 	readonly engine?: TrainingEngine;
+	readonly executor?: ImplementationExecutor;
+	readonly evolution?: EvolutionSettings;
 	readonly source?: SourceSettings;
 	readonly store?: TrainingStore;
 	readonly secrets?: SecretProvider;
@@ -64,7 +105,7 @@ export interface TrainingSettings {
 	readonly tracing?: TracingSettings;
 	readonly idFactory?: () => string;
 	readonly now?: () => Date;
-	readonly onError?: (error: unknown, phase: "capture" | "store") => void;
+	readonly onError?: (error: unknown, phase: "capture" | "store" | "evolve") => void;
 }
 
 export interface OptimizeInput {
@@ -143,7 +184,7 @@ export type TrainableDecorator = <This, Args extends unknown[], Result>(
 class TrainingRuntime implements Training {
 	readonly #settings: Required<Pick<TrainingSettings, "capture" | "concurrency" | "idFactory" | "now" | "source" | "tracing">> &
 		Omit<TrainingSettings, "capture" | "concurrency" | "idFactory" | "now" | "source" | "tracing">;
-	readonly #engine: TrainingEngine;
+	#engine: TrainingEngine | undefined;
 	readonly #store: TrainingStore;
 	readonly #tracer: Tracer;
 	readonly #pending = new Set<Promise<void>>();
@@ -164,9 +205,61 @@ class TrainingRuntime implements Training {
 			tracing: settings.tracing ?? {},
 			variables: Object.freeze({ ...settings.variables }),
 		};
-		this.#engine = settings.engine ?? createAxEngine();
 		this.#store = settings.store ?? createMemoryTrainingStore();
 		this.#tracer = this.#settings.tracing.tracer ?? trace.getTracer("ts-autocode");
+	}
+
+	#engineFor(override?: TrainingEngine): TrainingEngine {
+		if (override) return override;
+		this.#engine ??= this.#settings.engine ?? defaultProviders.engine?.();
+		if (!this.#engine) {
+			throw new Error('no training engine is configured; import "ts-autocode" for the Ax default or set TrainingSettings.engine');
+		}
+		return this.#engine;
+	}
+
+	#executorOrThrow(): ImplementationExecutor {
+		const executor = this.#settings.executor ?? defaultProviders.executor;
+		if (!executor) {
+			throw new Error('candidate execution requires an executor; import "ts-autocode" or set TrainingSettings.executor');
+		}
+		return executor;
+	}
+
+	readonly #evolutionState = new Map<string, { running: boolean; queued: boolean; attempted: number }>();
+
+	#maybeEvolve(token: TrainableToken): void {
+		const evolution = this.#settings.evolution ?? defaultProviders.evolution;
+		if (evolution?.enabled !== true) return;
+		const state = this.#evolutionState.get(token.id) ?? { running: false, queued: false, attempted: 0 };
+		this.#evolutionState.set(token.id, state);
+		if (state.running) {
+			state.queued = true;
+			return;
+		}
+		state.running = true;
+		void (async () => {
+			await this.flush();
+			const minTraces = Math.max(1, evolution.minTraces ?? 3);
+			const successes = (await this.#store.list(token.id)).filter((record) => record.succeeded).length;
+			if (successes < state.attempted + minTraces) return;
+			state.attempted = successes;
+			const result = await this.evolve({
+				trainable: token,
+				objective: evolution.objective ?? "Preserve behavior observed in successful runtime traces",
+				minTraces,
+				...(evolution.evaluation === undefined ? {} : { evaluation: evolution.evaluation }),
+			});
+			evolution.onEvolved?.(result);
+		})()
+			.catch((error) => this.#settings.onError?.(error, "evolve"))
+			.finally(() => {
+				state.running = false;
+				if (state.queued) {
+					state.queued = false;
+					this.#maybeEvolve(token);
+				}
+			});
 	}
 
 	async records(identity?: TrainableIdentity): Promise<readonly TrainingRecord[]> {
@@ -183,12 +276,13 @@ class TrainingRuntime implements Training {
 
 	async evaluateCandidate(candidate: CandidatePatch, config: CandidateEvalConfig): Promise<TrainableEvalRun> {
 		const token = defineTrainable(candidate.trainableId);
+		const execute = this.#executorOrThrow();
 		const { signal, ...evaluation } = config;
 		signal?.throwIfAborted();
 		const evaluated = await evaluateTrainable(token, {
 			...evaluation,
 			task: async (input) => {
-				const output = await executeImplementation(
+				const output = await execute(
 					candidate.target,
 					candidate.implementation,
 					evaluationArgs(input),
@@ -243,7 +337,9 @@ class TrainingRuntime implements Training {
 				const decision = await evaluatePromotionGate({
 					candidate,
 					evaluations: verification.evaluations,
-					conformance: input.conformance ?? true,
+					// The engine already validated the candidate; `conformance: false` waives the
+					// requirement rather than reporting a failed check to the gate.
+					conformance: true,
 					...(input.minScore === undefined ? {} : { minScore: input.minScore }),
 					...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
 					...(input.policy === undefined ? {} : { policy: input.policy }),
@@ -270,7 +366,7 @@ class TrainingRuntime implements Training {
 				const decision = await evaluatePromotionGate({
 					candidate,
 					evaluations: verification.evaluations,
-					conformance: input.conformance ?? true,
+					conformance: true,
 					...(input.minScore === undefined ? {} : { minScore: input.minScore }),
 					...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
 					...(input.policy === undefined ? {} : { policy: input.policy }),
@@ -335,7 +431,7 @@ class TrainingRuntime implements Training {
 		const target = input.target ?? findTrainable(token.id, this.#settings.source);
 		const records = await this.records(token);
 		return optimizeCandidate(
-			input.engine ?? this.#engine,
+			this.#engineFor(input.engine),
 			{
 				trainableId: token.id,
 				objective: input.objective,
@@ -369,12 +465,28 @@ class TrainingRuntime implements Training {
 		const source = await readFile(candidate.target.artifactRef, "utf8");
 		const promoted = promoteCandidate({ source, candidate, decision });
 		await writeFile(candidate.target.artifactRef, promoted.source, "utf8");
+		this.#hotSwap(candidate);
 		return promoted;
 	}
 
 	async revert(snapshot: PromotionSnapshot): Promise<void> {
 		const source = await readFile(snapshot.artifactRef, "utf8");
 		await writeFile(snapshot.artifactRef, revertPromotion(source, snapshot), "utf8");
+		restoreImplementation(snapshot.trainableId);
+	}
+
+	/** Promoted candidates go live in-process through the hot-swappable advice.
+	 * Only async targets swap: the executor returns a promise, so swapping a
+	 * synchronous method would change its calling convention. */
+	#hotSwap(candidate: CandidatePatch): void {
+		if (!candidate.target.async) return;
+		const executor = this.#settings.executor ?? defaultProviders.executor;
+		if (!executor) return;
+		// Normal function so the call receiver is captured and forwarded to
+		// executors that can bind it (the sandbox executor ignores it).
+		swapImplementation(candidate.trainableId, function (this: unknown, ...args: unknown[]) {
+			return executor(candidate.target, candidate.implementation, args, { receiver: this });
+		});
 	}
 
 	async flush(): Promise<void> {
@@ -456,9 +568,9 @@ class TrainingRuntime implements Training {
 		if (this.#settings.capture.enabled === false) return;
 		try {
 			const spanContext = span?.spanContext();
-			const input = this.#settings.capture.mapInput?.(args, token) ?? args;
+			const input = this.#settings.capture.mapInput ? this.#settings.capture.mapInput(args, token) : args;
 			const output = error === undefined
-				? this.#settings.capture.mapOutput?.(result, token) ?? result
+				? (this.#settings.capture.mapOutput ? this.#settings.capture.mapOutput(result, token) : result)
 				: errorMessage(error);
 			const record: TrainingRecord = {
 				id: this.#settings.idFactory(),
@@ -484,13 +596,14 @@ class TrainingRuntime implements Training {
 				}),
 			};
 			this.#enqueue(this.#store.append(record));
+			if (error === undefined) this.#maybeEvolve(token);
 		} catch (captureError) {
 			this.#settings.onError?.(captureError, "capture");
 		}
 	}
 
 	#serialize(value: unknown, field: "input" | "output"): string {
-		const redacted = this.#settings.capture.redact?.(value, field) ?? value;
+		const redacted = this.#settings.capture.redact ? this.#settings.capture.redact(value, field) : value;
 		return (this.#settings.capture.serialize ?? defaultSerialize)(redacted);
 	}
 
@@ -509,18 +622,98 @@ export function configureTraining(settings: TrainingSettings = {}): Training {
 	return configuredTraining;
 }
 
-/** Decorator form: `@trainable("Router.route")`. */
-export function trainable(identity: TrainableIdentity): TrainableDecorator {
-	const token = toTrainableToken(identity);
+export interface TrainingProviders {
+	readonly engine?: () => TrainingEngine;
+	readonly executor?: ImplementationExecutor;
+	readonly evolution?: EvolutionSettings;
+}
+
+let defaultProviders: TrainingProviders = {};
+
+/** Provider packages call this to supply lazy fallbacks (ts-autocode wires Ax)
+ * without this package depending on any provider. Explicit settings win. */
+export function provideTrainingDefaults(providers: TrainingProviders): void {
+	defaultProviders = { ...defaultProviders, ...providers };
+}
+
+/** Default runtime: the "use training" directive is the only required marker.
+ * `configureTraining()` is optional and only overrides settings; each call
+ * delegates to the current runtime so later configuration still applies. */
+export const training: Training = Object.freeze<Training>({
+	records: (identity) => runtime().records(identity),
+	evaluate: (identity, config) => runtime().evaluate(identity, config),
+	evaluateCandidate: (candidate, config) => runtime().evaluateCandidate(candidate, config),
+	train: (input) => runtime().train(input),
+	evolve: (input) => runtime().evolve(input),
+	optimize: (input) => runtime().optimize(input),
+	optimizeAll: (inputs) => runtime().optimizeAll(inputs),
+	promote: (candidate, decision) => runtime().promote(candidate, decision),
+	revert: (snapshot) => runtime().revert(snapshot),
+	flush: () => runtime().flush(),
+});
+
+const wrappedMarker = Symbol.for("ts-autocode.wrapped");
+
+/** Decorator form: `@trainable()`. Identity is inferred from the class that
+ * declares the method; pass a symbol (for example `defineTrainable("Router.route").symbol`)
+ * only to override the inferred id. The method is woven through the
+ * ts-autocode-rewrite aspect under the "use training" marker at first
+ * construction, so promoted candidates can hot-swap it. */
+export function trainable(identity?: symbol): TrainableDecorator {
+	if (identity !== undefined && typeof identity !== "symbol") {
+		throw new TypeError("trainable identity must be a symbol; omit it to infer from the decorated method");
+	}
+	const explicit = identity === undefined ? undefined : trainableTokenFromSymbol(identity);
 	return function <This, Args extends unknown[], Result>(
 		method: (this: This, ...args: Args) => Result,
 		context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
 	) {
 		const name = String(context.name);
-		return function (this: This, ...args: Args): Result {
-			return runtime().invoke(this, method, args, token, name);
-		};
+		context.addInitializer(function (this: This) {
+			const owner = (context.static ? this : (this as object).constructor) as abstract new (...args: never[]) => unknown;
+			// Infer from the class that actually declares the method, so a base method
+			// first initialized through a subclass still resolves to Base.method.
+			const id = explicit?.id ?? `${declaringClassName(owner, name, context.static) ?? "Anonymous"}.${name}`;
+			annotateRewrite(owner, name, id, trainingMarker);
+		});
+		return method;
 	};
+}
+
+/** Load-time instrumentation (`ts-autocode/register`): wrap a directive-marked free
+ * function through the same hot-swappable dispatch as woven methods. Idempotent. */
+export function wrapTrainable<F extends (...args: never[]) => unknown>(fn: F, id: string): F {
+	if ((fn as Partial<Record<typeof wrappedMarker, boolean>>)[wrappedMarker]) return fn;
+	const name = fn.name || id;
+	const method = fn as unknown as (this: unknown, ...args: unknown[]) => unknown;
+	const wrapped = function (this: unknown, ...args: unknown[]): unknown {
+		return dispatchRewrite(id, trainingMarker, name, method, this, args);
+	};
+	Object.defineProperty(wrapped, "name", { value: name, configurable: true });
+	Object.defineProperty(wrapped, wrappedMarker, { value: true });
+	return wrapped as unknown as F;
+}
+
+/** Load-time instrumentation (`ts-autocode/register`): weave a directive-marked
+ * class method through the ts-autocode-rewrite aspect. Idempotent. */
+export function instrumentTrainable(
+	owner: abstract new (...args: never[]) => unknown,
+	methodName: string,
+	id: string,
+): void {
+	annotateRewrite(owner, methodName, id, trainingMarker);
+}
+
+/** Name of the class that declares `methodName`, walking to the owning prototype
+ * so an inherited method resolves to its base class rather than a subclass. */
+function declaringClassName(
+	owner: abstract new (...args: never[]) => unknown,
+	methodName: string,
+	isStatic: boolean,
+): string | undefined {
+	const container = declaringContainer(owner, methodName);
+	const constructor = isStatic ? container : (container as { constructor?: unknown } | undefined)?.constructor;
+	return typeof constructor === "function" && constructor.name ? constructor.name : undefined;
 }
 
 function runtime(): TrainingRuntime {
@@ -534,7 +727,7 @@ function isPromise<T>(value: T): value is T & Promise<Awaited<T>> {
 function defaultSerialize(value: unknown): string {
 	if (typeof value === "string") return value;
 	try {
-		return JSON.stringify(value);
+		return JSON.stringify(value) ?? String(value);
 	} catch {
 		return String(value);
 	}

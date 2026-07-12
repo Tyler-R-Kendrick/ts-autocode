@@ -1,7 +1,7 @@
 import { AxJSRuntime } from "@ax-llm/ax";
 import ts from "typescript";
 
-import type { TrainableTarget } from "./source.js";
+import type { TrainableTarget } from "ts-autocode-training";
 
 export async function executeImplementation(
 	target: TrainableTarget,

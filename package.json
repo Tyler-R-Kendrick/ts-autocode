@@ -28,6 +28,10 @@
 		"./ax": {
 			"types": "./dist/providers/ax.d.ts",
 			"import": "./dist/providers/ax.js"
+		},
+		"./register": {
+			"types": "./dist/register.d.ts",
+			"import": "./dist/register.js"
 		}
 	},
 	"homepage": "https://github.com/Tyler-R-Kendrick/ts-autocode#readme",
@@ -35,13 +39,15 @@
 		"url": "https://github.com/Tyler-R-Kendrick/ts-autocode/issues"
 	},
 	"scripts": {
-		"build": "npm run build:harness && npm run build:core",
+		"build": "npm run build:harness && npm run build:rewrite && npm run build:training && npm run build:core",
 		"build:core": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json",
 		"build:harness": "node -e \"require('node:fs').rmSync('packages/harness/dist', { recursive: true, force: true })\" && tsc -p packages/harness/tsconfig.json",
-		"typecheck": "npm run build:harness && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p packages/harness/tsconfig.test.json",
+		"typecheck": "npm run build:harness && npm run build:rewrite && npm run build:training && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p packages/harness/tsconfig.test.json && tsc --noEmit -p packages/rewrite/tsconfig.test.json && tsc --noEmit -p packages/training/tsconfig.test.json",
 		"test": "node test/run.mjs",
 		"check": "npm run typecheck && npm test && npm run build:core",
-		"prepublishOnly": "npm run check"
+		"prepublishOnly": "npm run check",
+		"build:training": "node -e \"require('node:fs').rmSync('packages/training/dist', { recursive: true, force: true })\" && tsc -p packages/training/tsconfig.json",
+		"build:rewrite": "node -e \"require('node:fs').rmSync('packages/rewrite/dist', { recursive: true, force: true })\" && tsc -p packages/rewrite/tsconfig.json"
 	},
 	"keywords": [
 		"agentv",
@@ -55,11 +61,8 @@
 		"vitest": "^4.1.9"
 	},
 	"dependencies": {
-		"@agentv/core": "^4.42.4",
-		"@arizeai/openinference-semantic-conventions": "^2.5.0",
 		"@ax-llm/ax": "^23.0.0",
-		"@opentelemetry/api": "^1.9.1",
-		"ts-autocode-harness": "0.1.0",
+		"ts-autocode-training": "0.1.0",
 		"typescript": "^5.9.3"
 	},
 	"overrides": {

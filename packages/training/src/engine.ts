@@ -1,7 +1,7 @@
 import type { EvaluationResult, EvalTestInput } from "@agentv/core";
+import { digest } from "ts-autocode-rewrite";
 import ts from "typescript";
 
-import { digest } from "./canonical.js";
 import type { TrainingRecord } from "./records.js";
 import type { TrainableTarget } from "./source.js";
 import type { TrainableId } from "./token.js";
@@ -50,6 +50,16 @@ export interface TrainingEngine {
 	optimize(request: OptimizeRequest, context: EngineContext): Promise<EngineCandidate>;
 }
 
+/** Runs a proposed implementation against arguments in provider-owned isolation.
+ * `receiver` is the live `this` when a hot-swapped instance method is invoked;
+ * sandboxed executors may ignore it. */
+export type ImplementationExecutor = (
+	target: TrainableTarget,
+	implementation: string,
+	args: readonly unknown[],
+	options?: Readonly<{ timeoutMs?: number; signal?: AbortSignal; receiver?: unknown }>,
+) => Promise<unknown>;
+
 export async function optimizeCandidate(
 	engine: TrainingEngine,
 	request: OptimizeRequest,
@@ -70,18 +80,6 @@ export async function optimizeCandidate(
 		...(proposed.metadata === undefined ? {} : { metadata: proposed.metadata }),
 	} satisfies CandidatePatch;
 	return Object.freeze(structuredClone(candidate));
-}
-
-/** Replace exactly the discovered method body if it has not changed. */
-export function applyCandidate(source: string, candidate: CandidatePatch): string {
-	const { target } = candidate;
-	if (target.id !== candidate.trainableId) throw new Error("candidate target must match its trainable id");
-	const current = source.slice(target.bodyStart, target.bodyEnd);
-	if (digest(current) !== target.bodyDigest) {
-		throw new Error(`trainable method changed after optimization started: ${target.id}`);
-	}
-	const replacement = formatImplementation(candidate.implementation, target.indentation, source);
-	return `${source.slice(0, target.bodyStart)}${replacement}${source.slice(target.bodyEnd)}`;
 }
 
 function validateRequest(request: OptimizeRequest): void {
@@ -111,15 +109,4 @@ function validateImplementation(target: TrainableTarget, implementation: string)
 	if (diagnostics.some((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)) {
 		throw new SyntaxError(`engine returned invalid TypeScript for ${target.id}`);
 	}
-}
-
-function formatImplementation(implementation: string, methodIndent: string, source: string): string {
-	const indentUnit = source.includes("\t") ? "\t" : "  ";
-	const bodyIndent = `${methodIndent}${indentUnit}`;
-	const lines = implementation.split("\n");
-	const minimumIndent = Math.min(
-		...lines.filter((line) => line.trim()).map((line) => /^\s*/.exec(line)?.[0].length ?? 0),
-	);
-	const normalized = lines.map((line) => `${bodyIndent}${line.slice(Number.isFinite(minimumIndent) ? minimumIndent : 0)}`);
-	return `\n${normalized.join("\n")}\n${methodIndent}`;
 }

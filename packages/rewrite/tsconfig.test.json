@@ -8,6 +8,5 @@
 		"declarationMap": false,
 		"sourceMap": false
 	},
-	"include": ["src", "test", "examples", "vitest.config.ts"],
-	"exclude": ["test/output", "test/.agentv", "examples/output"]
+	"include": ["src", "test"]
 }

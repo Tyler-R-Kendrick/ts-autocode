@@ -1,6 +1,6 @@
 import type { EvaluationResult } from "@agentv/core";
 
-import { applyCandidate, type BoundEvaluation, type CandidatePatch } from "./engine.js";
+import type { BoundEvaluation, CandidatePatch } from "./engine.js";
 
 export interface PromotionGateInput {
 	readonly candidate: CandidatePatch;
@@ -17,19 +17,6 @@ export interface PromotionDecision {
 	readonly failures: readonly string[];
 	readonly meanScore: number;
 	readonly passRate: number;
-}
-
-export interface PromotionSnapshot {
-	readonly candidateId: string;
-	readonly artifactRef: string;
-	readonly startOffset: number;
-	readonly previous: string;
-	readonly promoted: string;
-}
-
-export interface PromotionResult {
-	readonly source: string;
-	readonly snapshot: PromotionSnapshot;
 }
 
 export async function evaluatePromotionGate(input: PromotionGateInput): Promise<PromotionDecision> {
@@ -60,41 +47,6 @@ export async function evaluatePromotionGate(input: PromotionGateInput): Promise<
 	if (passRate < minPassRate) failures.push(`AgentV pass rate ${passRate} is below ${minPassRate}`);
 	if (input.policy && !(await input.policy(input.candidate))) failures.push("promotion policy refused candidate");
 	return Object.freeze({ candidateId: input.candidate.id, promote: failures.length === 0, failures, meanScore, passRate });
-}
-
-export function promoteCandidate({
-	source,
-	candidate,
-	decision,
-}: {
-	source: string;
-	candidate: CandidatePatch;
-	decision: PromotionDecision;
-}): PromotionResult {
-	if (!decision.promote || decision.candidateId !== candidate.id) {
-		throw new Error("candidate has not passed the promotion gate");
-	}
-	const updated = applyCandidate(source, candidate);
-	const previous = source.slice(candidate.target.bodyStart, candidate.target.bodyEnd);
-	const promotedLength = updated.length - source.length + previous.length;
-	return Object.freeze({
-		source: updated,
-		snapshot: Object.freeze({
-			candidateId: candidate.id,
-			artifactRef: candidate.target.artifactRef,
-			startOffset: candidate.target.bodyStart,
-			previous,
-			promoted: updated.slice(candidate.target.bodyStart, candidate.target.bodyStart + promotedLength),
-		}),
-	});
-}
-
-export function revertPromotion(source: string, snapshot: PromotionSnapshot): string {
-	const endOffset = snapshot.startOffset + snapshot.promoted.length;
-	if (source.slice(snapshot.startOffset, endOffset) !== snapshot.promoted) {
-		throw new Error("promoted method changed before revert");
-	}
-	return `${source.slice(0, snapshot.startOffset)}${snapshot.previous}${source.slice(endOffset)}`;
 }
 
 function passed(result: EvaluationResult, threshold: number): boolean {

@@ -29,10 +29,16 @@ function candidate(): CandidatePatch {
 	};
 }
 
+const functionExecutor = async (
+	target: { readonly parameters: readonly { readonly name: string }[] },
+	implementation: string,
+	args: readonly unknown[],
+) => new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args) as unknown;
+
 describe("promotion", () => {
 	it("gates with AgentV and reverts only an unchanged promoted method", async () => {
 		const patch = candidate();
-		const evaluated = await configureTraining({}).evaluateCandidate(patch, {
+		const evaluated = await configureTraining({ executor: functionExecutor }).evaluateCandidate(patch, {
 			tests: [{ id: "candidate", input: "route", assert: [{ type: "equals", value: "new" }] }],
 			outputDir: "test/output/agentv-promotion",
 		});

@@ -10,8 +10,11 @@ The normal path keeps the code primitives and agent loop in separate packages:
 ```
 
 Ax is the default student optimizer. AgentV evaluation and the promotion gate
-form the teacher. `ts-autocode` delegates their iterative coordination to the
-independent `ts-autocode-harness` package. Its single Flue-style callback loop
+form the teacher. The provider-neutral runtime lives in the independent
+`ts-autocode-training` package (this package re-exports it with Ax wired in as
+the default engine and executor), guarded rewriting and hot-swappable AspectJS
+interception live in `ts-autocode-rewrite`, and iterative coordination is
+delegated to the independent `ts-autocode-harness` package. Its single Flue-style callback loop
 supports configurable student, teacher, judge, and adversary Deep Agents, MXC
 execution, and a write-ahead approval bus. Consumers can supply callbacks from
 their own agent lifecycle or optimization pipeline without coupling it to this
@@ -31,10 +34,6 @@ Place the literal directive first in a function or method body. No import,
 decorator, wrapper, registration call, or source-region argument is required.
 
 ```ts
-import { configureTraining } from "ts-autocode";
-
-const training = configureTraining();
-
 class Router {
   route(input: string): string {
     "use training";
@@ -57,17 +56,33 @@ unchanged because the directive is the marker; there is no runtime proxy.
 ## Optional runtime capture
 
 The decorator is optional when calls must be intercepted for runtime capture.
-It accepts only the trainable identity; global configuration controls capture
-and tracing. The decorated method is the source target, so callers never provide
-source metadata.
+Identity is inferred from the decorated class and method, so nothing is
+declared twice; global configuration controls capture and tracing. The
+decorated method is the source target, so callers never provide source
+metadata.
+
+```ts
+import { trainable } from "ts-autocode";
+
+class Router {
+  @trainable()
+  route(input: string): string {
+    return input;
+  }
+}
+```
+
+The inferred identity above is `Router.route`. Passing an identity is optional
+and takes a symbol, for callers that need a durable id detached from the class
+name:
 
 ```ts
 import { defineTrainable, trainable } from "ts-autocode";
 
-const route = defineTrainable("Router.route");
+const route = defineTrainable("legacy.route");
 
 class Router {
-  @trainable(route)
+  @trainable(route.symbol)
   route(input: string): string {
     return input;
   }
@@ -76,14 +91,16 @@ class Router {
 
 A token contains a durable string id and stable `Symbol.for(...)` symbol. The
 same id binds the method, captures, AgentV results, optimizer candidate, and
-promotion decision. String identities such as `@trainable("Router.route")` are
-also accepted.
+promotion decision.
 
 ## Train and promote
 
-AgentV owns eval definitions, graders, traces, scores, and result types.
+AgentV owns eval definitions, graders, traces, scores, and result types. The
+`training` export is ready to use without any setup call.
 
 ```ts
+import { training } from "ts-autocode";
+
 const tests = [
   {
     id: "billing",
@@ -114,12 +131,36 @@ const promoted = await training.promote(run.final.candidate, run.final.decision)
 await training.revert(promoted.snapshot);
 ```
 
-## Evolve from live traces
+Promotion writes the gated source rewrite and, for async targets, hot-swaps the
+running implementation through `ts-autocode-rewrite`'s AspectJS advice — woven
+methods dispatch to the promoted candidate immediately, no restart required.
+`revert()` restores both the source and the live implementation.
 
-When runtime capture is enabled, `evolve()` turns successful captured calls into
-AgentV equality evals, trains a replacement, verifies the candidate against the
-same cases, applies the promotion gate, and updates the marked TypeScript body.
-The write is explicit: capturing traffic alone never changes source code.
+## Zero-config evolution
+
+Load the runtime patch once and directive-marked functions evolve from live
+traffic with no further code — capture, training, verification, gating, and the
+guarded source rewrite all apply automatically:
+
+```bash
+node --import ts-autocode/register ./dist/server.js
+```
+
+The register hook instruments every `"use training"` function at module load.
+Once a trainable accumulates `evolution.minTraces` successful traces (default
+3), it is trained against those traces, verified candidate-bound, gated, and —
+only when the gate passes — its source body is rewritten. Failures surface
+through `TrainingSettings.onError` with the `"evolve"` phase and never block or
+alter application calls. Set `TS_AUTOCODE_EVOLVE=off` (or configure
+`evolution: { enabled: false }`) to capture without rewriting, and use
+`evolution.onEvolved` to observe applied rewrites.
+
+## Evolve from live traces explicitly
+
+Without the register patch, `evolve()` is the explicit form of the same loop:
+it turns successful captured calls into AgentV equality evals, trains a
+replacement, verifies the candidate against the same cases, applies the
+promotion gate, and updates the marked TypeScript body.
 
 ```ts
 const result = await training.evolve({
@@ -171,9 +212,10 @@ AgentV's `workers` option parallelizes live-trace and candidate evals. Independe
 trainables can be evolved concurrently by the application, while the configured
 engine and store remain injectable.
 
-`configureTraining(settings)` is the single public runtime configuration entry
-point. Settings are optional. The default Ax implementation reads
-`OPENAI_API_KEY` from the configured secret provider or process environment.
+Configuration is optional: the exported `training` runtime works out of the
+box, and `configureTraining(settings)` only overrides its settings. The default
+Ax implementation reads `OPENAI_API_KEY` from the configured secret provider or
+process environment.
 Provider-specific Ax tuning remains isolated to the optional `ts-autocode/ax`
 adapter and is passed through the provider-neutral `engine` slot.
 
