@@ -34,7 +34,8 @@
 	},
 	"dependencies": {
 		"@microsoft/mxc-sdk": "^0.7.0",
-		"deepagents": "^1.10.7"
+		"deepagents": "^1.10.7",
+		"zod": "^4.4.3"
 	},
 	"keywords": [
 		"agent",

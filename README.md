@@ -235,8 +235,10 @@ Runtime dependencies enter through `TrainingSettings`:
   is not the desired project.
 - `outputDir` relocates run artifacts and eval output (default `.agentv`,
   exported as `defaultOutputDir`); a run's `EvalConfig.outputDir` still
-  overrides it. `createHarnessLoop({ actionLogFile })` renames the write-ahead
-  action log inside that directory.
+  overrides it. `createHarnessLoop({ actionLogFile, contextProvider })`
+  renames the write-ahead action log inside that directory and replaces the
+  default rolling-window context management (`windowedContext`) with your own
+  provider — for example a rolling-summary reducer.
 
 AgentV's `workers` option parallelizes live-trace and candidate evals. Independent
 trainables can be trained concurrently by the application, while the configured

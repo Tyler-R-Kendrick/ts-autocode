@@ -6,11 +6,13 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
 	AgentActionDeniedError,
+	createFileBusStore,
 	createHarnessPolicy,
 	defineTrainingHarness,
 	dispatchAction,
 	MxcSandbox,
 	WriteAheadAgentBus,
+	type AgentBusEntry,
 } from "../src/index.js";
 
 describe("training harness", () => {
@@ -94,24 +96,21 @@ describe("training harness", () => {
 	});
 
 	it("never executes denied actions and records gate failures", async () => {
-		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-bus-deny-"));
-		const denied = new WriteAheadAgentBus({ file: join(directory, "denied.jsonl") });
+		const denied = new WriteAheadAgentBus();
 		const execute = vi.fn(async () => "forbidden");
 		await expect(dispatchAction(denied, "teacher", "test.denied", {}, () => "fail", execute))
 			.rejects.toBeInstanceOf(AgentActionDeniedError);
 		expect(execute).not.toHaveBeenCalled();
 		expect((await denied.read()).map(({ kind }) => kind)).toEqual(["test.denied", "agent.decision"]);
 
-		const failed = new WriteAheadAgentBus({ file: join(directory, "failed.jsonl") });
+		const failed = new WriteAheadAgentBus();
 		await expect(dispatchAction(failed, "student", "test.failure", {}, () => { throw new Error("judge unavailable"); }, execute))
 			.rejects.toThrow("judge unavailable");
 		expect((await failed.read()).map(({ kind }) => kind)).toEqual(["test.failure", "test.failure.failed"]);
 	});
 
 	it("refuses appends and reads the access hook denies", async () => {
-		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-bus-access-"));
 		const bus = new WriteAheadAgentBus({
-			file: join(directory, "actions.jsonl"),
 			allow: (access) => access.operation === "append" ? access.actor !== "intruder" : access.actor === undefined,
 		});
 
@@ -121,12 +120,55 @@ describe("training harness", () => {
 		await expect(bus.read("student")).rejects.toThrow("refused read");
 	});
 
+	it("accepts any store implementation and resumes its sequence numbering", async () => {
+		// A hand-rolled store standing in for memory, disk, or a remote service.
+		const remote: AgentBusEntry[] = [];
+		const bus = new WriteAheadAgentBus({
+			store: {
+				append: async (entry) => {
+					remote.push(entry);
+				},
+				load: async () => [...remote],
+			},
+		});
+
+		await bus.append({ actor: "student", kind: "test.first" });
+		remote.push({ ...remote[0]!, sequence: 7 as AgentBusEntry["sequence"] });
+		const appended = await bus.append({ actor: "student", kind: "test.second" });
+		expect(appended.sequence).toBe(2);
+		expect(remote).toHaveLength(3);
+	});
+
+	it("hands actors provider-shaped context instead of the raw log", async () => {
+		const callbacks = await loopCallbacks(["fail", "pass", "fail"]);
+		const contexts: number[] = [];
+		const harness = defineTrainingHarness<string, string, string>({ maxRounds: 2, candidateId: (candidate) => candidate });
+
+		await harness.run({
+			...callbacks,
+			contextProvider: (entries) => entries.slice(-1),
+			task: "task",
+			rubric: "rubric",
+			student: ({ round, context }) => {
+				contexts.push(context.length);
+				return `candidate-${round}`;
+			},
+			teacher: () => ({ assessment: "evidence", feedback: [] }),
+			adversary: () => "challenge",
+			reviseRubric: () => ({ rubric: "revised", feedback: [] }),
+		});
+
+		// By round two the bus holds many entries; the provider windowed them to one.
+		expect(contexts).toEqual([0, 1]);
+		expect((await callbacks.bus.read()).length).toBeGreaterThan(1);
+	});
+
 	it("continues sequence numbers and recovers an incomplete trailing entry", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-bus-recovery-"));
 		const file = join(directory, "actions.jsonl");
-		const first = new WriteAheadAgentBus({ file });
+		const first = new WriteAheadAgentBus({ store: createFileBusStore(file) });
 		await dispatchAction(first, "student", "first", {}, () => "pass", async () => "one");
-		const second = new WriteAheadAgentBus({ file });
+		const second = new WriteAheadAgentBus({ store: createFileBusStore(file) });
 		await dispatchAction(second, "teacher", "second", {}, () => "pass", async () => "two");
 		await appendFile(file, "{\"incomplete\"", "utf8");
 		expect((await second.read()).map(({ sequence }) => sequence)).toEqual([1, 2, 3, 4, 5, 6]);
@@ -148,9 +190,14 @@ describe("training harness", () => {
 		expect((await bus.read()).map(({ kind }) => kind))
 			.toEqual(["sandbox.upload", "agent.decision", "sandbox.upload.completed"]);
 
-		const unsafe = new WriteAheadAgentBus({ file: join(workspace, "actions.jsonl") });
-		expect(() => new MxcSandbox({ id: "unsafe", workspace, policy: createHarnessPolicy({ workspace }), bus: unsafe, actor: "student" }))
-			.toThrow("outside the writable sandbox");
+		expect(() => new MxcSandbox({
+			id: "unsafe",
+			workspace,
+			policy: createHarnessPolicy({ workspace }),
+			bus,
+			actor: "student",
+			protectedPaths: [join(workspace, "actions.jsonl")],
+		})).toThrow("outside the writable sandbox");
 	});
 
 	it("refuses symlinked paths that resolve outside the workspace", async () => {
@@ -183,14 +230,11 @@ describe("training harness", () => {
 });
 
 async function newBus() {
-	const directory = await mkdtemp(join(tmpdir(), "ts-autocode-bus-"));
-	const bus = new WriteAheadAgentBus({ file: join(directory, "actions.jsonl") });
-	return { bus, directory };
+	return { bus: new WriteAheadAgentBus() };
 }
 
 async function loopCallbacks(decisions: readonly ("pass" | "fail")[]) {
-	const directory = await mkdtemp(join(tmpdir(), "ts-autocode-loop-"));
-	const bus = new WriteAheadAgentBus({ file: join(directory, "actions.jsonl") });
+	const bus = new WriteAheadAgentBus();
 	let decision = 0;
 	return {
 		bus,

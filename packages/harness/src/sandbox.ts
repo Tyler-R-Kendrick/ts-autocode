@@ -16,6 +16,7 @@ import {
 import { WriteAheadAgentBus } from "./bus.js";
 import { dispatchAction, type ActionGate } from "./dispatch.js";
 import { assertHarnessPolicy } from "./policy.js";
+import { absolutePath } from "./schema.js";
 
 export interface MxcSandboxSettings {
 	readonly id: string;
@@ -27,6 +28,9 @@ export interface MxcSandboxSettings {
 	/** Gate consulted before every operation runs; without one, operations are
 	 * still written ahead and recorded but execute ungated. */
 	readonly gate?: ActionGate;
+	/** Paths that must remain outside the writable workspace — for example a
+	 * file-backed bus log the sandboxed agent must not be able to tamper with. */
+	readonly protectedPaths?: readonly string[];
 	readonly spawn?: Omit<SandboxSpawnOptions, "usePty">;
 }
 
@@ -44,9 +48,11 @@ export class MxcSandbox extends BaseSandbox {
 		this.id = settings.id;
 		this.#workspace = resolve(settings.workspace);
 		assertHarnessPolicy(settings.policy, this.#workspace);
-		const busPath = relative(this.#workspace, settings.bus.file);
-		if (!busPath.startsWith("..") && !isAbsolute(busPath)) {
-			throw new TypeError("agent bus file must be outside the writable sandbox workspace");
+		for (const path of settings.protectedPaths ?? []) {
+			const fromWorkspace = relative(this.#workspace, absolutePath.parse(path));
+			if (!fromWorkspace.startsWith("..") && !isAbsolute(fromWorkspace)) {
+				throw new TypeError("protected paths must be outside the writable sandbox workspace");
+			}
 		}
 		this.#policy = settings.policy;
 		this.#bus = settings.bus;

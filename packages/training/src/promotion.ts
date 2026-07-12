@@ -1,6 +1,12 @@
 import type { EvaluationResult } from "@agentv/core";
+import { z } from "zod";
 
 import type { BoundEvaluation, CandidatePatch } from "./engine.js";
+
+const unitInterval = (name: string) =>
+	z.number().finite(`${name} must be between 0 and 1`).min(0, `${name} must be between 0 and 1`).max(1, `${name} must be between 0 and 1`);
+const minScoreThreshold = unitInterval("minScore");
+const minPassRateThreshold = unitInterval("minPassRate");
 
 export interface PromotionGateInput {
 	readonly candidate: CandidatePatch;
@@ -71,10 +77,8 @@ export const defaultPromotionGates: readonly PromotionGate[] = [
 /** Runs the standard gates, the configured policy, and any extension gates
  * over one shared context; the collected failures decide promotion. */
 export async function evaluatePromotionGate(input: PromotionGateInput): Promise<PromotionDecision> {
-	const minScore = input.minScore ?? 0.8;
-	const minPassRate = input.minPassRate ?? 1;
-	assertUnitInterval(minScore, "minScore");
-	assertUnitInterval(minPassRate, "minPassRate");
+	const minScore = minScoreThreshold.parse(input.minScore ?? 0.8);
+	const minPassRate = minPassRateThreshold.parse(input.minPassRate ?? 1);
 	const results = input.evaluations
 		.filter((evaluation) => evaluation.trainableId === input.candidate.trainableId && evaluation.candidateId === input.candidate.id)
 		.map((evaluation) => evaluation.result);
@@ -110,10 +114,6 @@ function policyGate(policy: (candidate: CandidatePatch) => boolean | Promise<boo
 
 function passed(result: EvaluationResult, threshold: number): boolean {
 	return result.executionStatus !== "execution_error" && result.score >= threshold;
-}
-
-function assertUnitInterval(value: number, name: string): void {
-	if (!Number.isFinite(value) || value < 0 || value > 1) throw new TypeError(`${name} must be between 0 and 1`);
 }
 
 function average(values: readonly number[]): number {

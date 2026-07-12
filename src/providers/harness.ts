@@ -1,6 +1,13 @@
 import { resolve } from "node:path";
 
-import { defineTrainingHarness, WriteAheadAgentBus, type JudgeRequest } from "ts-autocode-harness";
+import {
+	createFileBusStore,
+	defineTrainingHarness,
+	WriteAheadAgentBus,
+	type ContextProvider,
+	type JudgeRequest,
+} from "ts-autocode-harness";
+import { z } from "zod";
 import type { CandidatePatch, CandidateReview, TrainingLoop } from "ts-autocode-training";
 
 type Request = JudgeRequest<CandidatePatch, CandidateReview, CandidateReview>;
@@ -9,8 +16,25 @@ type Request = JudgeRequest<CandidatePatch, CandidateReview, CandidateReview>;
  * when `createHarnessLoop` is not given a filename. */
 export const defaultActionLogFile = "harness-actions.jsonl";
 
+/** How many trailing bus entries the default context provider keeps. */
+export const defaultContextWindow = 100;
+
+const contextWindow = z.number().int().min(0, "context window must be a non-negative integer");
+
+/** Rolling-window context: actors see the trailing `limit` bus entries (zero
+ * means none). The bus does no context management, so optimization lives here
+ * — a consumer needing more than a window (rolling summaries in the style of
+ * Semantic Kernel's chat-history reduction, relevance filtering, ...)
+ * substitutes its own ContextProvider. */
+export function windowedContext(limit = defaultContextWindow): ContextProvider {
+	const window = contextWindow.parse(limit);
+	return (entries) => entries.slice(Math.max(entries.length - window, 0));
+}
+
 export interface HarnessLoopOptions {
 	readonly actionLogFile?: string;
+	/** Context management for harness actors; a rolling window when unset. */
+	readonly contextProvider?: ContextProvider;
 }
 
 /** Adapts the governed ts-autocode-harness loop to the provider-neutral
@@ -19,14 +43,16 @@ export interface HarnessLoopOptions {
  * and rubric revision when a challenge exposes a gap. */
 export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoop {
 	const actionLogFile = options.actionLogFile ?? defaultActionLogFile;
+	const contextProvider = options.contextProvider ?? windowedContext();
 	return async (input) => {
 		const harness = defineTrainingHarness<CandidatePatch, CandidateReview, string>({
 			candidateId: (candidate) => candidate.id,
 			...(input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds }),
 		});
-		const bus = new WriteAheadAgentBus({ file: resolve(input.outputDir, actionLogFile) });
+		const bus = new WriteAheadAgentBus({ store: createFileBusStore(resolve(input.outputDir, actionLogFile)) });
 		const result = await harness.run<CandidateReview>({
 			bus,
+			contextProvider,
 			task: { trainable: input.trainableId, objective: input.objective },
 			rubric: input.rubric,
 			...(input.signal === undefined ? {} : { signal: input.signal }),

@@ -1,40 +1,45 @@
-import { isAbsolute, resolve } from "node:path";
-
 import type { SandboxPolicy } from "@microsoft/mxc-sdk";
+import { z } from "zod";
 
-export interface HarnessPolicySettings {
-	readonly workspace: string;
-	readonly readonlyPaths?: readonly string[];
-	readonly allowedHosts?: readonly string[];
-	readonly timeoutMs?: number;
-	readonly version?: string;
-}
+import { absolutePath } from "./schema.js";
+
+const policySettings = z.object({
+	workspace: absolutePath,
+	readonlyPaths: z.array(absolutePath).optional(),
+	allowedHosts: z.array(z.string().trim()).optional(),
+	timeoutMs: z.number().int().positive("timeoutMs must be a positive integer").optional(),
+	version: z.string().optional(),
+});
+
+export type HarnessPolicySettings = z.input<typeof policySettings>;
 
 /** The mxc-sdk policy schema version emitted when `version` is unset. */
 export const sandboxPolicyVersion = "0.7.0-alpha";
 
-export function createHarnessPolicy(settings: HarnessPolicySettings): SandboxPolicy {
-	const workspace = absolute(settings.workspace, "workspace");
-	const readonlyPaths = settings.readonlyPaths?.map((path) => absolute(path, "readonlyPaths"));
-	const allowedHosts = settings.allowedHosts?.map((host) => host.trim()).filter(Boolean);
+export function createHarnessPolicy(input: HarnessPolicySettings): SandboxPolicy {
+	const settings = policySettings.parse(input);
+	const allowedHosts = settings.allowedHosts?.filter(Boolean);
 
 	return {
 		version: settings.version ?? sandboxPolicyVersion,
 		filesystem: {
-			readwritePaths: [workspace],
-			...(readonlyPaths?.length ? { readonlyPaths: [...readonlyPaths] } : {}),
+			readwritePaths: [settings.workspace],
+			...(settings.readonlyPaths?.length ? { readonlyPaths: [...settings.readonlyPaths] } : {}),
 		},
 		network: allowedHosts?.length
 			? { allowOutbound: true, allowLocalNetwork: false, allowedHosts: [...allowedHosts] }
 			: { allowOutbound: false, allowLocalNetwork: false },
 		ui: { allowWindows: false, clipboard: "none", allowInputInjection: false },
-		...(settings.timeoutMs === undefined ? {} : { timeoutMs: positive(settings.timeoutMs) }),
+		...(settings.timeoutMs === undefined ? {} : { timeoutMs: settings.timeoutMs }),
 	};
 }
 
+/** Enforces the harness's security invariants on a sandbox policy: writes
+ * confined to the workspace, no local network or proxy escape, outbound only
+ * with an explicit allowlist, and no UI, clipboard, or input access. */
 export function assertHarnessPolicy(policy: SandboxPolicy, workspace: string): void {
-	const root = absolute(workspace, "workspace");
-	const writable = policy.filesystem?.readwritePaths?.map((path) => resolve(path)) ?? [];
+	const root = absolutePath.parse(workspace);
+	const writable = policy.filesystem?.readwritePaths?.map((path) => absolutePath.parse(path)) ?? [];
 	if (writable.length !== 1 || writable[0] !== root) {
 		throw new TypeError("policy must grant write access only to the sandbox workspace");
 	}
@@ -46,14 +51,4 @@ export function assertHarnessPolicy(policy: SandboxPolicy, workspace: string): v
 	if (policy.ui?.allowWindows || policy.ui?.allowInputInjection || (policy.ui?.clipboard ?? "none") !== "none") {
 		throw new TypeError("policy cannot grant UI, clipboard, or input access");
 	}
-}
-
-function absolute(path: string, field: string): string {
-	if (!isAbsolute(path)) throw new TypeError(`${field} must contain absolute paths`);
-	return resolve(path);
-}
-
-function positive(value: number): number {
-	if (!Number.isInteger(value) || value < 1) throw new TypeError("timeoutMs must be a positive integer");
-	return value;
 }
