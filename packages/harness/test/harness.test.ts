@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,6 +10,7 @@ import fsDriver from "unstorage/drivers/fs";
 
 import {
 	AgentActionDeniedError,
+	createSandboxPolicy,
 	defineTrainingHarness,
 	dispatchAction,
 	HarnessSandbox,
@@ -217,9 +219,10 @@ describe("training harness", () => {
 		expect((await second.read()).map(({ sequence }) => sequence)).toEqual([1, 2, 3, 4, 5, 6]);
 	});
 
-	it("gates sandbox file actions and keeps the bus outside writable workspaces", async () => {
+	it("gates sandbox file actions and keeps the bus outside writable paths", async () => {
 		const workspace = await mkdtemp(join(tmpdir(), "ts-autocode-sandbox-"));
 		const { bus } = await newBus();
+		// No policy configured: the sandbox falls back to the default policy.
 		const sandbox = new HarnessSandbox({
 			id: "files",
 			workspace,
@@ -238,7 +241,36 @@ describe("training harness", () => {
 			bus,
 			actor: "student",
 			protectedPaths: [join(workspace, "actions.jsonl")],
-		})).toThrow("outside the writable sandbox");
+		})).toThrow("outside every writable sandbox path");
+	});
+
+	it("accepts consumer-configured policies and protects paths against them", async () => {
+		const workspace = await mkdtemp(join(tmpdir(), "ts-autocode-sandbox-custom-"));
+		const scratch = await mkdtemp(join(tmpdir(), "ts-autocode-scratch-"));
+		const { bus } = await newBus();
+		// A policy the default would never produce: an extra writable root and
+		// unrestricted outbound network access.
+		const policy = {
+			...createSandboxPolicy({ workspace }),
+			filesystem: { readwritePaths: [workspace, scratch] },
+			network: { allowOutbound: true, allowLocalNetwork: false },
+		};
+
+		expect(() => new HarnessSandbox({ id: "custom", workspace, policy, bus, actor: "student" })).not.toThrow();
+		expect(() => new HarnessSandbox({
+			id: "custom-unsafe",
+			workspace,
+			policy,
+			bus,
+			actor: "student",
+			protectedPaths: [join(scratch, "actions.jsonl")],
+		})).toThrow("outside every writable sandbox path");
+	});
+
+	it("defaults the policy version to the installed mxc-sdk release", () => {
+		const { version } = createRequire(import.meta.url)("@microsoft/mxc-sdk/package.json") as { version: string };
+		expect(createSandboxPolicy({ workspace: tmpdir() }).version).toBe(version);
+		expect(createSandboxPolicy({ workspace: tmpdir(), version: "0.6.0-alpha" }).version).toBe("0.6.0-alpha");
 	});
 
 	it("refuses symlinked paths that resolve outside the workspace", async () => {
