@@ -48,6 +48,40 @@ export interface RubricRevision<TFeedback> {
 	readonly feedback: readonly TFeedback[];
 }
 
+/** The challenge turn is deliberately narrow: the adversary sees the task and
+ * only its own prior messages, never the teacher's assessment or the rubric. */
+export interface AdversaryTurn {
+	readonly task: unknown;
+	readonly context: readonly AgentBusEntry[];
+	readonly signal?: AbortSignal;
+}
+
+export interface RubricRevisionTurn<TCandidate, TAssessment> {
+	readonly task: unknown;
+	readonly candidate: TCandidate;
+	readonly assessment: TAssessment;
+	readonly rubric: string;
+	readonly context: readonly AgentBusEntry[];
+	readonly signal?: AbortSignal;
+}
+
+/** The adversary role in full. Challenging accepted candidates and tightening
+ * the rubric when a challenge stands are one responsibility, so both callbacks
+ * live here; only the challenge is required. */
+export interface AdversaryConfig<TCandidate, TAssessment, TFeedback, TChallenge> {
+	/** Challenges a candidate the judge accepted. */
+	readonly challenge: (
+		candidate: TCandidate,
+		turn: AdversaryTurn,
+	) => AdversaryResult<TChallenge, TFeedback> | Promise<AdversaryResult<TChallenge, TFeedback>>;
+	/** Revises the rubric after a standing challenge; when unset the challenge
+	 * evidence is appended to the rubric as new criteria. */
+	readonly reviseRubric?: (
+		challenge: AdversaryResult<TChallenge, TFeedback>,
+		turn: RubricRevisionTurn<TCandidate, TAssessment>,
+	) => RubricRevision<TFeedback> | Promise<RubricRevision<TFeedback>>;
+}
+
 /** Every request carries the evidence the default verdicts weigh, so a
  * configured judge can apply the same convention even when its bus context is
  * windowed or redacted. */
@@ -93,25 +127,10 @@ export interface HarnessInput<TCandidate, TAssessment, TFeedback, TChallenge> {
 	readonly judge?: (
 		request: JudgeRequest<TCandidate, TAssessment, TFeedback, TChallenge>,
 	) => JudgeDecision | Promise<JudgeDecision>;
-	/** Challenges candidates the judge accepted. When unset, a passing
-	 * candidate is accepted without adversarial review. */
-	readonly adversary?: (
-		candidate: TCandidate,
-		turn: Readonly<{ task: unknown; context: readonly AgentBusEntry[]; signal?: AbortSignal }>,
-	) => AdversaryResult<TChallenge, TFeedback> | Promise<AdversaryResult<TChallenge, TFeedback>>;
-	/** Revises the rubric after a standing challenge; when unset the challenge
-	 * evidence is appended to the rubric as new criteria. */
-	readonly reviseRubric?: (
-		challenge: AdversaryResult<TChallenge, TFeedback>,
-		turn: Readonly<{
-			task: unknown;
-			candidate: TCandidate;
-			assessment: TAssessment;
-			rubric: string;
-			context: readonly AgentBusEntry[];
-			signal?: AbortSignal;
-		}>,
-	) => RubricRevision<TFeedback> | Promise<RubricRevision<TFeedback>>;
+	/** Challenges candidates the judge accepted, and optionally revises the
+	 * rubric when a challenge stands. When unset, a passing candidate is
+	 * accepted without adversarial review. */
+	readonly adversary?: AdversaryConfig<TCandidate, TAssessment, TFeedback, TChallenge>;
 	/** Shapes bus history into actor context; full history when unset. */
 	readonly contextProvider?: ContextProvider;
 	readonly signal?: AbortSignal;
@@ -142,11 +161,15 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 			const bus = input.bus ?? new WriteAheadAgentBus();
 			const provide = input.contextProvider ?? fullHistory;
 			const judge = input.judge;
-			const revise = input.reviseRubric ?? appendCriteria;
 			let rubric: string = rubricText.parse(input.rubric);
 			const rounds: HarnessRound<TCandidate, TAssessment, TChallenge>[] = [];
 			let feedback: readonly TFeedback[] = [];
 			let previousCandidate: string | undefined;
+
+			// Factories for the shapes every turn rebuilds: the optional abort
+			// signal and provider-shaped context.
+			const signal = input.signal === undefined ? {} : { signal: input.signal };
+			const contextOf = async (actor?: string) => provide(await bus.read(actor));
 
 			// Every actor invocation is written ahead; a configured judge also
 			// gates it, and every verdict — the judge's or the evidence
@@ -173,12 +196,7 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 			for (let round = 1; round <= maxRounds; round += 1) {
 				input.signal?.throwIfAborted();
 				const turn: StudentTurn<TFeedback> = Object.freeze({
-					round,
-					task: input.task,
-					rubric,
-					feedback,
-					context: await provide(await bus.read()),
-					...(input.signal === undefined ? {} : { signal: input.signal }),
+					round, task: input.task, rubric, feedback, context: await contextOf(), ...signal,
 				});
 				const candidate = await dispatch(actors.student, kinds.propose, { round, task: input.task, rubric, feedback },
 					() => input.student(turn));
@@ -190,67 +208,54 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 				const assessment = await dispatch(actors.teacher, kinds.assess, { round, candidateId },
 					() => input.teacher(candidate, turn));
 				input.signal?.throwIfAborted();
-				const candidateDecision = await decide({ candidateId }, {
-					subject: "candidate",
-					task: input.task,
-					candidate,
-					assessment: assessment.assessment,
-					feedback: assessment.feedback,
-					rubric,
-					context: [],
-				}, () => assessment.feedback.length === 0 ? "pass" : "fail");
+				// The evidence both verdict requests carry, and one factory for
+				// every shape a recorded round takes.
+				const evidence = { task: input.task, candidate, rubric, context: [] } as const;
+				const candidateDecision = await decide({ candidateId },
+					{ subject: "candidate", ...evidence, assessment: assessment.assessment, feedback: assessment.feedback },
+					() => assessment.feedback.length === 0 ? "pass" : "fail");
+				const record = (challenged?: Readonly<{ challenge: TChallenge; decision: JudgeDecision }>) =>
+					rounds.push(Object.freeze({
+						round, candidate, assessment: assessment.assessment, judgeDecision: candidateDecision,
+						...(challenged === undefined ? {} : { adversary: Object.freeze(challenged) }), rubric,
+					}));
 
 				if (candidateDecision === "fail") {
-					rounds.push(Object.freeze({ round, candidate, assessment: assessment.assessment, judgeDecision: candidateDecision, rubric }));
+					record();
 					feedback = Object.freeze([...assessment.feedback]);
 					continue;
 				}
 
 				const adversary = input.adversary;
 				if (adversary === undefined) {
-					rounds.push(Object.freeze({ round, candidate, assessment: assessment.assessment, judgeDecision: candidateDecision, rubric }));
+					record();
 					return result("accepted");
 				}
 
 				const challenge = await dispatch(actors.adversary, kinds.challenge, { candidateId }, async () =>
-					adversary(candidate, {
-						task: input.task,
-						context: await provide(await bus.read(actors.adversary)),
-						...(input.signal === undefined ? {} : { signal: input.signal }),
-					}));
+					adversary.challenge(candidate, { task: input.task, context: await contextOf(actors.adversary), ...signal }));
 				input.signal?.throwIfAborted();
-				const challengeDecision = await decide({ candidateId }, {
-					subject: "adversary",
-					task: input.task,
-					candidate,
-					challenge: challenge.challenge,
-					feedback: challenge.feedback,
-					rubric,
-					context: [],
-				}, () => challenge.feedback.length > 0 ? "pass" : "fail");
+				const challengeDecision = await decide({ candidateId },
+					{ subject: "adversary", ...evidence, challenge: challenge.challenge, feedback: challenge.feedback },
+					() => challenge.feedback.length > 0 ? "pass" : "fail");
 
 				if (challengeDecision === "fail") {
-					rounds.push(Object.freeze({ round, candidate, assessment: assessment.assessment, judgeDecision: candidateDecision,
-						adversary: Object.freeze({ challenge: challenge.challenge, decision: challengeDecision }), rubric }));
+					record({ challenge: challenge.challenge, decision: challengeDecision });
 					return result("accepted");
 				}
 
-				const revision = await dispatch(actors.teacher, kinds.reviseRubric, { round, candidateId }, async () =>
+				const revise = adversary.reviseRubric ?? appendCriteria;
+				const revision = await dispatch(actors.adversary, kinds.reviseRubric, { round, candidateId }, async () =>
 					revise(challenge, {
-						task: input.task,
-						candidate,
-						assessment: assessment.assessment,
-						rubric,
-						context: await provide(await bus.read()),
-						...(input.signal === undefined ? {} : { signal: input.signal }),
+						task: input.task, candidate, assessment: assessment.assessment, rubric,
+						context: await contextOf(), ...signal,
 					}));
 				input.signal?.throwIfAborted();
 				const revised: string = rubricText.parse(revision.rubric);
-				if (revised === rubric) throw new Error("teacher must improve the rubric after an approved adversarial challenge");
+				if (revised === rubric) throw new Error("adversary must improve the rubric after a standing challenge");
 				rubric = revised;
 				feedback = Object.freeze([...revision.feedback]);
-				rounds.push(Object.freeze({ round, candidate, assessment: assessment.assessment, judgeDecision: candidateDecision,
-					adversary: Object.freeze({ challenge: challenge.challenge, decision: challengeDecision }), rubric }));
+				record({ challenge: challenge.challenge, decision: challengeDecision });
 			}
 
 			return result("exhausted");

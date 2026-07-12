@@ -45,7 +45,7 @@ describe("training harness", () => {
 			rubric: "Initial rubric",
 			student: ({ round }) => `candidate-${round}`,
 			teacher: () => ({ assessment: "evidence", feedback: [] }),
-			adversary: () => ({ challenge: "challenge", feedback: evidence.shift() ?? [] }),
+			adversary: { challenge: () => ({ challenge: "challenge", feedback: evidence.shift() ?? [] }) },
 		});
 
 		// Round one's challenge stood and tightened the rubric by default;
@@ -58,7 +58,7 @@ describe("training harness", () => {
 	it("uses one callback loop for teacher feedback, judge decisions, and adversarial review", async () => {
 		const callbacks = await loopCallbacks(["fail", "pass", "fail"]);
 		const student = vi.fn(({ round }) => `candidate-${round}`);
-		const adversary = vi.fn(() => ({ challenge: "counterexample", feedback: [] }));
+		const challenge = vi.fn(() => ({ challenge: "counterexample", feedback: [] }));
 		const harness = defineTrainingHarness<string, string, string>({ maxRounds: 2 });
 
 		const result = await harness.run({
@@ -67,14 +67,13 @@ describe("training harness", () => {
 			rubric: "Candidate must be correct",
 			student,
 			teacher: () => ({ assessment: "evidence", feedback: ["teacher-only feedback"] }),
-			adversary,
-			reviseRubric: () => ({ rubric: "unused", feedback: [] }),
+			adversary: { challenge, reviseRubric: () => ({ rubric: "unused", feedback: [] }) },
 		});
 
 		expect(result.outcome).toBe("accepted");
 		expect(student.mock.calls[1]?.[0].feedback).toEqual(["teacher-only feedback"]);
 		expect(student.mock.calls[1]?.[0].context.length).toBeGreaterThan(0);
-		expect(adversary).toHaveBeenCalledOnce();
+		expect(challenge).toHaveBeenCalledOnce();
 		expect(result.final.adversary).toEqual({ challenge: "counterexample", decision: "fail" });
 		// The judge is just another actor: its verdicts are ordinary messages.
 		const judgeEntries = await callbacks.bus.read("judge");
@@ -97,7 +96,7 @@ describe("training harness", () => {
 				controller.abort();
 				return { assessment: null, feedback: [] };
 			},
-			adversary: () => ({ challenge: "challenge", feedback: [] }),
+			adversary: { challenge: () => ({ challenge: "challenge", feedback: [] }) },
 		})).rejects.toThrow();
 	});
 
@@ -113,11 +112,13 @@ describe("training harness", () => {
 			rubric: "Check tests",
 			student: () => "candidate",
 			teacher,
-			adversary: (_candidate, turn) => {
-				expect(JSON.stringify(turn)).not.toMatch(/teacher|rubric|student/i);
-				return { challenge: "edge-case failure", feedback: ["handle edge case"] };
+			adversary: {
+				challenge: (_candidate, turn) => {
+					expect(JSON.stringify(turn)).not.toMatch(/teacher|rubric|student/i);
+					return { challenge: "edge-case failure", feedback: ["handle edge case"] };
+				},
+				reviseRubric,
 			},
-			reviseRubric,
 		});
 
 		expect(result.outcome).toBe("exhausted");
@@ -197,8 +198,10 @@ describe("training harness", () => {
 				return `candidate-${round}`;
 			},
 			teacher: () => ({ assessment: "evidence", feedback: [] }),
-			adversary: () => ({ challenge: "challenge", feedback: [] }),
-			reviseRubric: () => ({ rubric: "revised", feedback: [] }),
+			adversary: {
+				challenge: () => ({ challenge: "challenge", feedback: [] }),
+				reviseRubric: () => ({ rubric: "revised", feedback: [] }),
+			},
 		});
 
 		// By round two the bus holds many entries; the provider windowed them to one.

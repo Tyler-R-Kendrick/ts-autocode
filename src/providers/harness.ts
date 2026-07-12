@@ -52,23 +52,19 @@ export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoo
 			...(options.judge === undefined ? {} : { judge: options.judge }),
 			task: { trainable: input.trainableId, objective: input.objective },
 			rubric: input.rubric,
-			...(input.signal === undefined ? {} : { signal: input.signal }),
+			...maybeSignal(input.signal),
 			// The governed harness explores one candidate per round; fan-out stays 1.
 			student: ({ round, feedback, signal }) =>
-				input.propose({ round, slot: 1, feedback, ...(signal === undefined ? {} : { signal }) }),
+				input.propose({ round, slot: 1, feedback, ...maybeSignal(signal) }),
 			teacher: async (candidate, { round, signal }) => {
-				const review = await input.review(candidate, {
-					label: `candidate-${round}`,
-					...(signal === undefined ? {} : { signal }),
-				});
+				const review = await input.review(candidate, { label: `candidate-${round}`, ...maybeSignal(signal) });
 				return { assessment: review, feedback: review.decision.failures };
 			},
-			adversary: async (candidate, { signal }) => {
-				const challenge = await input.review(candidate, {
-					label: `adversary-${candidate.id}`,
-					...(signal === undefined ? {} : { signal }),
-				});
-				return { challenge, feedback: challenge.decision.failures };
+			adversary: {
+				challenge: async (candidate, { signal }) => {
+					const challenge = await input.review(candidate, { label: `adversary-${candidate.id}`, ...maybeSignal(signal) });
+					return { challenge, feedback: challenge.decision.failures };
+				},
 			},
 		});
 		return {
@@ -76,4 +72,10 @@ export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoo
 			rounds: result.rounds.map(({ round, candidate, assessment }) => ({ round, candidate, ...assessment })),
 		};
 	};
+}
+
+/** Spreads an abort signal only when one exists, so optional-property types
+ * never receive an explicit `undefined`. */
+function maybeSignal(signal: AbortSignal | undefined): { signal: AbortSignal } | Record<never, never> {
+	return signal === undefined ? {} : { signal };
 }
