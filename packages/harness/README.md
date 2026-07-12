@@ -3,12 +3,19 @@
 A policy-enforced code-training harness: a bounded callback loop, a durable
 agent message bus, and an MXC-sandboxed execution backend.
 
-The harness coordinates four callbacks a consumer supplies:
+The harness coordinates callbacks the consumer supplies. Only two are
+required:
 
 - **student** proposes a candidate from the rubric, teacher feedback, and recent bus history;
-- **teacher** assesses objective evidence and revises the rubric when an adversarial challenge exposes a gap;
-- **judge** accepts any input, returns only `pass` or `fail`, and never supplies rejection feedback;
-- **adversary** receives only the artifact under test and its own prior messages, so it has no knowledge of the training loop.
+- **teacher** assesses objective evidence and reports feedback against the candidate.
+
+Every other role has a default, and all defaults follow one evidence
+convention — feedback is the verdict:
+
+- **judge** accepts any input and returns only `pass` or `fail`. Unset, a candidate passes when the teacher reports no feedback, a challenge stands when the adversary reports evidence, and actions are logged ungated.
+- **adversary** receives only the artifact under test and its own prior messages, and reports `{ challenge, feedback }`. Unset, a passing candidate is accepted without adversarial review.
+- **reviseRubric** tightens the rubric after a standing challenge. Unset, the challenge evidence is appended as new criteria.
+- **bus** defaults to an in-memory write-ahead bus, returned on the run result for auditing.
 
 The harness does not create, configure, or select agents — no models, prompts,
 or agent frameworks appear in its API. Callbacks are the whole contract: bring
@@ -21,6 +28,22 @@ npm install ts-autocode-harness
 ```
 
 ## Run the loop
+
+The minimal loop is two callbacks:
+
+```ts
+import { defineTrainingHarness } from "ts-autocode-harness";
+
+const result = await defineTrainingHarness<Candidate, Assessment, string>().run({
+  task: { objective, target },
+  rubric: "The candidate must pass AgentV and preserve its public contract.",
+  student: myStudent,
+  teacher: myTeacher,
+});
+```
+
+Every default is replaceable — a durable bus, a gating judge, an adversary,
+and a bespoke rubric revision:
 
 ```ts
 import { join } from "node:path";
@@ -46,8 +69,8 @@ const result = await harness.run({
 The judge first evaluates the candidate. A `fail` carries no judge feedback;
 the next student turn receives only teacher feedback. A passing candidate is
 challenged by the adversary. The candidate is accepted only when that
-challenge fails. If the challenge passes, the teacher must revise the rubric
-before the next round.
+challenge fails. If the challenge stands, the rubric must be revised before
+the next round.
 
 ## The message bus
 
@@ -84,7 +107,8 @@ kind, payload, gate, execute)`:
 
 `defineTrainingHarness` dispatches every student, teacher, and adversary
 invocation through this convention with the run's judge callback as the gate.
-Without a gate, `dispatchAction` still records intent and outcome.
+Without a configured judge, `dispatchAction` still records intent and outcome,
+and the evidence convention's verdicts are appended the same way.
 
 ## Sandboxed execution
 

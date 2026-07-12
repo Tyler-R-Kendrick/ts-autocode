@@ -12,6 +12,7 @@ export type { AbsolutePath, AgentBusEntry, AgentMessage, JudgeDecision } from ".
 
 export { defaultMaxRounds, defineTrainingHarness } from "./harness.js";
 export type {
+	AdversaryResult,
 	ContextProvider,
 	HarnessInput,
 	HarnessRound,

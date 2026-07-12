@@ -203,13 +203,13 @@ configured promotion policy.
 Training rounds run through the provider-neutral `TrainingLoop` contract.
 This package registers `createHarnessLoop()` as the default, so
 `ts-autocode-harness` owns bounded rounds, feedback, cancellation, and stall
-detection: the same callback path accepts arbitrary judge inputs, requires an
-exact pass/fail decision, tests
-approved candidates with an isolated adversary, and makes the teacher revise
-the rubric when the adversary exposes an accepted gap. Baseline results are
-never treated as proof that a rewrite passes. Set `TrainingSettings.loop` to
-substitute your own orchestration; the lower-level `evaluate` and
-`ts-autocode-rewrite` promotion primitives also remain available.
+detection. Training reviews serve as the harness's evidence: a candidate
+passes exactly when its review reports no gate failures, accepted candidates
+are re-reviewed by an isolated adversary, and a standing challenge tightens
+the rubric before the next round. Baseline results are never treated as proof
+that a rewrite passes. Set `TrainingSettings.loop` to substitute your own
+orchestration; the lower-level `evaluate` and `ts-autocode-rewrite`
+promotion primitives also remain available.
 
 The built-in loop is an observable round sequence (`trainingRounds()`
 pushes each reviewed round to a subscriber; `sequentialLoop` collects the
@@ -235,10 +235,12 @@ Runtime dependencies enter through `TrainingSettings`:
   is not the desired project.
 - `outputDir` relocates run artifacts and eval output (default `.agentv`,
   exported as `defaultOutputDir`); a run's `EvalConfig.outputDir` still
-  overrides it. `createHarnessLoop({ actionLogFile, contextProvider })`
-  renames the write-ahead action log inside that directory and replaces the
-  default rolling-window context management (`windowedContext`) with your own
-  provider — for example a rolling-summary reducer.
+  overrides it. Every `createHarnessLoop` collaborator is injectable:
+  `bus` builds the run's message bus (replacing the default file-backed
+  write-ahead log named by `actionLogFile` inside that directory), `judge`
+  gates every harness action and verdict, and `contextProvider` replaces the
+  default rolling-window context management (`windowedContext`) — for example
+  with a rolling-summary reducer.
 
 AgentV's `workers` option parallelizes live-trace and candidate evals. Independent
 trainables can be trained concurrently by the application, while the configured
