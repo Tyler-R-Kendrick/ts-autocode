@@ -1,6 +1,6 @@
 # ts-autocode
 
-Train TypeScript functions from AgentV evals and optional runtime traces, then
+Train TypeScript functions from AgentV evals and captured runtime traces, then
 safely rewrite the function marked trainable.
 
 The normal path keeps the code primitives and agent loop in separate packages:
@@ -53,13 +53,16 @@ The directive stays in source. TypeScript's compiler API uses it to discover
 the exact enclosing function body, identity, and signature. Consumer calls stay
 unchanged because the directive is the marker; there is no runtime proxy.
 
-## Optional runtime capture
+## Runtime capture and the optional decorator
 
-The decorator is optional when calls must be intercepted for runtime capture.
-Identity is inferred from the decorated class and method, so nothing is
-declared twice; global configuration controls capture and tracing. The
-decorated method is the source target, so callers never provide source
-metadata.
+Runtime capture comes with marking, not as a separate opt-in: whether a method
+carries the `"use training"` directive or the `@trainable()` decorator, its
+calls route through the same runtime-capture interceptor. What is optional is
+the decorator itself — it is an alternative marker to the directive. Identity
+is inferred from the decorated class and method, so nothing is declared twice;
+global configuration controls how captures are serialized, redacted, and
+traced. The decorated method is the source target, so callers never provide
+source metadata.
 
 ```ts
 import { trainable } from "ts-autocode";
