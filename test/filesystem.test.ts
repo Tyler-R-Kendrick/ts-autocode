@@ -1,7 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
-import { configureTraining, discoverTrainables, type CandidatePatch } from "../src/index.js";
+import { configureTraining, defineTrainable, type ImplementationExecutor } from "../src/index.js";
+
+const functionExecutor: ImplementationExecutor = async (target, implementation, args) =>
+	new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args) as unknown;
 
 describe("filesystem isolation", () => {
 	it("rewrites only the discovered method in ignored test output", async () => {
@@ -15,25 +18,26 @@ describe("filesystem isolation", () => {
 }`;
 		await mkdir(outputDir, { recursive: true });
 		await writeFile(artifactRef, source, "utf8");
-		const target = discoverTrainables({ files: [artifactRef] })[0]!;
-		const candidate: CandidatePatch = {
-			id: "filesystem-candidate",
-			trainableId: target.id,
-			engineId: "test",
-			target,
-			implementation: "return input.toUpperCase();",
-		};
-		const training = configureTraining({});
-		const promoted = await training.promote(candidate, {
-			candidateId: candidate.id,
-			promote: true,
-			failures: [],
-			meanScore: 1,
-			passRate: 1,
+		const training = configureTraining({
+			engine: { id: "filesystem-test", optimize: async () => ({ implementation: "return input.toUpperCase();" }) },
+			executor: functionExecutor,
+			source: { files: [artifactRef] },
+			tracing: { enabled: false },
+		});
+		const run = await training.train({
+			trainable: defineTrainable("Fixture.route").symbol,
+			objective: "Uppercase the routed input",
+			evaluation: {
+				tests: [{ id: "uppercase", input: "abc", assert: [{ type: "equals", value: "ABC" }] }],
+				task: (input) => input,
+				outputDir: `${outputDir}/agentv`,
+			},
 		});
 
+		expect(run.outcome).toBe("ready");
+		const activation = await run.activate();
 		expect(await readFile(artifactRef, "utf8")).toContain("return input.toUpperCase();");
-		await training.revert(promoted.snapshot);
+		await activation.rollback();
 		expect(await readFile(artifactRef, "utf8")).toBe(source);
 	});
 });

@@ -13,7 +13,7 @@ import {
 	instrumentTrainable,
 	trainable,
 	training as defaultTraining,
-	type EvolveResult,
+	type Activation,
 	type ImplementationExecutor,
 	type TrainingEngine,
 } from "../src/index.js";
@@ -166,10 +166,14 @@ describe("training execution", () => {
 		expect(run.baseline.run.summary.passed).toBe(2);
 		expect(run.final.verification.run.summary.passed).toBe(2);
 
-		const promotion = await training.promote(run.final.candidate, run.final.decision);
-		expect(promotion.source).toContain("return input.toUpperCase();");
+		const activation = await run.activate();
+		expect(activation.promotion.source).toContain("return input.toUpperCase();");
 		expect(await readFile(artifact, "utf8")).toContain("return input.toUpperCase();");
 		expect(await readFile(artifact, "utf8")).toContain('"use training"');
+
+		// Rollback restores the pre-activation source exactly.
+		await activation.rollback();
+		expect(await readFile(artifact, "utf8")).not.toContain("return input.toUpperCase();");
 	});
 
 	it("evolves automatically from runtime traffic when evolution is enabled", async () => {
@@ -179,8 +183,8 @@ describe("training execution", () => {
   "use training";
   return input;
 }\n`);
-		let resolveEvolved!: (result: EvolveResult) => void;
-		const evolved = new Promise<EvolveResult>((resolve) => { resolveEvolved = resolve; });
+		let resolveEvolved!: (activation: Activation) => void;
+		const evolved = new Promise<Activation>((resolve) => { resolveEvolved = resolve; });
 		const errors: unknown[] = [];
 		configureTraining({
 			engine: { id: "auto-test", optimize: async () => ({ implementation: "return input.toUpperCase();" }) },
@@ -192,7 +196,7 @@ describe("training execution", () => {
 				enabled: true,
 				minTraces: 2,
 				evaluation: { outputDir: join(directory, "agentv") },
-				onEvolved: (result) => resolveEvolved(result),
+				onEvolved: (activation) => resolveEvolved(activation),
 			},
 		});
 		class AutoNormalizer {
@@ -203,9 +207,9 @@ describe("training execution", () => {
 		normalizer.normalize("alpha");
 		normalizer.normalize("beta");
 
-		const result = await evolved;
+		const activation = await evolved;
 		expect(errors).toEqual([]);
-		expect(result.training.outcome).toBe("ready");
+		expect(activation.run.outcome).toBe("ready");
 		expect(await readFile(artifact, "utf8")).toContain("return input.toUpperCase();");
 		expect(await readFile(artifact, "utf8")).toContain('"use training"');
 	});

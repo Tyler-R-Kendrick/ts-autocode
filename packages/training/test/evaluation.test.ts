@@ -3,22 +3,18 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	configureTraining,
 	defineTrainable,
-	type CandidatePatch,
+	type ImplementationExecutor,
 	type TrainingEngine,
 } from "../src/index.js";
 import { evaluateTrainable } from "../src/evaluation.js";
-import { discoverInSource } from "../src/source.js";
 
 function pipelineTarget(input: string): string {
 	"use training";
 	return input;
 }
 
-const functionExecutor = async (
-	target: { readonly parameters: readonly { readonly name: string }[] },
-	implementation: string,
-	args: readonly unknown[],
-) => new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args) as unknown;
+const functionExecutor: ImplementationExecutor = async (target, implementation, args) =>
+	new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args) as unknown;
 
 describe("AgentV evaluation", () => {
 	it("binds AgentV results to the trainable token", async () => {
@@ -60,27 +56,6 @@ describe("AgentV evaluation", () => {
 		expect(run.outcome).toBe("ready");
 	});
 
-	it("runs AgentV against the candidate body before promotion", async () => {
-		const source = `function normalize(input: string): string {
-  "use training";
-  return input;
-}`;
-		const target = discoverInSource(source, "src/normalize.ts")[0]!;
-		const candidate: CandidatePatch = {
-			id: "candidate",
-			trainableId: target.id,
-			engineId: "test",
-			target,
-			implementation: "return input.toUpperCase();",
-		};
-		const evaluated = await configureTraining({ executor: functionExecutor }).evaluateCandidate(candidate, {
-			tests: [{ id: "uppercase", input: "hello", assert: [{ type: "equals", value: "HELLO" }] }],
-			outputDir: "test/output/agentv-candidate",
-		});
-
-		expect(evaluated.run.summary).toMatchObject({ total: 1, passed: 1, failed: 0 });
-	});
-
 	it("feeds review failures back into the next optimization round", async () => {
 		let round = 0;
 		const signal = new AbortController().signal;
@@ -95,8 +70,8 @@ describe("AgentV evaluation", () => {
 				return { implementation: round === 1 ? "return input;" : "return input.toUpperCase();" };
 			},
 		};
-		const training = configureTraining({ engine, executor: functionExecutor, source: { files: [import.meta.filename] } });
-		const evaluateCandidate = vi.spyOn(training, "evaluateCandidate");
+		const executor = vi.fn(functionExecutor);
+		const training = configureTraining({ engine, executor, source: { files: [import.meta.filename] } });
 		const run = await training.train({
 			trainable: defineTrainable("pipelineTarget").symbol,
 			objective: "uppercase the result",
@@ -111,8 +86,10 @@ describe("AgentV evaluation", () => {
 		expect(run.outcome).toBe("ready");
 		expect(run.baseline.run.summary.failed).toBe(1);
 		expect(run.rounds).toHaveLength(2);
-		expect(evaluateCandidate.mock.calls[0]?.[1].signal).toBe(signal);
+		// Candidate bodies run through the executor with the caller's signal.
+		expect(executor.mock.calls[0]?.[3]?.signal).toBe(signal);
 		expect(run.final.verification.run.summary.passed).toBe(1);
+		expect(run.final.verification.evaluations[0]?.candidateId).toBe(run.final.candidate.id);
 		expect(run.final.decision.promote).toBe(true);
 	});
 

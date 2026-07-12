@@ -101,7 +101,7 @@ candidate, and promotion decision — so evals, tests, and training reuse it to
 target exactly this trainable, binding evals to a training target at test time
 instead of only iterating during runtime.
 
-## Train and promote
+## Train and activate
 
 AgentV owns eval definitions, graders, traces, scores, and result types. The
 `training` export is ready to use without any setup call.
@@ -138,16 +138,18 @@ const run = await training.train({
   policy: (candidate) => deploymentPolicy.allows(candidate),
 });
 
-const promoted = await training.promote(run.final.candidate, run.final.decision);
+const activation = await run.activate();
 
 // Refuses to overwrite later changes.
-await training.revert(promoted.snapshot);
+await activation.rollback();
 ```
 
-Promotion writes the gated source rewrite and, for async targets, hot-swaps the
-running implementation through `ts-autocode-rewrite`'s AspectJS advice — woven
-methods dispatch to the promoted candidate immediately, no restart required.
-`revert()` restores both the source and the live implementation.
+Activating a training run writes the gated source rewrite and, for async
+targets, hot-swaps the running implementation through `ts-autocode-rewrite`'s
+AspectJS advice — woven methods dispatch to the promoted candidate immediately,
+no restart required. `activate()` throws unless the final candidate passed the
+promotion gate, and the returned activation's `rollback()` restores both the
+source and the live implementation.
 
 ## Zero-config evolution
 
@@ -174,7 +176,7 @@ Training, optimization, and evolution are one operation. `train()` without
 explicit `evaluation.tests` runs the same loop against captured traffic: it
 turns successful captured calls into AgentV equality evals, trains a
 replacement, verifies the candidate against the same cases, and applies the
-promotion gate. `promote()` then updates the marked TypeScript body.
+promotion gate. Activating the run then updates the marked TypeScript body.
 
 ```ts
 const run = await training.train({
@@ -187,14 +189,14 @@ const run = await training.train({
   },
 });
 
-const promoted = await training.promote(run.final.candidate, run.final.decision);
-console.log(promoted.snapshot.candidateId);
+const activation = await run.activate();
+console.log(activation.promotion.snapshot.candidateId);
 ```
 
 Only successful traces with both captured input and output become eval cases.
 Repeated inputs use the latest observed output, avoiding contradictory replay
 cases. Capture redaction and serialization still come from global settings, so
-secrets do not need to enter optimizer or eval artifacts. `promote()` refuses
+secrets do not need to enter optimizer or eval artifacts. `activate()` refuses
 to write unless the candidate passed candidate-bound AgentV evals and every
 configured promotion policy.
 
@@ -206,8 +208,8 @@ exact pass/fail decision, tests
 approved candidates with an isolated adversary, and makes the teacher revise
 the rubric when the adversary exposes an accepted gap. Baseline results are
 never treated as proof that a rewrite passes. Set `TrainingSettings.loop` to
-substitute your own orchestration; the lower-level `evaluate`,
-`evaluateCandidate`, and promotion primitives also remain available.
+substitute your own orchestration; the lower-level `evaluate` and
+`ts-autocode-rewrite` promotion primitives also remain available.
 
 No Ax program is supplied by the caller. The default engine derives its fields,
 descriptions, executable examples, and return contract from the TypeScript

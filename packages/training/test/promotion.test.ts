@@ -4,7 +4,6 @@ import { promoteCandidate, revertPromotion } from "ts-autocode-rewrite";
 
 import {
 	defineTrainable,
-	configureTraining,
 	evaluatePromotionGate,
 	type CandidatePatch,
 } from "../src/index.js";
@@ -29,22 +28,17 @@ function candidate(): CandidatePatch {
 	};
 }
 
-const functionExecutor = async (
-	target: { readonly parameters: readonly { readonly name: string }[] },
-	implementation: string,
-	args: readonly unknown[],
-) => new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args) as unknown;
-
 describe("promotion", () => {
 	it("gates with AgentV and reverts only an unchanged promoted method", async () => {
 		const patch = candidate();
-		const evaluated = await configureTraining({ executor: functionExecutor }).evaluateCandidate(patch, {
+		const evaluated = await evaluateTrainable(defineTrainable(patch.trainableId), {
 			tests: [{ id: "candidate", input: "route", assert: [{ type: "equals", value: "new" }] }],
+			task: () => new Function(patch.implementation)() as string,
 			outputDir: "test/output/agentv-promotion",
 		});
 		const decision = await evaluatePromotionGate({
 			candidate: patch,
-			evaluations: evaluated.evaluations,
+			evaluations: evaluated.evaluations.map((evaluation) => ({ ...evaluation, candidateId: patch.id })),
 			conformance: true,
 		});
 		const promoted = promoteCandidate({ source, candidate: patch, decision });
