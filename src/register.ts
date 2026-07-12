@@ -5,13 +5,18 @@ import { installInstrumentation } from "ts-autocode-rewrite";
 import { instrumentTrainable, provideTrainingDefaults, wrapTrainable } from "ts-autocode-training";
 
 import { augmentSource } from "./register/hook.js";
-// Importing the package entry wires the Ax engine and executor defaults.
+// Importing the package entry wires the Ax engine and executor defaults plus
+// the rewrite weaver, source promoter, and harness loop into training's ports.
 import "./index.js";
 
 installInstrumentation({ method: instrumentTrainable, wrap: wrapTrainable });
 
-const evolveFlag = (process.env["TS_AUTOCODE_EVOLVE"] ?? "").trim().toLowerCase();
-if (!["0", "false", "off"].includes(evolveFlag)) {
+/** Environment switch for zero-config evolution; anything in `evolveOptOuts` disables it. */
+export const evolveVariable = "TS_AUTOCODE_EVOLVE";
+const evolveOptOuts = ["0", "false", "off"];
+
+const evolveFlag = (process.env[evolveVariable] ?? "").trim().toLowerCase();
+if (!evolveOptOuts.includes(evolveFlag)) {
 	provideTrainingDefaults({ evolution: { enabled: true } });
 }
 

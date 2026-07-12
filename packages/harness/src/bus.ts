@@ -27,6 +27,9 @@ export interface AgentBusSettings {
 	readonly redact?: (value: unknown) => unknown;
 }
 
+/** How many trailing bus entries `context()` returns when `contextEntries` is unset. */
+export const defaultContextEntries = 100;
+
 export type ActionJudge = (
 	action: AgentAction,
 	context: readonly AgentBusEntry[],
@@ -57,7 +60,7 @@ export class WriteAheadAgentBus {
 
 	constructor(settings: AgentBusSettings) {
 		if (!isAbsolute(settings.file)) throw new TypeError("agent bus file must be absolute");
-		const contextEntries = settings.contextEntries ?? 100;
+		const contextEntries = settings.contextEntries ?? defaultContextEntries;
 		if (!Number.isInteger(contextEntries) || contextEntries < 1) {
 			throw new TypeError("contextEntries must be a positive integer");
 		}

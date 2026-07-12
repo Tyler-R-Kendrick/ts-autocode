@@ -10,9 +10,17 @@ import {
 
 import type { EngineContext, OptimizeRequest, TrainingEngine } from "ts-autocode-training";
 
-import { executeImplementation } from "../execution.js";
+import { defaultExecutionTimeoutMs, executeImplementation } from "../execution.js";
+
+export { defaultExecutionTimeoutMs } from "../execution.js";
 
 type Service = AxAIService | ((context: EngineContext) => AxAIService | Promise<AxAIService>);
+
+const defaultEngineId = "@ax-llm/ax";
+const defaultAIProvider = "openai";
+// Secret-provider name first, then environment fallbacks, in order.
+const apiKeySecret = "OPENAI_API_KEY";
+const apiKeyVariables = ["OPENAI_API_KEY", "OPENAI_APIKEY"] as const;
 
 const field = {
 	args: "trainingArgumentsJson",
@@ -37,7 +45,7 @@ type RewriteOutput = { [field.output]: string };
 /** Default engine: the Ax program, examples, and metric come from the trainable method. */
 export function createAxEngine(options: AxEngineOptions = {}): TrainingEngine {
 	const engine: TrainingEngine = {
-		id: options.id ?? "@ax-llm/ax",
+		id: options.id ?? defaultEngineId,
 		async optimize(request: OptimizeRequest, context: EngineContext) {
 			const studentAI = await service(options.studentAI, context);
 			const teacherAI = options.teacherAI === undefined ? undefined : await service(options.teacherAI, context);
@@ -157,7 +165,7 @@ async function scoreImplementation(
 	request: OptimizeRequest,
 	prediction: RewriteOutput,
 	exampleValue: Record<string, unknown>,
-	timeout = 5_000,
+	timeout = defaultExecutionTimeoutMs,
 	signal?: AbortSignal,
 ): Promise<number> {
 	if (!prediction?.[field.output]?.trim()) return 0;
@@ -179,12 +187,12 @@ async function service(value: Service | undefined, context: EngineContext): Prom
 }
 
 async function defaultAI(context: EngineContext): Promise<AxAIService> {
-	const apiKey = await context.secrets?.get("OPENAI_API_KEY", context.signal) ??
-		process.env["OPENAI_API_KEY"] ?? process.env["OPENAI_APIKEY"];
+	const apiKey = await context.secrets?.get(apiKeySecret, context.signal) ??
+		apiKeyVariables.map((name) => process.env[name]).find(Boolean);
 	if (!apiKey) {
-		throw new Error("default optimizer requires OPENAI_API_KEY or a custom TrainingSettings.engine");
+		throw new Error(`default optimizer requires ${apiKeySecret} or a custom TrainingSettings.engine`);
 	}
-	return ai({ name: "openai", apiKey });
+	return ai({ name: defaultAIProvider, apiKey });
 }
 
 function fieldType(type: string): NonNullable<AxField["type"]> {

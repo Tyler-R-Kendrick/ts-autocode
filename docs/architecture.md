@@ -39,6 +39,15 @@ source rewrite and swaps async targets live; `revert()` restores both. All
 AspectJS decorators are applied programmatically, keeping consumer projects on
 standard TC39 decorators.
 
+`ts-autocode-training` never imports the rewrite package. It defines weaver and
+promoter ports (`MethodWeaver`, `SourcePromoter`) that mirror the rewrite API
+structurally — the same pattern rewrite uses toward training with
+`RewriteTarget` and `RewriteApproval` — and the root `ts-autocode` package
+wires the implementations through `provideTrainingDefaults`, exactly as it
+wires the harness `TrainingLoop`. Body digests are the shared protocol between
+the two packages: both compute sha256 over canonical JSON, and guarded
+application refuses a candidate whose target digest no longer matches.
+
 ## Zero-config runtime patch
 
 `ts-autocode/register` installs a `node:module` load hook that appends guarded
@@ -50,9 +59,11 @@ same train-and-promote pipeline — replay evals, candidate verification,
 promotion gate, guarded rewrite — off the hot path, reporting failures through
 `onError("evolve")`. Calls made during a module's own top-level evaluation
 precede its instrumentation; traffic after startup is captured. The training
-runtime itself lives in the provider-neutral `ts-autocode-training` package;
-`ts-autocode` wires Ax as the default engine and executor and the harness as
-the default training loop via `provideTrainingDefaults`.
+runtime itself lives in the provider-neutral `ts-autocode-training` package.
+All cross-package wiring happens in the root `ts-autocode` package: it supplies
+Ax as the default engine and executor, the harness as the default training
+loop, and the rewrite package as the weaver and promoter, all via
+`provideTrainingDefaults`. Sibling packages never import each other.
 
 Training, optimization, and evolution are one operation: `train()` without
 explicit eval tests converts distinct, successful captured inputs and outputs

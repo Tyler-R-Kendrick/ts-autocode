@@ -1,6 +1,7 @@
 import type { EvaluationResult, EvalTestInput } from "@agentv/core";
-import { digest } from "ts-autocode-rewrite";
 import ts from "typescript";
+
+import { digest } from "./digest.js";
 
 import type { TrainingRecord } from "./records.js";
 import type { TrainableTarget } from "./source.js";

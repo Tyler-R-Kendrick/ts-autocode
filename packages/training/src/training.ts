@@ -4,19 +4,13 @@ import { readFile, writeFile } from "node:fs/promises";
 import { buildTraceFromMessages, getTextContent, type EvalConfig, type EvalTestInput } from "@agentv/core";
 import { OpenInferenceSpanKind, SemanticConventions } from "@arizeai/openinference-semantic-conventions";
 import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "@opentelemetry/api";
-import {
-	annotateRewrite,
-	configureRewrite,
-	declaringContainer,
-	dispatchRewrite,
-	promoteCandidate,
-	restoreImplementation,
-	revertPromotion,
-	swapImplementation,
-	type PromotionResult,
-	type PromotionSnapshot,
-} from "ts-autocode-rewrite";
 
+import type {
+	MethodWeaver,
+	PromotionResult,
+	PromotionSnapshot,
+	SourcePromoter,
+} from "./ports.js";
 import {
 	optimizeCandidate,
 	type BoundEvaluation,
@@ -43,21 +37,25 @@ import {
 } from "./token.js";
 
 const trainableAttribute = "ts_autocode.trainable.id";
+const tracerName = "ts-autocode";
 
-// Register training's rewrite behavior once: every method woven under the
-// "use training" marker routes through runtime capture, and `proceed` resolves
-// the live (possibly hot-swapped) implementation so captures reflect what ran.
-configureRewrite({
-	marker: trainingMarker,
-	intercept: ({ id, methodName, thisValue, args, proceed }) =>
-		runtime().invoke(
-			thisValue,
-			function (this: unknown, ...next: unknown[]) { return proceed(...next); },
-			[...args],
-			defineTrainable(id),
-			methodName,
-		),
-});
+// Registers training's capture behavior on a wired weaver: every method woven
+// under the "use training" marker routes through runtime capture, and `proceed`
+// resolves the live (possibly hot-swapped) implementation so captures reflect
+// what ran. Runs whenever a weaver is provided; configuring twice is harmless.
+function configureCapture(weaver: MethodWeaver): void {
+	weaver.configure({
+		marker: trainingMarker,
+		intercept: ({ id, methodName, thisValue, args, proceed }) =>
+			runtime().invoke(
+				thisValue,
+				function (this: unknown, ...next: unknown[]) { return proceed(...next); },
+				[...args],
+				defineTrainable(id),
+				methodName,
+			),
+	});
+}
 
 export interface CaptureSettings {
 	readonly enabled?: boolean;
@@ -83,11 +81,26 @@ export interface EvolutionSettings {
 	readonly onEvolved?: (result: EvolveResult) => void;
 }
 
+/** What background evolution uses when `EvolutionSettings.minTraces` is unset. */
+export const defaultEvolution: Required<Pick<EvolutionSettings, "minTraces">> = Object.freeze({
+	minTraces: 3,
+});
+
+/** Optimization goal when `TrainInput.objective` is unset. */
+export const defaultObjective = "Preserve behavior demonstrated by the evaluation cases";
+
+/** Where run artifacts and eval output land when neither `EvalConfig.outputDir`
+ * nor `TrainingSettings.outputDir` names a directory. */
+export const defaultOutputDir = ".agentv";
+
 export interface TrainingSettings {
 	readonly engine?: TrainingEngine;
 	readonly executor?: ImplementationExecutor;
 	readonly loop?: TrainingLoop;
 	readonly evolution?: EvolutionSettings;
+	/** Default directory for run artifacts and eval output; a run's
+	 * `EvalConfig.outputDir` still overrides it. */
+	readonly outputDir?: string;
 	readonly source?: SourceSettings;
 	readonly store?: TrainingStore;
 	readonly secrets?: SecretProvider;
@@ -159,7 +172,7 @@ class TrainingRuntime implements Training {
 		this.#settings = settings;
 		this.#variables = Object.freeze({ ...settings.variables });
 		this.#store = settings.store ?? createMemoryTrainingStore();
-		this.#tracer = settings.tracing?.tracer ?? trace.getTracer("ts-autocode");
+		this.#tracer = settings.tracing?.tracer ?? trace.getTracer(tracerName);
 	}
 
 	#engineFor(override?: TrainingEngine): TrainingEngine {
@@ -191,7 +204,7 @@ class TrainingRuntime implements Training {
 		state.running = true;
 		void (async () => {
 			await this.flush();
-			const minTraces = Math.max(1, evolution.minTraces ?? 3);
+			const minTraces = Math.max(1, evolution.minTraces ?? defaultEvolution.minTraces);
 			const successes = (await this.#store.list(token.id)).filter((record) => record.succeeded).length;
 			if (successes < state.attempted + minTraces) return;
 			state.attempted = successes;
@@ -257,10 +270,10 @@ class TrainingRuntime implements Training {
 
 	async train(input: TrainInput): Promise<TrainingRun> {
 		const token = toTrainableToken(input.trainable);
-		const objective = input.objective ?? "Preserve behavior demonstrated by the evaluation cases";
+		const objective = input.objective ?? defaultObjective;
 		const evaluation = input.evaluation?.tests ? input.evaluation : await this.#replayEvaluation(token, input);
-		const baseline = await this.evaluate(token, evaluation);
-		const { task: _task, outputDir = ".agentv", ...candidateEvaluation } = evaluation;
+		const { task: _task, outputDir = this.#settings.outputDir ?? defaultOutputDir, ...candidateEvaluation } = evaluation;
+		const baseline = await this.evaluate(token, { ...evaluation, outputDir });
 		const loop = this.#settings.loop ?? defaultProviders.loop ?? sequentialLoop;
 		const result = await loop({
 			trainableId: token.id,
@@ -363,29 +376,34 @@ class TrainingRuntime implements Training {
 	}
 
 	async promote(candidate: CandidatePatch, decision: PromotionDecision): Promise<PromotionResult> {
+		const promoter = promoterOrThrow();
 		const source = await readFile(candidate.target.artifactRef, "utf8");
-		const promoted = promoteCandidate({ source, candidate, decision });
+		const promoted = promoter.promote({ source, candidate, decision });
 		await writeFile(candidate.target.artifactRef, promoted.source, "utf8");
 		this.#hotSwap(candidate);
 		return promoted;
 	}
 
 	async revert(snapshot: PromotionSnapshot): Promise<void> {
+		const promoter = promoterOrThrow();
 		const source = await readFile(snapshot.artifactRef, "utf8");
-		await writeFile(snapshot.artifactRef, revertPromotion(source, snapshot), "utf8");
-		restoreImplementation(snapshot.trainableId);
+		await writeFile(snapshot.artifactRef, promoter.revert(source, snapshot), "utf8");
+		// A swap only exists where a weaver dispatched calls in the first place.
+		defaultProviders.weaver?.restore(snapshot.trainableId);
 	}
 
 	/** Promoted candidates go live in-process through the hot-swappable advice.
 	 * Only async targets swap: the executor returns a promise, so swapping a
-	 * synchronous method would change its calling convention. */
+	 * synchronous method would change its calling convention. Without a weaver
+	 * no call dispatches through swaps, so there is nothing to go live in. */
 	#hotSwap(candidate: CandidatePatch): void {
 		if (!candidate.target.async) return;
+		const weaver = defaultProviders.weaver;
 		const executor = this.#settings.executor ?? defaultProviders.executor;
-		if (!executor) return;
+		if (!weaver || !executor) return;
 		// Normal function so the call receiver is captured and forwarded to
 		// executors that can bind it (the sandbox executor ignores it).
-		swapImplementation(candidate.trainableId, function (this: unknown, ...args: unknown[]) {
+		weaver.swap(candidate.trainableId, function (this: unknown, ...args: unknown[]) {
 			return executor(candidate.target, candidate.implementation, args, { receiver: this });
 		});
 	}
@@ -529,15 +547,36 @@ export interface TrainingProviders {
 	readonly executor?: ImplementationExecutor;
 	readonly loop?: TrainingLoop;
 	readonly evolution?: EvolutionSettings;
+	readonly weaver?: MethodWeaver;
+	readonly promoter?: SourcePromoter;
 }
 
 let defaultProviders: TrainingProviders = {};
 
 /** Provider packages call this to supply lazy fallbacks (ts-autocode wires the
- * Ax engine, its sandbox executor, and the governed harness loop) without this
- * package depending on any provider. Explicit settings win. */
+ * Ax engine, its sandbox executor, the governed harness loop, and the rewrite
+ * weaver and promoter) without this package depending on any provider.
+ * Explicit settings win. A supplied weaver is configured immediately so
+ * directive-marked methods route through runtime capture. */
 export function provideTrainingDefaults(providers: TrainingProviders): void {
 	defaultProviders = { ...defaultProviders, ...providers };
+	if (providers.weaver) configureCapture(providers.weaver);
+}
+
+function weaverOrThrow(): MethodWeaver {
+	const weaver = defaultProviders.weaver;
+	if (!weaver) {
+		throw new Error('method weaving requires a weaver; import "ts-autocode" for the default or set TrainingProviders.weaver');
+	}
+	return weaver;
+}
+
+function promoterOrThrow(): SourcePromoter {
+	const promoter = defaultProviders.promoter;
+	if (!promoter) {
+		throw new Error('promotion requires a source promoter; import "ts-autocode" for the default or set TrainingProviders.promoter');
+	}
+	return promoter;
 }
 
 /** Default runtime: the "use training" directive is the only required marker.
@@ -560,9 +599,9 @@ const wrappedMarker = Symbol.for("ts-autocode.wrapped");
  * evals, tests, and `training.train` reuse to target this exact method. When
  * no symbol is provided, a token is auto-generated from the declaring class
  * and method name; `defineTrainable("Router.route").symbol` recreates the same
- * stable symbol anywhere. The method is woven through the ts-autocode-rewrite
- * aspect under the "use training" marker at first construction, so promoted
- * candidates can hot-swap it. */
+ * stable symbol anywhere. The method is woven through the wired weaver under
+ * the "use training" marker at first construction, so promoted candidates can
+ * hot-swap it. */
 export function trainable(identity?: symbol): TrainableDecorator {
 	if (identity !== undefined && typeof identity !== "symbol") {
 		throw new TypeError("trainable identity must be a symbol; omit it to infer from the decorated method");
@@ -574,12 +613,13 @@ export function trainable(identity?: symbol): TrainableDecorator {
 	) {
 		const name = String(context.name);
 		context.addInitializer(function (this: This) {
+			const weaver = weaverOrThrow();
 			const owner = (context.static ? this : (this as object).constructor) as abstract new (...args: never[]) => unknown;
 			// Infer from the class that actually declares the method, so a base method
 			// first initialized through a subclass still resolves to Base.method. The
 			// auto-generated token's Symbol.for symbol is recreatable via defineTrainable.
-			const token = explicit ?? defineTrainable(`${declaringClassName(owner, name, context.static) ?? "Anonymous"}.${name}`);
-			annotateRewrite(owner, name, token.id, trainingMarker);
+			const token = explicit ?? defineTrainable(`${declaringClassName(weaver, owner, name, context.static) ?? "Anonymous"}.${name}`);
+			weaver.annotate(owner, name, token.id, trainingMarker);
 		});
 		return method;
 	};
@@ -592,7 +632,7 @@ export function wrapTrainable<F extends (...args: never[]) => unknown>(fn: F, id
 	const name = fn.name || id;
 	const method = fn as unknown as (this: unknown, ...args: unknown[]) => unknown;
 	const wrapped = function (this: unknown, ...args: unknown[]): unknown {
-		return dispatchRewrite(id, trainingMarker, name, method, this, args);
+		return weaverOrThrow().dispatch(id, trainingMarker, name, method, this, args);
 	};
 	Object.defineProperty(wrapped, "name", { value: name, configurable: true });
 	Object.defineProperty(wrapped, wrappedMarker, { value: true });
@@ -600,23 +640,24 @@ export function wrapTrainable<F extends (...args: never[]) => unknown>(fn: F, id
 }
 
 /** Load-time instrumentation (`ts-autocode/register`): weave a directive-marked
- * class method through the ts-autocode-rewrite aspect. Idempotent. */
+ * class method through the wired weaver. Idempotent. */
 export function instrumentTrainable(
 	owner: abstract new (...args: never[]) => unknown,
 	methodName: string,
 	id: string,
 ): void {
-	annotateRewrite(owner, methodName, id, trainingMarker);
+	weaverOrThrow().annotate(owner, methodName, id, trainingMarker);
 }
 
 /** Name of the class that declares `methodName`, walking to the owning prototype
  * so an inherited method resolves to its base class rather than a subclass. */
 function declaringClassName(
+	weaver: MethodWeaver,
 	owner: abstract new (...args: never[]) => unknown,
 	methodName: string,
 	isStatic: boolean,
 ): string | undefined {
-	const container = declaringContainer(owner, methodName);
+	const container = weaver.declaringContainer(owner, methodName);
 	const constructor = isStatic ? container : (container as { constructor?: unknown } | undefined)?.constructor;
 	return typeof constructor === "function" && constructor.name ? constructor.name : undefined;
 }

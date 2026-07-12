@@ -7,7 +7,11 @@ export interface HarnessPolicySettings {
 	readonly readonlyPaths?: readonly string[];
 	readonly allowedHosts?: readonly string[];
 	readonly timeoutMs?: number;
+	readonly version?: string;
 }
+
+/** The mxc-sdk policy schema version emitted when `version` is unset. */
+export const sandboxPolicyVersion = "0.7.0-alpha";
 
 export function createHarnessPolicy(settings: HarnessPolicySettings): SandboxPolicy {
 	const workspace = absolute(settings.workspace, "workspace");
@@ -15,7 +19,7 @@ export function createHarnessPolicy(settings: HarnessPolicySettings): SandboxPol
 	const allowedHosts = settings.allowedHosts?.map((host) => host.trim()).filter(Boolean);
 
 	return {
-		version: "0.7.0-alpha",
+		version: settings.version ?? sandboxPolicyVersion,
 		filesystem: {
 			readwritePaths: [workspace],
 			...(readonlyPaths?.length ? { readonlyPaths: [...readonlyPaths] } : {}),

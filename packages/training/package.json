@@ -36,8 +36,10 @@
 		"@agentv/core": "^4.42.4",
 		"@arizeai/openinference-semantic-conventions": "^2.5.0",
 		"@opentelemetry/api": "^1.9.1",
-		"ts-autocode-rewrite": "0.1.0",
 		"typescript": "^5.9.3"
+	},
+	"devDependencies": {
+		"ts-autocode-rewrite": "0.1.0"
 	},
 	"keywords": [
 		"agentv",

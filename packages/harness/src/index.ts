@@ -2,9 +2,9 @@ import { judgeControl, type AgentAction, type AgentBusEntry, type JudgeDecision,
 
 export { createTrainingAgents } from "./agents.js";
 export type { TrainingAgentCallbacks, TrainingAgentOutputs, TrainingAgentRoleSettings, TrainingAgentSettings } from "./agents.js";
-export { AgentActionDeniedError, parseJudgeDecision, WriteAheadAgentBus } from "./bus.js";
+export { AgentActionDeniedError, defaultContextEntries, parseJudgeDecision, WriteAheadAgentBus } from "./bus.js";
 export type { ActionJudge, AgentAction, AgentBusEntry, AgentBusSettings, AgentRole, JudgeDecision } from "./bus.js";
-export { createHarnessPolicy } from "./policy.js";
+export { createHarnessPolicy, sandboxPolicyVersion } from "./policy.js";
 export type { HarnessPolicySettings } from "./policy.js";
 export { MxcSandbox } from "./sandbox.js";
 export type { MxcSandboxSettings } from "./sandbox.js";
@@ -82,6 +82,9 @@ export interface HarnessSettings<TCandidate> {
 	readonly candidateId: (candidate: TCandidate) => string;
 }
 
+/** How many student rounds a harness runs when `maxRounds` is unset. */
+export const defaultMaxRounds = 3;
+
 export interface TrainingHarness<TCandidate, TAssessment, TFeedback> {
 	run<TChallenge>(input: HarnessInput<TCandidate, TAssessment, TFeedback, TChallenge>): Promise<HarnessRun<TCandidate, TAssessment, TChallenge>>;
 }
@@ -89,7 +92,7 @@ export interface TrainingHarness<TCandidate, TAssessment, TFeedback> {
 export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 	settings: HarnessSettings<TCandidate>,
 ): TrainingHarness<TCandidate, TAssessment, TFeedback> {
-	const maxRounds = settings.maxRounds ?? 3;
+	const maxRounds = settings.maxRounds ?? defaultMaxRounds;
 	if (!Number.isInteger(maxRounds) || maxRounds < 1) throw new TypeError("maxRounds must be a positive integer");
 
 	return Object.freeze({
