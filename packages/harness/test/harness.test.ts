@@ -9,10 +9,9 @@ import fsDriver from "unstorage/drivers/fs";
 
 import {
 	AgentActionDeniedError,
-	createHarnessPolicy,
 	defineTrainingHarness,
 	dispatchAction,
-	MxcSandbox,
+	HarnessSandbox,
 	WriteAheadAgentBus,
 	type AgentBusEntry,
 } from "../src/index.js";
@@ -221,10 +220,9 @@ describe("training harness", () => {
 	it("gates sandbox file actions and keeps the bus outside writable workspaces", async () => {
 		const workspace = await mkdtemp(join(tmpdir(), "ts-autocode-sandbox-"));
 		const { bus } = await newBus();
-		const sandbox = new MxcSandbox({
+		const sandbox = new HarnessSandbox({
 			id: "files",
 			workspace,
-			policy: createHarnessPolicy({ workspace }),
 			bus,
 			actor: "student",
 			gate: () => "pass",
@@ -234,10 +232,9 @@ describe("training harness", () => {
 		expect((await bus.read()).map(({ kind }) => kind))
 			.toEqual(["sandbox.upload", "agent.decision", "sandbox.upload.completed"]);
 
-		expect(() => new MxcSandbox({
+		expect(() => new HarnessSandbox({
 			id: "unsafe",
 			workspace,
-			policy: createHarnessPolicy({ workspace }),
 			bus,
 			actor: "student",
 			protectedPaths: [join(workspace, "actions.jsonl")],
@@ -251,7 +248,7 @@ describe("training harness", () => {
 		await symlink(outside, join(workspace, "leak"));
 		await symlink(join(outside, "secret.txt"), join(workspace, "alias.txt"));
 		const { bus } = await newBus();
-		const sandbox = new MxcSandbox({ id: "links", workspace, policy: createHarnessPolicy({ workspace }), bus, actor: "student" });
+		const sandbox = new HarnessSandbox({ id: "links", workspace, bus, actor: "student" });
 
 		expect(await sandbox.downloadFiles(["leak/secret.txt", "alias.txt"])).toEqual([
 			{ path: "leak/secret.txt", content: null, error: "file_not_found" },

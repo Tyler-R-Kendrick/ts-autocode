@@ -116,22 +116,22 @@ and the evidence convention's verdicts are appended the same way.
 
 ## Sandboxed execution
 
-`MxcSandbox` adapts [Microsoft MXC](https://www.npmjs.com/package/@microsoft/mxc-sdk)
-to a Deep-Agents-compatible sandbox backend. Every execute/upload/download
-operation is dispatched through the bus as the configured `actor`, gated when
-a `gate` is supplied. `createHarnessPolicy` builds the sandbox policy: network,
-local-network, UI, clipboard, and input access are denied by default, and
-`protectedPaths` (for example a file-backed bus log) must lie outside every
-writable sandbox workspace. Add `allowedHosts` only when a sandboxed tool
-genuinely needs outbound access.
+`HarnessSandbox` is a Deep-Agents-compatible sandbox backend. Every
+execute/upload/download operation is dispatched through the bus as the
+configured `actor`, gated when a `gate` is supplied. The sandbox enforces its
+own policy: writes are confined to the workspace; network, local-network, UI,
+clipboard, and input access are denied by default; and `protectedPaths` (for
+example a file-backed bus log) must lie outside every writable sandbox
+workspace. Add `allowedHosts` only when a sandboxed tool genuinely needs
+outbound access.
 
 ```ts
-import { createHarnessPolicy, MxcSandbox, WriteAheadAgentBus } from "ts-autocode-harness";
+import { HarnessSandbox, WriteAheadAgentBus } from "ts-autocode-harness";
 
-const sandbox = new MxcSandbox({
+const sandbox = new HarnessSandbox({
   id: "student",
   workspace,
-  policy: createHarnessPolicy({ workspace, timeoutMs: 60_000 }),
+  timeoutMs: 60_000,
   bus,
   actor: "student",
   gate: (action, context) => myJudge({ subject: "action", action, context }),
@@ -139,7 +139,7 @@ const sandbox = new MxcSandbox({
 ```
 
 > [!WARNING]
-> MXC is an early preview. Its upstream documentation warns that current profiles should not yet be treated as production security boundaries. Evaluate the selected MXC backend for your deployment.
+> Sandboxing is backed by [Microsoft MXC](https://www.npmjs.com/package/@microsoft/mxc-sdk), an early preview. Its upstream documentation warns that current profiles should not yet be treated as production security boundaries. Evaluate the selected MXC backend for your deployment.
 
 ## License
 
