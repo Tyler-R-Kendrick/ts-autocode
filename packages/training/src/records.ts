@@ -18,16 +18,17 @@ export interface TrainingStore {
 	list(trainableId?: TrainableId): Promise<readonly TrainingRecord[]>;
 }
 
-export function createMemoryTrainingStore(): TrainingStore {
-	const records: TrainingRecord[] = [];
-	return {
-		async append(record) {
-			records.push(structuredClone(record));
-		},
-		async list(trainableId) {
-			return structuredClone(
-				trainableId === undefined ? records : records.filter((record) => record.trainableId === trainableId),
-			);
-		},
-	};
+/** Volatile in-memory storage: the default when a runtime gets no store. */
+export class MemoryTrainingStore implements TrainingStore {
+	readonly #records: TrainingRecord[] = [];
+
+	async append(record: TrainingRecord): Promise<void> {
+		this.#records.push(structuredClone(record));
+	}
+
+	async list(trainableId?: TrainableId): Promise<readonly TrainingRecord[]> {
+		return structuredClone(
+			trainableId === undefined ? this.#records : this.#records.filter((record) => record.trainableId === trainableId),
+		);
+	}
 }

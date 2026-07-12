@@ -57,5 +57,5 @@ export type { TrainableEvalRun } from "./evaluation.js";
 export { defaultPromotionGates, evaluatePromotionGate } from "./promotion.js";
 export type { PromotionDecision, PromotionGate, PromotionGateContext, PromotionGateInput } from "./promotion.js";
 
-export { createMemoryTrainingStore } from "./records.js";
+export { MemoryTrainingStore } from "./records.js";
 export type { TrainingRecord, TrainingStore } from "./records.js";

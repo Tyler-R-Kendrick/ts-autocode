@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
 	AgentActionDeniedError,
-	createFileBusStore,
+	FileBusStore,
 	createHarnessPolicy,
 	defineTrainingHarness,
 	dispatchAction,
@@ -166,9 +166,9 @@ describe("training harness", () => {
 	it("continues sequence numbers and recovers an incomplete trailing entry", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-bus-recovery-"));
 		const file = join(directory, "actions.jsonl");
-		const first = new WriteAheadAgentBus({ store: createFileBusStore(file) });
+		const first = new WriteAheadAgentBus({ store: new FileBusStore(file) });
 		await dispatchAction(first, "student", "first", {}, () => "pass", async () => "one");
-		const second = new WriteAheadAgentBus({ store: createFileBusStore(file) });
+		const second = new WriteAheadAgentBus({ store: new FileBusStore(file) });
 		await dispatchAction(second, "teacher", "second", {}, () => "pass", async () => "two");
 		await appendFile(file, "{\"incomplete\"", "utf8");
 		expect((await second.read()).map(({ sequence }) => sequence)).toEqual([1, 2, 3, 4, 5, 6]);

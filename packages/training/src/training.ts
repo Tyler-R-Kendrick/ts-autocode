@@ -16,7 +16,7 @@ import {
 import { evaluateTrainable, type TrainableEvalRun } from "./evaluation.js";
 import { sequentialLoop, type TrainingLoop, type TrainingRound } from "./loop.js";
 import { evaluatePromotionGate, type PromotionDecision, type PromotionGate } from "./promotion.js";
-import { createMemoryTrainingStore, type TrainingRecord, type TrainingStore } from "./records.js";
+import { MemoryTrainingStore, type TrainingRecord, type TrainingStore } from "./records.js";
 import {
 	findTrainable,
 	type SourceSettings,
@@ -163,7 +163,7 @@ class TrainingRuntime implements Training {
 	constructor(settings: TrainingSettings) {
 		this.#settings = settings;
 		this.#variables = Object.freeze({ ...settings.variables });
-		this.#store = settings.store ?? createMemoryTrainingStore();
+		this.#store = settings.store ?? new MemoryTrainingStore();
 		this.#tracer = settings.tracing?.tracer ?? trace.getTracer(tracerName);
 	}
 

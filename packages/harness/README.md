@@ -24,7 +24,7 @@ npm install ts-autocode-harness
 
 ```ts
 import { join } from "node:path";
-import { defineTrainingHarness, WriteAheadAgentBus } from "ts-autocode-harness";
+import { defineTrainingHarness, FileBusStore, WriteAheadAgentBus } from "ts-autocode-harness";
 
 const harness = defineTrainingHarness<Candidate, Assessment, string>({
   maxRounds: 3,
@@ -32,7 +32,7 @@ const harness = defineTrainingHarness<Candidate, Assessment, string>({
 });
 
 const result = await harness.run({
-  bus: new WriteAheadAgentBus({ file: join(root, "actions.jsonl") }),
+  bus: new WriteAheadAgentBus({ store: new FileBusStore(join(root, "actions.jsonl")) }),
   task: { objective, target },
   rubric: "The candidate must pass AgentV and preserve its public contract.",
   student: myStudent,
@@ -59,9 +59,10 @@ Configure `redact` when payloads may contain sensitive application data.
 
 Storage is pluggable through `AgentBusStore` — anything with `append(entry)`
 and `load()` works, so entries can live in memory, on disk, or behind a remote
-service. `createMemoryBusStore()` is the default; `createFileBusStore(path)`
-is the durable JSONL implementation (fsynced per append, resilient to an
-incomplete trailing line). Messages and entries are parsed at the boundary
+service. Each implementation is its own class in its own module:
+`MemoryBusStore` is the default, and `FileBusStore` is the durable JSONL
+implementation (fsynced per append, resilient to an incomplete trailing
+line). Messages and entries are parsed at the boundary
 with zod schemas (`agentMessage`, `agentBusEntry`), so malformed values never
 enter the log.
 

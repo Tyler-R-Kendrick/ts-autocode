@@ -1,35 +1,21 @@
 import { resolve } from "node:path";
 
 import {
-	createFileBusStore,
 	defineTrainingHarness,
+	FileBusStore,
 	WriteAheadAgentBus,
 	type ContextProvider,
 	type JudgeRequest,
 } from "ts-autocode-harness";
-import { z } from "zod";
 import type { CandidatePatch, CandidateReview, TrainingLoop } from "ts-autocode-training";
+
+import { windowedContext } from "./context.js";
 
 type Request = JudgeRequest<CandidatePatch, CandidateReview, CandidateReview>;
 
 /** Where the write-ahead action log lands inside the run's output directory
  * when `createHarnessLoop` is not given a filename. */
 export const defaultActionLogFile = "harness-actions.jsonl";
-
-/** How many trailing bus entries the default context provider keeps. */
-export const defaultContextWindow = 100;
-
-const contextWindow = z.number().int().min(0, "context window must be a non-negative integer");
-
-/** Rolling-window context: actors see the trailing `limit` bus entries (zero
- * means none). The bus does no context management, so optimization lives here
- * — a consumer needing more than a window (rolling summaries in the style of
- * Semantic Kernel's chat-history reduction, relevance filtering, ...)
- * substitutes its own ContextProvider. */
-export function windowedContext(limit = defaultContextWindow): ContextProvider {
-	const window = contextWindow.parse(limit);
-	return (entries) => entries.slice(Math.max(entries.length - window, 0));
-}
 
 export interface HarnessLoopOptions {
 	readonly actionLogFile?: string;
@@ -49,7 +35,7 @@ export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoo
 			candidateId: (candidate) => candidate.id,
 			...(input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds }),
 		});
-		const bus = new WriteAheadAgentBus({ store: createFileBusStore(resolve(input.outputDir, actionLogFile)) });
+		const bus = new WriteAheadAgentBus({ store: new FileBusStore(resolve(input.outputDir, actionLogFile)) });
 		const result = await harness.run<CandidateReview>({
 			bus,
 			contextProvider,
