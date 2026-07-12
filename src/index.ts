@@ -18,8 +18,9 @@ provideTrainingDefaults({
 });
 configureRewriteCapture();
 
-export { createHarnessLoop, defaultActionLogFile, defaultContextWindow, windowedContext } from "./providers/harness.js";
+export { createHarnessLoop, defaultActionLogFile } from "./providers/harness.js";
 export type { HarnessLoopOptions } from "./providers/harness.js";
+export { defaultContextWindow, windowedContext } from "./providers/context.js";
 export { configureRewriteCapture, rewritePromotion } from "./providers/rewrite.js";
 export { instrumentTrainable, trainable, wrapTrainable } from "./instrumentation.js";
 export type { TrainableDecorator } from "./instrumentation.js";
@@ -27,7 +28,7 @@ export type { TrainableDecorator } from "./instrumentation.js";
 export {
 	captureTrainable,
 	configureTraining,
-	createMemoryTrainingStore,
+	MemoryTrainingStore,
 	defaultEvolution,
 	defaultObjective,
 	defaultOutputDir,

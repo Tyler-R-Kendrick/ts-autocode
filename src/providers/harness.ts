@@ -1,58 +1,55 @@
 import { resolve } from "node:path";
 
 import {
-	createFileBusStore,
 	defineTrainingHarness,
+	JsonlBusStore,
 	WriteAheadAgentBus,
 	type ContextProvider,
+	type JudgeDecision,
 	type JudgeRequest,
 } from "ts-autocode-harness";
-import { z } from "zod";
-import type { CandidatePatch, CandidateReview, TrainingLoop } from "ts-autocode-training";
+import type { CandidatePatch, CandidateReview, TrainingLoop, TrainingLoopInput } from "ts-autocode-training";
 
-type Request = JudgeRequest<CandidatePatch, CandidateReview, CandidateReview>;
+import { windowedContext } from "./context.js";
 
-/** Where the write-ahead action log lands inside the run's output directory
- * when `createHarnessLoop` is not given a filename. */
+/** Where the default file-backed bus lands inside the run's output directory. */
 export const defaultActionLogFile = "harness-actions.jsonl";
 
-/** How many trailing bus entries the default context provider keeps. */
-export const defaultContextWindow = 100;
-
-const contextWindow = z.number().int().min(0, "context window must be a non-negative integer");
-
-/** Rolling-window context: actors see the trailing `limit` bus entries (zero
- * means none). The bus does no context management, so optimization lives here
- * — a consumer needing more than a window (rolling summaries in the style of
- * Semantic Kernel's chat-history reduction, relevance filtering, ...)
- * substitutes its own ContextProvider. */
-export function windowedContext(limit = defaultContextWindow): ContextProvider {
-	const window = contextWindow.parse(limit);
-	return (entries) => entries.slice(Math.max(entries.length - window, 0));
-}
-
+/** Every collaborator is injectable; the options only choose defaults. */
 export interface HarnessLoopOptions {
+	/** Builds the message bus for a run. Unset, each run gets a write-ahead bus
+	 * over a `JsonlBusStore` in its output directory on the local filesystem —
+	 * swap in any `AgentBusStore`-backed bus, or the same store over another
+	 * `BusFileSystem` (memfs, a remote filesystem, ...), here. */
+	readonly bus?: (input: TrainingLoopInput) => WriteAheadAgentBus;
+	/** File name for the default file-backed bus; ignored when `bus` is set. */
 	readonly actionLogFile?: string;
 	/** Context management for harness actors; a rolling window when unset. */
 	readonly contextProvider?: ContextProvider;
+	/** Gates every harness action and verdict. Unset, the harness's evidence
+	 * convention decides — equivalent here, because training promotes a
+	 * candidate exactly when its review reports no gate failures. */
+	readonly judge?: (
+		request: JudgeRequest<CandidatePatch, CandidateReview, string, CandidateReview>,
+	) => JudgeDecision | Promise<JudgeDecision>;
 }
 
 /** Adapts the governed ts-autocode-harness loop to the provider-neutral
- * TrainingLoop contract: a write-ahead action bus, an exact pass/fail judge on
- * the promotion decision, adversarial re-verification of accepted candidates,
- * and rubric revision when a challenge exposes a gap. */
+ * TrainingLoop contract. Training reviews serve as every role's evidence:
+ * the teacher assesses the candidate, the adversary re-reviews an accepted
+ * one, and the review's gate failures are the feedback the harness weighs. */
 export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoop {
-	const actionLogFile = options.actionLogFile ?? defaultActionLogFile;
+	const createBus = options.bus ?? ((input: TrainingLoopInput) =>
+		new WriteAheadAgentBus({ store: new JsonlBusStore(resolve(input.outputDir, options.actionLogFile ?? defaultActionLogFile)) }));
 	const contextProvider = options.contextProvider ?? windowedContext();
 	return async (input) => {
-		const harness = defineTrainingHarness<CandidatePatch, CandidateReview, string>({
-			candidateId: (candidate) => candidate.id,
-			...(input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds }),
-		});
-		const bus = new WriteAheadAgentBus({ store: createFileBusStore(resolve(input.outputDir, actionLogFile)) });
+		const harness = defineTrainingHarness<CandidatePatch, CandidateReview, string>(
+			input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds },
+		);
 		const result = await harness.run<CandidateReview>({
-			bus,
+			bus: createBus(input),
 			contextProvider,
+			...(options.judge === undefined ? {} : { judge: options.judge }),
 			task: { trainable: input.trainableId, objective: input.objective },
 			rubric: input.rubric,
 			...(input.signal === undefined ? {} : { signal: input.signal }),
@@ -66,23 +63,13 @@ export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoo
 				});
 				return { assessment: review, feedback: review.decision.failures };
 			},
-			judge: (request) => {
-				const typed = request as Request;
-				if (typed.subject === "action") return "pass";
-				if (typed.subject === "candidate") return typed.assessment.decision.promote ? "pass" : "fail";
-				// The adversary re-verified an accepted candidate; a failed gate means
-				// the challenge stands and the rubric must be revised.
-				return typed.challenge.decision.promote ? "fail" : "pass";
-			},
-			adversary: (candidate, { signal }) =>
-				input.review(candidate, {
+			adversary: async (candidate, { signal }) => {
+				const challenge = await input.review(candidate, {
 					label: `adversary-${candidate.id}`,
 					...(signal === undefined ? {} : { signal }),
-				}),
-			reviseRubric: (challenge, { rubric }) => ({
-				rubric: `${rubric}\nAdversarial criteria: ${challenge.decision.failures.join("; ")}`,
-				feedback: challenge.decision.failures,
-			}),
+				});
+				return { challenge, feedback: challenge.decision.failures };
+			},
 		});
 		return {
 			outcome: result.outcome === "accepted" ? "ready" : result.outcome,

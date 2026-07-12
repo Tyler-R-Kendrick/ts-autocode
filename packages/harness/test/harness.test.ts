@@ -4,23 +4,61 @@ import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { Volume } from "memfs";
 import {
 	AgentActionDeniedError,
-	createFileBusStore,
 	createHarnessPolicy,
 	defineTrainingHarness,
 	dispatchAction,
+	JsonlBusStore,
 	MxcSandbox,
 	WriteAheadAgentBus,
 	type AgentBusEntry,
 } from "../src/index.js";
 
 describe("training harness", () => {
+	it("runs with only a student and a teacher; defaults supply the rest", async () => {
+		const harness = defineTrainingHarness<string, string, string>();
+		const result = await harness.run({
+			task: "task",
+			rubric: "rubric",
+			student: ({ round }) => `candidate-${round}`,
+			teacher: (candidate) => ({ assessment: "evidence", feedback: candidate === "candidate-1" ? ["needs work"] : [] }),
+		});
+
+		expect(result.outcome).toBe("accepted");
+		expect(result.final.round).toBe(2);
+		expect(result.final.adversary).toBeUndefined();
+		// The defaulted in-memory bus still carries the full audit log,
+		// including evidence-convention verdicts as ordinary judge messages.
+		const verdicts = await result.bus.read("judge");
+		expect(verdicts).toHaveLength(2);
+		expect(verdicts.every(({ kind }) => kind === "agent.decision")).toBe(true);
+	});
+
+	it("applies the evidence convention when no judge is configured", async () => {
+		const evidence = [["breaks on unicode"], []];
+		const harness = defineTrainingHarness<string, string, string>();
+		const result = await harness.run({
+			task: "task",
+			rubric: "Initial rubric",
+			student: ({ round }) => `candidate-${round}`,
+			teacher: () => ({ assessment: "evidence", feedback: [] }),
+			adversary: () => ({ challenge: "challenge", feedback: evidence.shift() ?? [] }),
+		});
+
+		// Round one's challenge stood and tightened the rubric by default;
+		// round two's challenge found nothing, so the candidate was accepted.
+		expect(result.outcome).toBe("accepted");
+		expect(result.final.round).toBe(2);
+		expect(result.rounds[0]?.rubric).toBe("Initial rubric\nAdversarial criteria: breaks on unicode");
+	});
+
 	it("uses one callback loop for teacher feedback, judge decisions, and adversarial review", async () => {
 		const callbacks = await loopCallbacks(["fail", "pass", "fail"]);
 		const student = vi.fn(({ round }) => `candidate-${round}`);
-		const adversary = vi.fn(() => "counterexample");
-		const harness = defineTrainingHarness<string, string, string>({ maxRounds: 2, candidateId: (candidate) => candidate });
+		const adversary = vi.fn(() => ({ challenge: "counterexample", feedback: [] }));
+		const harness = defineTrainingHarness<string, string, string>({ maxRounds: 2 });
 
 		const result = await harness.run({
 			...callbacks,
@@ -46,7 +84,7 @@ describe("training harness", () => {
 	it("does not accept when cancellation occurs during the teacher turn", async () => {
 		const callbacks = await loopCallbacks(["pass"]);
 		const controller = new AbortController();
-		const harness = defineTrainingHarness<string, null, string>({ candidateId: (candidate) => candidate });
+		const harness = defineTrainingHarness<string, null, string>();
 
 		await expect(harness.run({
 			...callbacks,
@@ -58,8 +96,7 @@ describe("training harness", () => {
 				controller.abort();
 				return { assessment: null, feedback: [] };
 			},
-			adversary: () => "challenge",
-			reviseRubric: () => ({ rubric: "revised", feedback: [] }),
+			adversary: () => ({ challenge: "challenge", feedback: [] }),
 		})).rejects.toThrow();
 	});
 
@@ -67,7 +104,7 @@ describe("training harness", () => {
 		const callbacks = await loopCallbacks(["pass", "pass"]);
 		const teacher = vi.fn(() => ({ assessment: "passes", feedback: [] as string[] }));
 		const reviseRubric = vi.fn(() => ({ rubric: "Check tests and adversarial edge cases", feedback: ["handle edge case"] }));
-		const harness = defineTrainingHarness<string, string, string>({ maxRounds: 1, candidateId: (candidate) => candidate });
+		const harness = defineTrainingHarness<string, string, string>({ maxRounds: 1 });
 
 		const result = await harness.run({
 			...callbacks,
@@ -77,7 +114,7 @@ describe("training harness", () => {
 			teacher,
 			adversary: (_candidate, turn) => {
 				expect(JSON.stringify(turn)).not.toMatch(/teacher|rubric|student/i);
-				return "edge-case failure";
+				return { challenge: "edge-case failure", feedback: ["handle edge case"] };
 			},
 			reviseRubric,
 		});
@@ -142,7 +179,7 @@ describe("training harness", () => {
 	it("hands actors provider-shaped context instead of the raw log", async () => {
 		const callbacks = await loopCallbacks(["fail", "pass", "fail"]);
 		const contexts: number[] = [];
-		const harness = defineTrainingHarness<string, string, string>({ maxRounds: 2, candidateId: (candidate) => candidate });
+		const harness = defineTrainingHarness<string, string, string>({ maxRounds: 2 });
 
 		await harness.run({
 			...callbacks,
@@ -154,7 +191,7 @@ describe("training harness", () => {
 				return `candidate-${round}`;
 			},
 			teacher: () => ({ assessment: "evidence", feedback: [] }),
-			adversary: () => "challenge",
+			adversary: () => ({ challenge: "challenge", feedback: [] }),
 			reviseRubric: () => ({ rubric: "revised", feedback: [] }),
 		});
 
@@ -166,12 +203,23 @@ describe("training harness", () => {
 	it("continues sequence numbers and recovers an incomplete trailing entry", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-bus-recovery-"));
 		const file = join(directory, "actions.jsonl");
-		const first = new WriteAheadAgentBus({ store: createFileBusStore(file) });
+		const first = new WriteAheadAgentBus({ store: new JsonlBusStore(file) });
 		await dispatchAction(first, "student", "first", {}, () => "pass", async () => "one");
-		const second = new WriteAheadAgentBus({ store: createFileBusStore(file) });
+		const second = new WriteAheadAgentBus({ store: new JsonlBusStore(file) });
 		await dispatchAction(second, "teacher", "second", {}, () => "pass", async () => "two");
 		await appendFile(file, "{\"incomplete\"", "utf8");
 		expect((await second.read()).map(({ sequence }) => sequence)).toEqual([1, 2, 3, 4, 5, 6]);
+	});
+
+	it("runs the same store over any filesystem — a memfs volume standing in for disk", async () => {
+		const volume = new Volume();
+		const first = new WriteAheadAgentBus({ store: new JsonlBusStore("/bus/actions.jsonl", volume.promises) });
+		await first.append({ actor: "student", kind: "test.first" });
+		// A second bus over the same volume resumes where the first left off.
+		const second = new WriteAheadAgentBus({ store: new JsonlBusStore("/bus/actions.jsonl", volume.promises) });
+		const appended = await second.append({ actor: "teacher", kind: "test.second" });
+		expect(appended.sequence).toBe(2);
+		expect(volume.toJSON()["/bus/actions.jsonl"]).toContain("test.first");
 	});
 
 	it("gates sandbox file actions and keeps the bus outside writable workspaces", async () => {
