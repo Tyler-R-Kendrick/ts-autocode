@@ -1,6 +1,7 @@
 export {
 	configureTraining,
 	trainable,
+	training,
 } from "./training.js";
 export type {
 	CaptureSettings,

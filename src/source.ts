@@ -3,7 +3,7 @@ import { dirname, extname, resolve } from "node:path";
 import ts from "typescript";
 
 import { digest } from "./canonical.js";
-import type { TrainableId } from "./token.js";
+import { trainableIdFromKey, type TrainableId } from "./token.js";
 
 const trainingDirective = "use training";
 
@@ -83,8 +83,9 @@ function discoverSourceFile(
 		if (ts.isMethodDeclaration(node) && node.body && node.name) {
 			const methodName = propertyName(node.name, sourceFile);
 			const directive = firstDirective(node.body);
-			const decoratorId = trainableDecoratorId(node, sourceFile, tokenIds);
-			if (directive || decoratorId) {
+			const decorator = trainableDecorator(node);
+			if (directive || decorator) {
+				const decoratorId = decorator && trainableDecoratorId(decorator, sourceFile, tokenIds);
 				targets.push(targetFor(node, sourceFile, artifactRef, decoratorId ?? `${className ?? "Anonymous"}.${methodName}`, className));
 			}
 			return;
@@ -149,26 +150,43 @@ function firstDirective(body: ts.Block): ts.ExpressionStatement | undefined {
 		: undefined;
 }
 
-function trainableDecoratorId(
-	node: ts.MethodDeclaration,
-	sourceFile: ts.SourceFile,
-	tokens: ReadonlyMap<string, string>,
-): string | undefined {
-	const decorator = ts.getDecorators(node)?.find((item) => {
+function trainableDecorator(node: ts.MethodDeclaration): ts.Decorator | undefined {
+	return ts.getDecorators(node)?.find((item) => {
 		const expression = ts.isCallExpression(item.expression) ? item.expression.expression : item.expression;
 		return ts.isIdentifier(expression) && expression.text === "trainable";
 	});
-	if (!decorator) return undefined;
-	if (!ts.isCallExpression(decorator.expression) || decorator.expression.arguments.length === 0) {
-		throw new TypeError(`@trainable requires a token or id in ${sourceFile.fileName}`);
-	}
+}
+
+/** Resolves an explicit decorator identity; undefined means infer from the method. */
+function trainableDecoratorId(
+	decorator: ts.Decorator,
+	sourceFile: ts.SourceFile,
+	tokens: ReadonlyMap<string, string>,
+): string | undefined {
+	if (!ts.isCallExpression(decorator.expression) || decorator.expression.arguments.length === 0) return undefined;
 	const argument = decorator.expression.arguments[0] as ts.Expression;
-	if (ts.isStringLiteralLike(argument)) return argument.text;
-	if (ts.isIdentifier(argument)) {
-		const resolved = tokens.get(argument.text);
-		if (resolved) return resolved;
+	const id = symbolText(argument) ??
+		(ts.isPropertyAccessExpression(argument) && ts.isIdentifier(argument.expression) && argument.name.text === "symbol"
+			? tokens.get(argument.expression.text)
+			: ts.isIdentifier(argument)
+				? tokens.get(argument.text)
+				: undefined);
+	if (id === undefined) {
+		throw new TypeError(
+			`@trainable identity must be a symbol (defineTrainable(...).symbol or Symbol.for(...)) or omitted to infer in ${sourceFile.fileName}`,
+		);
 	}
-	throw new TypeError(`@trainable identity must be a string or defineTrainable token in ${sourceFile.fileName}`);
+	return id;
+}
+
+function symbolText(expression: ts.Expression): string | undefined {
+	if (!ts.isCallExpression(expression)) return undefined;
+	const callee = expression.expression;
+	const isSymbol = (ts.isIdentifier(callee) && callee.text === "Symbol") ||
+		(ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) &&
+			callee.expression.text === "Symbol" && callee.name.text === "for");
+	const value = expression.arguments[0];
+	return isSymbol && value && ts.isStringLiteralLike(value) ? trainableIdFromKey(value.text) : undefined;
 }
 
 function tokenDeclarations(sourceFile: ts.SourceFile): ReadonlyMap<string, string> {

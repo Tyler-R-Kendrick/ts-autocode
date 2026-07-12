@@ -32,7 +32,13 @@ import {
 	type SourceSettings,
 	type TrainableTarget,
 } from "./source.js";
-import { defineTrainable, toTrainableToken, type TrainableIdentity, type TrainableToken } from "./token.js";
+import {
+	defineTrainable,
+	toTrainableToken,
+	trainableTokenFromSymbol,
+	type TrainableIdentity,
+	type TrainableToken,
+} from "./token.js";
 
 const trainableAttribute = "ts_autocode.trainable.id";
 
@@ -511,18 +517,47 @@ export function configureTraining(settings: TrainingSettings = {}): Training {
 	return configuredTraining;
 }
 
-/** Decorator form: `@trainable("Router.route")`. */
-export function trainable(identity: TrainableIdentity): TrainableDecorator {
-	const token = toTrainableToken(identity);
+/** Default runtime: the "use training" directive is the only required marker.
+ * `configureTraining()` is optional and only overrides settings; each call
+ * delegates to the current runtime so later configuration still applies. */
+export const training: Training = Object.freeze<Training>({
+	records: (identity) => runtime().records(identity),
+	evaluate: (identity, config) => runtime().evaluate(identity, config),
+	evaluateCandidate: (candidate, config) => runtime().evaluateCandidate(candidate, config),
+	train: (input) => runtime().train(input),
+	evolve: (input) => runtime().evolve(input),
+	optimize: (input) => runtime().optimize(input),
+	optimizeAll: (inputs) => runtime().optimizeAll(inputs),
+	promote: (candidate, decision) => runtime().promote(candidate, decision),
+	revert: (snapshot) => runtime().revert(snapshot),
+	flush: () => runtime().flush(),
+});
+
+/** Decorator form: `@trainable()`. Identity is inferred from the decorated class and
+ * method; pass a symbol (for example `defineTrainable("Router.route").symbol`) only
+ * to override the inferred id. */
+export function trainable(identity?: symbol): TrainableDecorator {
+	if (identity !== undefined && typeof identity !== "symbol") {
+		throw new TypeError("trainable identity must be a symbol; omit it to infer from the decorated method");
+	}
+	const explicit = identity === undefined ? undefined : trainableTokenFromSymbol(identity);
 	return function <This, Args extends unknown[], Result>(
 		method: (this: This, ...args: Args) => Result,
 		context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
 	) {
 		const name = String(context.name);
+		let token = explicit;
 		return function (this: This, ...args: Args): Result {
+			token ??= defineTrainable(`${inferredClassName(this) ?? "Anonymous"}.${name}`);
 			return runtime().invoke(this, method, args, token, name);
 		};
 	};
+}
+
+function inferredClassName(thisValue: unknown): string | undefined {
+	if (typeof thisValue === "function") return thisValue.name || undefined;
+	const constructor = (thisValue as { constructor?: unknown } | undefined)?.constructor;
+	return typeof constructor === "function" && constructor.name ? constructor.name : undefined;
 }
 
 function runtime(): TrainingRuntime {

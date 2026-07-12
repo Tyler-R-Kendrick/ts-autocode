@@ -14,10 +14,12 @@ used.
 
 ## Runtime capture
 
-The optional `@trainable(id)` decorator intercepts calls without accepting
-capture or tracing options. Global `configureTraining()` settings determine
-whether calls are captured or traced and how values are serialized and
-redacted. The target is always the decorated method. Calls preserve `this`,
+The optional `@trainable()` decorator intercepts calls without accepting
+capture or tracing options. Identity is inferred from the decorated class and
+method; an explicit symbol identity is optional. The exported `training`
+runtime works without configuration, and global `configureTraining()` settings
+determine whether calls are captured or traced and how values are serialized
+and redacted. The target is always the decorated method. Calls preserve `this`,
 arguments, synchronous or asynchronous return behavior, and thrown errors.
 
 Captured traces use AgentV's `Trace`; spans use official OpenTelemetry and

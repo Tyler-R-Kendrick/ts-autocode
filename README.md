@@ -31,10 +31,6 @@ Place the literal directive first in a function or method body. No import,
 decorator, wrapper, registration call, or source-region argument is required.
 
 ```ts
-import { configureTraining } from "ts-autocode";
-
-const training = configureTraining();
-
 class Router {
   route(input: string): string {
     "use training";
@@ -57,17 +53,33 @@ unchanged because the directive is the marker; there is no runtime proxy.
 ## Optional runtime capture
 
 The decorator is optional when calls must be intercepted for runtime capture.
-It accepts only the trainable identity; global configuration controls capture
-and tracing. The decorated method is the source target, so callers never provide
-source metadata.
+Identity is inferred from the decorated class and method, so nothing is
+declared twice; global configuration controls capture and tracing. The
+decorated method is the source target, so callers never provide source
+metadata.
+
+```ts
+import { trainable } from "ts-autocode";
+
+class Router {
+  @trainable()
+  route(input: string): string {
+    return input;
+  }
+}
+```
+
+The inferred identity above is `Router.route`. Passing an identity is optional
+and takes a symbol, for callers that need a durable id detached from the class
+name:
 
 ```ts
 import { defineTrainable, trainable } from "ts-autocode";
 
-const route = defineTrainable("Router.route");
+const route = defineTrainable("legacy.route");
 
 class Router {
-  @trainable(route)
+  @trainable(route.symbol)
   route(input: string): string {
     return input;
   }
@@ -76,14 +88,16 @@ class Router {
 
 A token contains a durable string id and stable `Symbol.for(...)` symbol. The
 same id binds the method, captures, AgentV results, optimizer candidate, and
-promotion decision. String identities such as `@trainable("Router.route")` are
-also accepted.
+promotion decision.
 
 ## Train and promote
 
-AgentV owns eval definitions, graders, traces, scores, and result types.
+AgentV owns eval definitions, graders, traces, scores, and result types. The
+`training` export is ready to use without any setup call.
 
 ```ts
+import { training } from "ts-autocode";
+
 const tests = [
   {
     id: "billing",
@@ -171,9 +185,10 @@ AgentV's `workers` option parallelizes live-trace and candidate evals. Independe
 trainables can be evolved concurrently by the application, while the configured
 engine and store remain injectable.
 
-`configureTraining(settings)` is the single public runtime configuration entry
-point. Settings are optional. The default Ax implementation reads
-`OPENAI_API_KEY` from the configured secret provider or process environment.
+Configuration is optional: the exported `training` runtime works out of the
+box, and `configureTraining(settings)` only overrides its settings. The default
+Ax implementation reads `OPENAI_API_KEY` from the configured secret provider or
+process environment.
 Provider-specific Ax tuning remains isolated to the optional `ts-autocode/ax`
 adapter and is passed through the provider-neutral `engine` slot.
 

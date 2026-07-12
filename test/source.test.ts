@@ -31,13 +31,29 @@ describe("TypeScript trainable discovery", () => {
 	it("resolves decorator tokens without external source metadata", () => {
 		const source = `const route = defineTrainable("router.route");
 class Router {
-  @trainable(route)
+  @trainable(route.symbol)
   route(input: string): string { return input; }
 }`;
 		const [target] = discoverInSource(source, "src/router.ts");
 
 		expect(target?.id).toBe("router.route");
 		expect(target?.implementation).toBe("return input;");
+	});
+
+	it("infers the id from the decorated class and method when the decorator has no argument", () => {
+		const source = `class Router {
+  @trainable()
+  route(input: string): string { return input; }
+}`;
+		expect(discoverInSource(source, "src/router.ts")[0]?.id).toBe("Router.route");
+	});
+
+	it("resolves registered symbol identities and strips the library prefix", () => {
+		const source = `class Router {
+  @trainable(Symbol.for("ts-autocode.trainable:custom.route"))
+  route(input: string): string { return input; }
+}`;
+		expect(discoverInSource(source, "src/router.ts")[0]?.id).toBe("custom.route");
 	});
 
 	it("resolves imported trainable tokens through the TypeScript program", async () => {

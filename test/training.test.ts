@@ -9,6 +9,7 @@ import {
 	configureTraining,
 	defineTrainable,
 	trainable,
+	training as defaultTraining,
 	type TrainingEngine,
 } from "../src/index.js";
 import { discoverInSource } from "../src/source.js";
@@ -41,6 +42,23 @@ describe("trainable identity", () => {
 		const second = defineTrainable("Router.route");
 		expect(first.symbol).toBe(second.symbol);
 	});
+
+	it("infers the decorator identity from the decorated class and method", async () => {
+		configureTraining({ tracing: { enabled: false } });
+		class InferredRouter {
+			route(input: string): string { return input; }
+		}
+		applyMethodDecorator(InferredRouter, "route", trainable());
+
+		expect(new InferredRouter().route("billing")).toBe("billing");
+		const [record] = await defaultTraining.records("InferredRouter.route");
+		expect(record?.trainableId).toBe("InferredRouter.route");
+		expect(record?.succeeded).toBe(true);
+	});
+
+	it("rejects non-symbol decorator identities", () => {
+		expect(() => trainable("Router.route" as never)).toThrow("must be a symbol");
+	});
 });
 
 describe("trainable method capture", () => {
@@ -53,7 +71,7 @@ describe("trainable method capture", () => {
 		class Router {
 			route(input: string): string { return input; }
 		}
-		applyMethodDecorator(Router, "route", trainable("Router.route"));
+		applyMethodDecorator(Router, "route", trainable());
 
 		expect(new Router().route("billing")).toBe("billing");
 		expect(startActiveSpan).not.toHaveBeenCalled();
@@ -68,7 +86,7 @@ describe("trainable method capture", () => {
 		class Router {
 			route(input: string): string { return input; }
 		}
-		applyMethodDecorator(Router, "route", trainable("Router.redacted"));
+		applyMethodDecorator(Router, "route", trainable(defineTrainable("Router.redacted").symbol));
 
 		expect(new Router().route("secret-input")).toBe("secret-input");
 		const [record] = await training.records("Router.redacted");
@@ -83,7 +101,7 @@ describe("trainable method capture", () => {
 				throw new Error("boom");
 			}
 		}
-		applyMethodDecorator(Router, "fail", trainable("Router.fail"));
+		applyMethodDecorator(Router, "fail", trainable());
 
 		await expect(new Router().fail()).rejects.toThrow("boom");
 		const [record] = await training.records("Router.fail");
@@ -136,7 +154,7 @@ describe("training execution", () => {
 		class RuntimeNormalizer {
 			normalize(input: string): string { return input.toUpperCase(); }
 		}
-		applyMethodDecorator(RuntimeNormalizer, "normalize", trainable("liveNormalize"));
+		applyMethodDecorator(RuntimeNormalizer, "normalize", trainable(defineTrainable("liveNormalize").symbol));
 		const normalize = new RuntimeNormalizer();
 		normalize.normalize("alpha");
 		normalize.normalize("beta");
@@ -189,7 +207,7 @@ describe("training execution", () => {
 		class Router {
 			route(input: string): string { return input; }
 		}
-		applyMethodDecorator(Router, "route", trainable("Router.live"));
+		applyMethodDecorator(Router, "route", trainable(defineTrainable("Router.live").symbol));
 		new Router().route("one");
 
 		await expect(training.evolve({
