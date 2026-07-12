@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { buildTraceFromMessages, getTextContent, type EvalConfig, type EvalTestInput } from "@agentv/core";
+import { z } from "zod";
 import { OpenInferenceSpanKind, SemanticConventions } from "@arizeai/openinference-semantic-conventions";
 import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "@opentelemetry/api";
 
@@ -29,6 +30,7 @@ import {
 
 const trainableAttribute = "ts_autocode.trainable.id";
 const tracerName = "ts-autocode";
+const traceMinimum = z.number().int().positive("minTraces must be a positive integer");
 
 export interface CaptureSettings {
 	readonly enabled?: boolean;
@@ -318,10 +320,7 @@ class TrainingRuntime implements Training {
 	/** Training from live traffic is the same operation as training from explicit
 	 * tests: distinct successful captured traces become equality eval cases. */
 	async #replayEvaluation(token: TrainableToken, input: TrainInput): Promise<EvalConfig> {
-		const minTraces = input.minTraces ?? 1;
-		if (!Number.isInteger(minTraces) || minTraces < 1) {
-			throw new TypeError("minTraces must be a positive integer");
-		}
+		const minTraces = traceMinimum.parse(input.minTraces ?? 1);
 		const tests = liveEvalCases(await this.records(token));
 		if (tests.length < minTraces) {
 			throw new Error(`training from captured traffic requires ${minTraces} distinct successful runtime trace${minTraces === 1 ? "" : "s"}; found ${tests.length}`);

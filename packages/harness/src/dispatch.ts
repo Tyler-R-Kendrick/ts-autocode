@@ -1,6 +1,7 @@
-import type { AgentBusEntry, WriteAheadAgentBus } from "./bus.js";
+import type { WriteAheadAgentBus } from "./bus.js";
+import { judgeDecision, type AgentBusEntry, type JudgeDecision } from "./schema.js";
 
-export type JudgeDecision = "pass" | "fail";
+export type { JudgeDecision } from "./schema.js";
 
 /** Decides whether a proposed action may execute. In this harness the gate is
  * implemented by the judge — an ordinary actor whose verdict is recorded on
@@ -39,7 +40,7 @@ export async function dispatchAction<T>(
 	if (gate) {
 		let decision: JudgeDecision;
 		try {
-			decision = requireDecision(await gate(action, await bus.read()));
+			decision = judgeDecision.parse(await gate(action, await bus.read()));
 		} catch (error) {
 			// The gate error is the outcome; a failing failure record must not replace it.
 			await bus.append({
@@ -65,11 +66,6 @@ export async function dispatchAction<T>(
 	// surfaces as a bus error, never as a failed action.
 	await bus.append({ actor, kind: `${kind}.completed`, payload: { actionId: action.id, result } });
 	return result;
-}
-
-export function requireDecision(value: unknown): JudgeDecision {
-	if (value !== "pass" && value !== "fail") throw new Error("judge must return exactly pass or fail");
-	return value;
 }
 
 function errorMessage(error: unknown): string {

@@ -1,14 +1,25 @@
-import { type AgentBusEntry, type WriteAheadAgentBus } from "./bus.js";
-import { dispatchAction, decisionKind, requireDecision, type ActionGate, type JudgeDecision } from "./dispatch.js";
+import { type WriteAheadAgentBus } from "./bus.js";
+import { dispatchAction, decisionKind, type ActionGate } from "./dispatch.js";
+import { candidateKey, judgeDecision, roundLimit, rubricText, type AgentBusEntry, type JudgeDecision } from "./schema.js";
 
-export { defaultContextEntries, WriteAheadAgentBus } from "./bus.js";
-export type { AgentBusAccess, AgentBusEntry, AgentBusSettings, AgentMessage } from "./bus.js";
+export { createFileBusStore, createMemoryBusStore, WriteAheadAgentBus } from "./bus.js";
+export type { AgentBusAccess, AgentBusSettings, AgentBusStore, FileBusStore } from "./bus.js";
 export { AgentActionDeniedError, decisionKind, dispatchAction } from "./dispatch.js";
-export type { ActionGate, JudgeDecision } from "./dispatch.js";
+export type { ActionGate } from "./dispatch.js";
+export { agentBusEntry, agentMessage, judgeDecision } from "./schema.js";
+export type { AbsolutePath, AgentBusEntry, AgentMessage, JudgeDecision } from "./schema.js";
 export { createHarnessPolicy, sandboxPolicyVersion } from "./policy.js";
 export type { HarnessPolicySettings } from "./policy.js";
 export { MxcSandbox } from "./sandbox.js";
 export type { MxcSandboxSettings } from "./sandbox.js";
+
+/** Shapes the bus history handed to actors and the judge. The bus itself does
+ * no context management: windowing, rolling summaries, or any other
+ * optimization belong to the consumer's provider (in the spirit of Semantic
+ * Kernel's chat-history reducers). The full history is passed when unset. */
+export type ContextProvider = (
+	entries: readonly AgentBusEntry[],
+) => readonly AgentBusEntry[] | Promise<readonly AgentBusEntry[]>;
 
 export interface StudentTurn<TFeedback> {
 	readonly round: number;
@@ -75,6 +86,8 @@ export interface HarnessInput<TCandidate, TAssessment, TFeedback, TChallenge> {
 			signal?: AbortSignal;
 		}>,
 	) => RubricRevision<TFeedback> | Promise<RubricRevision<TFeedback>>;
+	/** Shapes bus history into actor context; full history when unset. */
+	readonly contextProvider?: ContextProvider;
 	readonly signal?: AbortSignal;
 }
 
@@ -93,33 +106,31 @@ export interface TrainingHarness<TCandidate, TAssessment, TFeedback> {
 export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 	settings: HarnessSettings<TCandidate>,
 ): TrainingHarness<TCandidate, TAssessment, TFeedback> {
-	const maxRounds = settings.maxRounds ?? defaultMaxRounds;
-	if (!Number.isInteger(maxRounds) || maxRounds < 1) throw new TypeError("maxRounds must be a positive integer");
+	const maxRounds = roundLimit.parse(settings.maxRounds ?? defaultMaxRounds);
 
 	return Object.freeze({
 		async run<TChallenge>(input: HarnessInput<TCandidate, TAssessment, TFeedback, TChallenge>) {
-			let rubric = input.rubric.trim();
-			if (!rubric) throw new TypeError("judge rubric must be non-empty");
+			let rubric: string = rubricText.parse(input.rubric);
 			const rounds: HarnessRound<TCandidate, TAssessment, TChallenge>[] = [];
 			let feedback: readonly TFeedback[] = [];
 			let previousCandidate: string | undefined;
+			const provide = input.contextProvider ?? ((entries: readonly AgentBusEntry[]) => entries);
 
 			// Every actor invocation is written ahead and gated through the judge
 			// callback; the judge itself is just one more actor whose verdicts
 			// land on the bus as ordinary messages.
-			const gate: ActionGate = (action, context) =>
-				input.judge(Object.freeze({ subject: "action", action, context }));
+			const gate: ActionGate = async (action, context) =>
+				input.judge(Object.freeze({ subject: "action", action, context: await provide(context) }));
 			const dispatch = <T>(actor: string, kind: string, payload: unknown, execute: () => Promise<T> | T) =>
 				dispatchAction(input.bus, actor, kind, payload, gate, execute);
 
 			for (let round = 1; round <= maxRounds; round += 1) {
 				input.signal?.throwIfAborted();
-				const turn = await studentTurn(input, round, rubric, feedback);
+				const turn = await studentTurn(input, provide, round, rubric, feedback);
 				const candidate = await dispatch("student", "agent.propose", { round, task: input.task, rubric, feedback },
 					() => input.student(turn));
 				input.signal?.throwIfAborted();
-				const candidateId = settings.candidateId(candidate).trim();
-				if (!candidateId) throw new TypeError("candidateId must return a non-empty string");
+				const candidateId: string = candidateKey.parse(settings.candidateId(candidate));
 				if (candidateId === previousCandidate) return result("stalled", rounds, rubric);
 				previousCandidate = candidateId;
 
@@ -144,7 +155,7 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 				const adversary = await dispatch("adversary", "agent.challenge", { candidateId }, async () =>
 					input.adversary(candidate, {
 						task: input.task,
-						context: await input.bus.read("adversary"),
+						context: await provide(await input.bus.read("adversary")),
 						...(input.signal === undefined ? {} : { signal: input.signal }),
 					}));
 				input.signal?.throwIfAborted();
@@ -169,12 +180,12 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 						candidate,
 						assessment: assessment.assessment,
 						rubric,
-						context: await input.bus.read(),
+						context: await provide(await input.bus.read()),
 						...(input.signal === undefined ? {} : { signal: input.signal }),
 					}));
 				const revised = revision.rubric.trim();
 				if (!revised || revised === rubric) throw new Error("teacher must improve the rubric after an approved adversarial challenge");
-				rubric = revised;
+				rubric = rubricText.parse(revised);
 				feedback = Object.freeze([...revision.feedback]);
 				rounds.push(Object.freeze({ round, candidate, assessment: assessment.assessment, judgeDecision: candidateDecision,
 					adversary: Object.freeze({ challenge: adversary, decision: adversaryDecision }), rubric }));
@@ -187,6 +198,7 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 
 async function studentTurn<TCandidate, TAssessment, TFeedback, TChallenge>(
 	input: HarnessInput<TCandidate, TAssessment, TFeedback, TChallenge>,
+	provide: ContextProvider,
 	round: number,
 	rubric: string,
 	feedback: readonly TFeedback[],
@@ -196,7 +208,7 @@ async function studentTurn<TCandidate, TAssessment, TFeedback, TChallenge>(
 		task: input.task,
 		rubric,
 		feedback,
-		context: await input.bus.read(),
+		context: await provide(await input.bus.read()),
 		...(input.signal === undefined ? {} : { signal: input.signal }),
 	});
 }
@@ -208,8 +220,9 @@ async function decide<TCandidate, TAssessment, TFeedback, TChallenge>(
 	payload: Readonly<Record<string, unknown>>,
 	request: JudgeRequest<TCandidate, TAssessment, TChallenge>,
 ): Promise<JudgeDecision> {
-	const context = request.subject === "action" ? request.context : await input.bus.read();
-	const decision = requireDecision(await input.judge(Object.freeze({ ...request, context })));
+	const provide = input.contextProvider ?? ((entries: readonly AgentBusEntry[]) => entries);
+	const context = request.subject === "action" ? request.context : await provide(await input.bus.read());
+	const decision = judgeDecision.parse(await input.judge(Object.freeze({ ...request, context })));
 	await input.bus.append({
 		actor: "judge",
 		kind: decisionKind,

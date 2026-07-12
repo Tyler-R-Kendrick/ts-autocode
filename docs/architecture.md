@@ -121,10 +121,16 @@ executor.
 
 The harness is callbacks all the way down: student, teacher, judge, and
 adversary are functions the consumer supplies, and the harness creates no
-agents, selects no models, and carries no prompts. Actors share a durable
+agents, selects no models, and carries no prompts. Actors share an ordered
 append-only message bus that knows nothing about any of them — it records
-messages with identity, ordering, and time, and an optional access hook
-decides who may append or read. The write-ahead convention is layered on top:
+messages with identity, ordering, and time, an optional access hook decides
+who may append or read, and storage is a pluggable `AgentBusStore` (in-memory
+by default; file-backed JSONL and remote implementations slot in). The bus
+does no context management: shaping history into actor context belongs to the
+consumer's `ContextProvider` — the root package wires a rolling window, and a
+summarizing provider can replace it. Messages are parsed into constrained
+types at the boundary (zod), never validated downstream. The write-ahead
+convention is layered on top:
 every actor invocation and MXC sandbox operation records its intent, is gated
 by an exact pass/fail decision, and records its outcome; the judge is just
 another actor whose verdicts land on the bus as ordinary `agent.decision`

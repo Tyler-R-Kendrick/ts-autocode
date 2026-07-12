@@ -51,12 +51,25 @@ before the next round.
 
 ## The message bus
 
-`WriteAheadAgentBus` is a durable append-only JSONL message log. It knows
-nothing about any actor: `append({ actor, kind, payload })` records a message
-with identity, ordering, and time, and `read(actor?)` returns the trailing
-window. An optional `allow` hook decides whether a given append or read may
-proceed. Configure `redact` when payloads may contain sensitive application
-data.
+`WriteAheadAgentBus` is an ordered append-only message log. It knows nothing
+about any actor: `append({ actor, kind, payload })` records a message with
+identity, ordering, and time, and `read(actor?)` returns the full history. An
+optional `allow` hook decides whether a given append or read may proceed.
+Configure `redact` when payloads may contain sensitive application data.
+
+Storage is pluggable through `AgentBusStore` — anything with `append(entry)`
+and `load()` works, so entries can live in memory, on disk, or behind a remote
+service. `createMemoryBusStore()` is the default; `createFileBusStore(path)`
+is the durable JSONL implementation (fsynced per append, resilient to an
+incomplete trailing line). Messages and entries are parsed at the boundary
+with zod schemas (`agentMessage`, `agentBusEntry`), so malformed values never
+enter the log.
+
+The bus does **no context management** — no trailing windows, no truncation.
+Shaping history into actor context is the consumer's job through
+`HarnessInput.contextProvider`, which can window, summarize (in the style of
+Semantic Kernel's chat-history reduction), or filter before each turn. The
+`ts-autocode` package ships a rolling-window provider as its default.
 
 The write-ahead convention is layered on top by `dispatchAction(bus, actor,
 kind, payload, gate, execute)`:
@@ -77,10 +90,11 @@ Without a gate, `dispatchAction` still records intent and outcome.
 `MxcSandbox` adapts [Microsoft MXC](https://www.npmjs.com/package/@microsoft/mxc-sdk)
 to a Deep-Agents-compatible sandbox backend. Every execute/upload/download
 operation is dispatched through the bus as the configured `actor`, gated when
-a `gate` is supplied. `createHarnessPolicy` builds the sandbox policy: the bus
-file must be outside every writable sandbox workspace, and network,
-local-network, UI, clipboard, and input access are denied by default. Add
-`allowedHosts` only when a sandboxed tool genuinely needs outbound access.
+a `gate` is supplied. `createHarnessPolicy` builds the sandbox policy: network,
+local-network, UI, clipboard, and input access are denied by default, and
+`protectedPaths` (for example a file-backed bus log) must lie outside every
+writable sandbox workspace. Add `allowedHosts` only when a sandboxed tool
+genuinely needs outbound access.
 
 ```ts
 import { createHarnessPolicy, MxcSandbox, WriteAheadAgentBus } from "ts-autocode-harness";

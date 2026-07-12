@@ -1,5 +1,6 @@
 import type { EvaluationResult, EvalTestInput } from "@agentv/core";
 import ts from "typescript";
+import { z } from "zod";
 
 import { digest } from "./digest.js";
 
@@ -70,6 +71,9 @@ export function candidateDeclaration(target: TrainableTarget, implementation: st
 	return `${target.async ? "async " : ""}function candidate(${parameters}): ${target.returnType} {\n${implementation}\n}`;
 }
 
+const engineId = z.string().trim().min(1, "engine id must be a non-empty string");
+const proposedImplementation = z.string({ error: "engine implementation must be a string" });
+
 /** The engine proper. It owns request validation, implementation cleanup,
  * TypeScript validation, and candidate identity; the proposal itself is
  * delegated to the composed optimizer strategy. Consumers never extend this
@@ -78,7 +82,7 @@ export class CandidateEngine {
 	readonly #strategy: TrainingEngine;
 
 	constructor(strategy: TrainingEngine) {
-		if (!strategy.id.trim()) throw new TypeError("engine id must be a non-empty string");
+		engineId.parse(strategy.id);
 		this.#strategy = strategy;
 	}
 
@@ -111,8 +115,8 @@ export class CandidateEngine {
 	}
 
 	#cleanImplementation(value: string): string {
-		if (typeof value !== "string") throw new TypeError("engine implementation must be a string");
-		return value.trim().replace(/^```(?:typescript|ts|javascript|js)?\s*/i, "").replace(/\s*```$/, "").trim();
+		return proposedImplementation.parse(value)
+			.trim().replace(/^```(?:typescript|ts|javascript|js)?\s*/i, "").replace(/\s*```$/, "").trim();
 	}
 
 	#validateImplementation(target: TrainableTarget, implementation: string): void {
