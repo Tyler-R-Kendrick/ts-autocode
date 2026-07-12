@@ -119,17 +119,23 @@ standalone `ts-autocode-harness` package to `TrainingLoop` and registers it
 through `provideTrainingDefaults`, exactly as it wires the Ax engine and
 executor.
 
-The harness supports independently configured student, teacher, judge, and
-adversary Deep Agents. A write-ahead bus records proposed actions before an
-exact pass/fail judge decision and prevents denied agent or MXC sandbox actions
-from executing. AgentV supplies objective evidence; judge rejection never invents
-feedback. Teacher feedback guides the student, and judge-approved adversarial
-challenges require the teacher to improve the rubric. Deep Agents and direct
-application functions both implement the same Flue-style callback contract;
-there is no separate agent execution path.
-Agent and skill optimization are deliberately outside the harness. Consumers
-may evolve agents independently and inject the resulting callbacks into the
-same run contract; the library remains focused on evaluated code evolution.
+The harness is callbacks all the way down: student, teacher, judge, and
+adversary are functions the consumer supplies, and the harness creates no
+agents, selects no models, and carries no prompts. Actors share a durable
+append-only message bus that knows nothing about any of them — it records
+messages with identity, ordering, and time, and an optional access hook
+decides who may append or read. The write-ahead convention is layered on top:
+every actor invocation and MXC sandbox operation records its intent, is gated
+by an exact pass/fail decision, and records its outcome; the judge is just
+another actor whose verdicts land on the bus as ordinary `agent.decision`
+messages, and denied actions never execute. AgentV supplies objective
+evidence; judge rejection never invents feedback. Teacher feedback guides the
+student, and judge-approved adversarial challenges require the teacher to
+improve the rubric.
+Agent and skill lifecycle management is deliberately outside the harness.
+Consumers may evolve agents independently and inject the resulting callbacks
+into the same run contract; the library remains focused on evaluated code
+evolution.
 
 AgentV retains its own `workers` setting for eval parallelism.
 

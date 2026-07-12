@@ -16,11 +16,11 @@ interception live in `ts-autocode-rewrite`; governed agent coordination lives
 in the independent `ts-autocode-harness` package. This package specifies the
 connections: it re-exports the training runtime with Ax registered as the
 default engine and executor and the harness adapted as the default
-`TrainingLoop`. The harness's single Flue-style callback loop supports
-configurable student, teacher, judge, and adversary Deep Agents, MXC
-execution, and a write-ahead approval bus. Consumers can supply callbacks from
-their own agent lifecycle or optimization pipeline without coupling it to this
-code-evolution library.
+`TrainingLoop`. The harness's single callback loop coordinates student,
+teacher, judge, and adversary callbacks over a durable agent message bus, with
+optional MXC-sandboxed execution. It creates no agents of its own: consumers
+supply callbacks from their own agent lifecycle or optimization pipeline
+without coupling it to this code-evolution library.
 
 ## Install
 

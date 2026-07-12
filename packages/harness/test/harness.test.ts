@@ -7,10 +7,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	AgentActionDeniedError,
 	createHarnessPolicy,
-	createTrainingAgents,
 	defineTrainingHarness,
+	dispatchAction,
 	MxcSandbox,
-	parseJudgeDecision,
 	WriteAheadAgentBus,
 } from "../src/index.js";
 
@@ -36,8 +35,10 @@ describe("training harness", () => {
 		expect(student.mock.calls[1]?.[0].context.length).toBeGreaterThan(0);
 		expect(adversary).toHaveBeenCalledOnce();
 		expect(result.final.adversary).toEqual({ challenge: "counterexample", decision: "fail" });
-		expect((await callbacks.bus.context("judge")).every(({ kind }) => kind === "agent.decide")).toBe(true);
-		expect((await callbacks.bus.context("judge")).length).toBeGreaterThan(0);
+		// The judge is just another actor: its verdicts are ordinary messages.
+		const judgeEntries = await callbacks.bus.read("judge");
+		expect(judgeEntries.length).toBeGreaterThan(0);
+		expect(judgeEntries.every(({ kind }) => kind === "agent.decision")).toBe(true);
 	});
 
 	it("does not accept when cancellation occurs during the teacher turn", async () => {
@@ -84,58 +85,71 @@ describe("training harness", () => {
 		expect(reviseRubric).toHaveBeenCalledOnce();
 	});
 
-	it("writes, syncs, approves, and completes actions in order", async () => {
-		const { bus } = await approvedBus();
+	it("records intent, verdict, and outcome in order for gated actions", async () => {
+		const { bus } = await newBus();
 		const execute = vi.fn(async () => "done");
-		await expect(bus.dispatch("student", "test.action", { value: 1 }, execute)).resolves.toBe("done");
-		expect((await bus.context()).map(({ phase }) => phase)).toEqual(["proposed", "approved", "completed"]);
+		await expect(dispatchAction(bus, "student", "test.action", { value: 1 }, () => "pass", execute)).resolves.toBe("done");
+		expect((await bus.read()).map(({ actor, kind }) => `${actor}:${kind}`))
+			.toEqual(["student:test.action", "judge:agent.decision", "student:test.action.completed"]);
 	});
 
-	it("never executes denied actions and records judge failures", async () => {
+	it("never executes denied actions and records gate failures", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-bus-deny-"));
 		const denied = new WriteAheadAgentBus({ file: join(directory, "denied.jsonl") });
 		const execute = vi.fn(async () => "forbidden");
-		denied.setJudge(() => "fail");
-		await expect(denied.dispatch("teacher", "test.denied", {}, execute)).rejects.toBeInstanceOf(AgentActionDeniedError);
+		await expect(dispatchAction(denied, "teacher", "test.denied", {}, () => "fail", execute))
+			.rejects.toBeInstanceOf(AgentActionDeniedError);
 		expect(execute).not.toHaveBeenCalled();
+		expect((await denied.read()).map(({ kind }) => kind)).toEqual(["test.denied", "agent.decision"]);
 
 		const failed = new WriteAheadAgentBus({ file: join(directory, "failed.jsonl") });
-		failed.setJudge(() => { throw new Error("judge unavailable"); });
-		await expect(failed.dispatch("student", "test.failure", {}, execute)).rejects.toThrow("judge unavailable");
-		expect((await failed.context()).map(({ phase }) => phase)).toEqual(["proposed", "failed"]);
+		await expect(dispatchAction(failed, "student", "test.failure", {}, () => { throw new Error("judge unavailable"); }, execute))
+			.rejects.toThrow("judge unavailable");
+		expect((await failed.read()).map(({ kind }) => kind)).toEqual(["test.failure", "test.failure.failed"]);
+	});
+
+	it("refuses appends and reads the access hook denies", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-bus-access-"));
+		const bus = new WriteAheadAgentBus({
+			file: join(directory, "actions.jsonl"),
+			allow: (access) => access.operation === "append" ? access.actor !== "intruder" : access.actor === undefined,
+		});
+
+		await expect(bus.append({ actor: "student", kind: "test.allowed" })).resolves.toMatchObject({ sequence: 1 });
+		await expect(bus.append({ actor: "intruder", kind: "test.blocked" })).rejects.toThrow("refused append");
+		await expect(bus.read()).resolves.toHaveLength(1);
+		await expect(bus.read("student")).rejects.toThrow("refused read");
 	});
 
 	it("continues sequence numbers and recovers an incomplete trailing entry", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-bus-recovery-"));
 		const file = join(directory, "actions.jsonl");
 		const first = new WriteAheadAgentBus({ file });
-		first.setJudge(() => "pass");
-		await first.dispatch("student", "first", {}, async () => "one");
+		await dispatchAction(first, "student", "first", {}, () => "pass", async () => "one");
 		const second = new WriteAheadAgentBus({ file });
-		second.setJudge(() => "pass");
-		await second.dispatch("teacher", "second", {}, async () => "two");
+		await dispatchAction(second, "teacher", "second", {}, () => "pass", async () => "two");
 		await appendFile(file, "{\"incomplete\"", "utf8");
-		expect((await second.context()).map(({ sequence }) => sequence)).toEqual([1, 2, 3, 4, 5, 6]);
-	});
-
-	it("accepts arbitrary judge input and only exact pass or fail output", () => {
-		expect(parseJudgeDecision("pass")).toBe("pass");
-		expect(parseJudgeDecision({ messages: [{ content: "PASS" }] })).toBe("pass");
-		expect(parseJudgeDecision({ messages: [{ content: [{ type: "text", text: "fail" }] }] })).toBe("fail");
-		expect(() => parseJudgeDecision({ messages: [{ content: "fail, because" }] })).toThrow("exactly pass or fail");
+		expect((await second.read()).map(({ sequence }) => sequence)).toEqual([1, 2, 3, 4, 5, 6]);
 	});
 
 	it("gates sandbox file actions and keeps the bus outside writable workspaces", async () => {
 		const workspace = await mkdtemp(join(tmpdir(), "ts-autocode-sandbox-"));
-		const { bus } = await approvedBus();
-		const sandbox = new MxcSandbox({ id: "files", workspace, policy: createHarnessPolicy({ workspace }), bus, role: "student" });
+		const { bus } = await newBus();
+		const sandbox = new MxcSandbox({
+			id: "files",
+			workspace,
+			policy: createHarnessPolicy({ workspace }),
+			bus,
+			actor: "student",
+			gate: () => "pass",
+		});
 		expect(await sandbox.uploadFiles([["candidate.ts", new TextEncoder().encode("value")]]))
 			.toEqual([{ path: "candidate.ts", error: null }]);
-		expect((await bus.context()).filter(({ kind }) => kind === "sandbox.upload").map(({ phase }) => phase))
-			.toEqual(["proposed", "approved", "completed"]);
+		expect((await bus.read()).map(({ kind }) => kind))
+			.toEqual(["sandbox.upload", "agent.decision", "sandbox.upload.completed"]);
 
 		const unsafe = new WriteAheadAgentBus({ file: join(workspace, "actions.jsonl") });
-		expect(() => new MxcSandbox({ id: "unsafe", workspace, policy: createHarnessPolicy({ workspace }), bus: unsafe, role: "student" }))
+		expect(() => new MxcSandbox({ id: "unsafe", workspace, policy: createHarnessPolicy({ workspace }), bus: unsafe, actor: "student" }))
 			.toThrow("outside the writable sandbox");
 	});
 
@@ -145,8 +159,8 @@ describe("training harness", () => {
 		await writeFile(join(outside, "secret.txt"), "secret", "utf8");
 		await symlink(outside, join(workspace, "leak"));
 		await symlink(join(outside, "secret.txt"), join(workspace, "alias.txt"));
-		const { bus } = await approvedBus();
-		const sandbox = new MxcSandbox({ id: "links", workspace, policy: createHarnessPolicy({ workspace }), bus, role: "student" });
+		const { bus } = await newBus();
+		const sandbox = new MxcSandbox({ id: "links", workspace, policy: createHarnessPolicy({ workspace }), bus, actor: "student" });
 
 		expect(await sandbox.downloadFiles(["leak/secret.txt", "alias.txt"])).toEqual([
 			{ path: "leak/secret.txt", content: null, error: "file_not_found" },
@@ -166,35 +180,11 @@ describe("training harness", () => {
 			.toEqual([{ path: "leak/sub/nested.txt", error: "permission_denied" }]);
 		await expect(stat(join(outside, "sub"))).rejects.toThrow();
 	});
-
-	it("creates configurable Deep Agent callbacks for the same run model", async () => {
-		const root = await mkdtemp(join(tmpdir(), "ts-autocode-agents-"));
-		const role = (name: string) => {
-			const workspace = join(root, name);
-			return { sandbox: { id: name, workspace, policy: createHarnessPolicy({ workspace }) }, systemPrompt: `${name} prompt` };
-		};
-		const callbacks = createTrainingAgents({
-			bus: { file: join(root, "actions.jsonl") },
-			student: role("student"), teacher: role("teacher"), judge: role("judge"), adversary: role("adversary"),
-			outputs: {
-				student: () => "candidate",
-				teacher: () => ({ assessment: "evidence", feedback: [] }),
-				adversary: () => "challenge",
-				revision: () => ({ rubric: "revised", feedback: [] }),
-			},
-		});
-		expect(callbacks.student).toBeTypeOf("function");
-		expect(callbacks.teacher).toBeTypeOf("function");
-		expect(callbacks.judge).toBeTypeOf("function");
-		expect(callbacks.adversary).toBeTypeOf("function");
-		expect(callbacks.reviseRubric).toBeTypeOf("function");
-	});
 });
 
-async function approvedBus() {
+async function newBus() {
 	const directory = await mkdtemp(join(tmpdir(), "ts-autocode-bus-"));
 	const bus = new WriteAheadAgentBus({ file: join(directory, "actions.jsonl") });
-	bus.setJudge(() => "pass");
 	return { bus, directory };
 }
 
