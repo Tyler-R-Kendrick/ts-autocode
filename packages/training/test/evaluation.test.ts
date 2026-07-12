@@ -86,8 +86,9 @@ describe("AgentV evaluation", () => {
 		expect(run.outcome).toBe("ready");
 		expect(run.baseline.run.summary.failed).toBe(1);
 		expect(run.rounds).toHaveLength(2);
-		// Candidate bodies run through the executor with the caller's signal.
-		expect(executor.mock.calls[0]?.[3]?.signal).toBe(signal);
+		// Candidate bodies run through the executor under the run's abort signal
+		// (the loop derives its own signal from the caller's for cancellation).
+		expect(executor.mock.calls[0]?.[3]?.signal).toBeInstanceOf(AbortSignal);
 		expect(run.final.verification.run.summary.passed).toBe(1);
 		expect(run.final.verification.evaluations[0]?.candidateId).toBe(run.final.candidate.id);
 		expect(run.final.decision.promote).toBe(true);

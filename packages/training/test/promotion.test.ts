@@ -49,6 +49,27 @@ describe("promotion", () => {
 			.toThrow("changed before revert");
 	});
 
+	it("runs configured extension gates after the standard set", async () => {
+		const patch = candidate();
+		const evaluated = await evaluateTrainable(defineTrainable(patch.trainableId), {
+			tests: [{ id: "candidate", input: "route", assert: [{ type: "equals", value: "new" }] }],
+			task: () => new Function(patch.implementation)() as string,
+			outputDir: "test/output/agentv-promotion-gates",
+		});
+		const decision = await evaluatePromotionGate({
+			candidate: patch,
+			evaluations: evaluated.evaluations.map((evaluation) => ({ ...evaluation, candidateId: patch.id })),
+			conformance: true,
+			gates: [
+				({ candidate: subject }) => subject.implementation.includes("eval(") ? "implementation must not call eval" : undefined,
+				() => ["no deploys on friday"],
+			],
+		});
+
+		expect(decision.promote).toBe(false);
+		expect(decision.failures).toEqual(["no deploys on friday"]);
+	});
+
 	it("rejects evaluations bound to another trainable", async () => {
 		const evaluated = await evaluateTrainable(defineTrainable("Router.other"), {
 			tests: [{ id: "other", input: "route", assert: [{ type: "equals", value: "old" }] }],

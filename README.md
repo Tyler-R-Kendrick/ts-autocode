@@ -211,6 +211,13 @@ never treated as proof that a rewrite passes. Set `TrainingSettings.loop` to
 substitute your own orchestration; the lower-level `evaluate` and
 `ts-autocode-rewrite` promotion primitives also remain available.
 
+The built-in loop is an observable round sequence (`trainingRounds()`
+pushes each reviewed round to a subscriber; `sequentialLoop` collects the
+subscription into one run). `TrainInput.fanOut` caps how many candidates a
+round proposes and reviews concurrently — the best gated candidate wins the
+round — and `TrainInput.gates` appends custom promotion rules to the standard
+gate set; the configured `policy` runs as one such rule.
+
 No Ax program is supplied by the caller. The default engine derives its fields,
 descriptions, executable examples, and return contract from the TypeScript
 method signature. Ax optimizes the generated program, and its metric executes

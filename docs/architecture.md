@@ -106,11 +106,18 @@ the original traces and the bound baseline results.
 
 `ts-autocode-training` knows nothing about the harness. It defines the
 provider-neutral `TrainingLoop` contract — bounded propose/review rounds over
-its own candidate and promotion types — and ships a minimal sequential loop as
-the default. `ts-autocode` (the root package) specifies the connection: its
-`createHarnessLoop` provider adapts the standalone `ts-autocode-harness`
-package to `TrainingLoop` and registers it through `provideTrainingDefaults`,
-exactly as it wires the Ax engine and executor.
+its own candidate and promotion types — and ships the default loop as an
+observable round sequence: `trainingRounds()` pushes each reviewed round to a
+subscriber as it settles, unsubscribing aborts in-flight work, and
+`sequentialLoop` is simply the subscription collected into one run. Rounds run
+in order, but within a round `fanOut` caps how many candidate propose→review
+pipelines run concurrently; duplicate proposals are skipped, a round that
+reviews nothing new stalls the run, and when several candidates pass the gate
+the highest-scoring one is emitted last as the winner. `ts-autocode` (the root
+package) specifies the connection: its `createHarnessLoop` provider adapts the
+standalone `ts-autocode-harness` package to `TrainingLoop` and registers it
+through `provideTrainingDefaults`, exactly as it wires the Ax engine and
+executor.
 
 The harness supports independently configured student, teacher, judge, and
 adversary Deep Agents. A write-ahead bus records proposed actions before an
@@ -129,6 +136,12 @@ AgentV retains its own `workers` setting for eval parallelism.
 ## Promotion
 
 Candidates can replace only the discovered method body. Application verifies the
-body digest before editing. Promotion additionally requires conformance, AgentV
-thresholds, and optional policy. An activation's rollback stores only the
-previous and promoted method body and refuses to overwrite subsequent edits.
+body digest before editing. The promotion gate is a rule set, not a procedure:
+each `PromotionGate` is a pure function over one shared `PromotionGateContext`
+(candidate, candidate-bound results, thresholds, aggregates) returning the
+failures it sees. The standard rules — conformance, evaluation binding,
+execution errors, score and pass-rate thresholds — always run;
+`PromotionGateInput.gates` (or `TrainInput.gates`) appends extension rules,
+and the configured `policy` participates as one more gate. An activation's
+rollback stores only the previous and promoted method body and refuses to
+overwrite subsequent edits.

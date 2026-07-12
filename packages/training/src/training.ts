@@ -14,7 +14,7 @@ import {
 } from "./engine.js";
 import { evaluateTrainable, type TrainableEvalRun } from "./evaluation.js";
 import { sequentialLoop, type TrainingLoop, type TrainingRound } from "./loop.js";
-import { evaluatePromotionGate, type PromotionDecision } from "./promotion.js";
+import { evaluatePromotionGate, type PromotionDecision, type PromotionGate } from "./promotion.js";
 import { createMemoryTrainingStore, type TrainingRecord, type TrainingStore } from "./records.js";
 import {
 	findTrainable,
@@ -97,9 +97,14 @@ export interface TrainInput {
 	readonly engine?: TrainingEngine;
 	readonly signal?: AbortSignal;
 	readonly maxRounds?: number;
+	/** Maximum candidates proposed and reviewed concurrently per round; loops
+	 * that do not support fan-out may ignore it. */
+	readonly fanOut?: number;
 	readonly minScore?: number;
 	readonly minPassRate?: number;
 	readonly policy?: (candidate: CandidatePatch) => boolean | Promise<boolean>;
+	/** Extra promotion gates run after the standard set for every review. */
+	readonly gates?: readonly PromotionGate[];
 }
 
 export interface TrainingRun {
@@ -268,6 +273,7 @@ class TrainingRuntime implements Training {
 			rubric: promotionRubric(input),
 			outputDir,
 			...(input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds }),
+			...(input.fanOut === undefined ? {} : { fanOut: input.fanOut }),
 			...(input.signal === undefined ? {} : { signal: input.signal }),
 			propose: ({ feedback, signal }) => this.#propose(token, {
 				objective,
@@ -292,6 +298,7 @@ class TrainingRuntime implements Training {
 					...(input.minScore === undefined ? {} : { minScore: input.minScore }),
 					...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
 					...(input.policy === undefined ? {} : { policy: input.policy }),
+					...(input.gates === undefined ? {} : { gates: input.gates }),
 				});
 				return { verification, decision };
 			},

@@ -21,11 +21,13 @@ export type {
 	TracingSettings,
 } from "./training.js";
 
-export { defaultMaxRounds, sequentialLoop } from "./loop.js";
+export { defaultFanOut, defaultMaxRounds, sequentialLoop, trainingRounds } from "./loop.js";
 export type {
 	CandidateReview,
 	ProposalTurn,
 	ReviewContext,
+	RoundObserver,
+	RoundSequence,
 	TrainingLoop,
 	TrainingLoopInput,
 	TrainingLoopRun,
@@ -52,8 +54,8 @@ export type {
 
 export type { TrainableEvalRun } from "./evaluation.js";
 
-export { evaluatePromotionGate } from "./promotion.js";
-export type { PromotionDecision, PromotionGateInput } from "./promotion.js";
+export { defaultPromotionGates, evaluatePromotionGate } from "./promotion.js";
+export type { PromotionDecision, PromotionGate, PromotionGateContext, PromotionGateInput } from "./promotion.js";
 
 export { createMemoryTrainingStore } from "./records.js";
 export type { TrainingRecord, TrainingStore } from "./records.js";
