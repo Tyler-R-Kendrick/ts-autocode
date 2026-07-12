@@ -1,7 +1,7 @@
 import { judgeControl, type AgentAction, type AgentBusEntry, type JudgeDecision, type WriteAheadAgentBus } from "./bus.js";
 
 export { createTrainingAgents } from "./agents.js";
-export type { TrainingAgentCallbacks, TrainingAgentRoleSettings, TrainingAgentSettings } from "./agents.js";
+export type { TrainingAgentCallbacks, TrainingAgentOutputs, TrainingAgentRoleSettings, TrainingAgentSettings } from "./agents.js";
 export { AgentActionDeniedError, parseJudgeDecision, WriteAheadAgentBus } from "./bus.js";
 export type { ActionJudge, AgentAction, AgentBusEntry, AgentBusSettings, AgentRole, JudgeDecision } from "./bus.js";
 export { createHarnessPolicy } from "./policy.js";

@@ -26,6 +26,7 @@ export type {
 	CaptureSettings,
 	EngineCandidate,
 	EngineContext,
+	EvolutionSettings,
 	EvolveInput,
 	EvolveResult,
 	ImplementationExecutor,

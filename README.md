@@ -1,6 +1,6 @@
 # ts-autocode
 
-Train TypeScript functions from AgentV evals and optional runtime traces, then
+Train TypeScript functions from AgentV evals and captured runtime traces, then
 safely rewrite the function marked trainable.
 
 The normal path keeps the code primitives and agent loop in separate packages:
@@ -53,13 +53,16 @@ The directive stays in source. TypeScript's compiler API uses it to discover
 the exact enclosing function body, identity, and signature. Consumer calls stay
 unchanged because the directive is the marker; there is no runtime proxy.
 
-## Optional runtime capture
+## Runtime capture and the optional decorator
 
-The decorator is optional when calls must be intercepted for runtime capture.
-Identity is inferred from the decorated class and method, so nothing is
-declared twice; global configuration controls capture and tracing. The
-decorated method is the source target, so callers never provide source
-metadata.
+Runtime capture comes with marking, not as a separate opt-in: whether a method
+carries the `"use training"` directive or the `@trainable()` decorator, its
+calls route through the same runtime-capture interceptor. What is optional is
+the decorator itself — it is an alternative marker to the directive. Identity
+is inferred from the decorated class and method, so nothing is declared twice;
+global configuration controls how captures are serialized, redacted, and
+traced. The decorated method is the source target, so callers never provide
+source metadata.
 
 ```ts
 import { trainable } from "ts-autocode";
@@ -72,14 +75,15 @@ class Router {
 }
 ```
 
-The inferred identity above is `Router.route`. Passing an identity is optional
-and takes a symbol, for callers that need a durable id detached from the class
-name:
+When no symbol is passed, one is auto-generated for the decorated method: the
+identity above is `Router.route`, and `defineTrainable("Router.route").symbol`
+recreates its stable symbol anywhere. Pass a symbol explicitly for a durable
+id detached from the class name:
 
 ```ts
 import { defineTrainable, trainable } from "ts-autocode";
 
-const route = defineTrainable("legacy.route");
+const route = defineTrainable("acme.route");
 
 class Router {
   @trainable(route.symbol)
@@ -90,13 +94,20 @@ class Router {
 ```
 
 A token contains a durable string id and stable `Symbol.for(...)` symbol. The
-same id binds the method, captures, AgentV results, optimizer candidate, and
-promotion decision.
+same symbol binds the method, its captures, AgentV results, optimizer
+candidate, and promotion decision — so evals, tests, and training reuse it to
+target exactly this trainable, binding evals to a training target at test time
+instead of only iterating during runtime.
 
 ## Train and promote
 
 AgentV owns eval definitions, graders, traces, scores, and result types. The
 `training` export is ready to use without any setup call.
+
+`train` takes the trainable's symbol (or its full token), never a raw string.
+Reusing `route.symbol` — the same symbol passed to `@trainable(route.symbol)`
+above — pins these evals to that exact method; for an auto-generated identity,
+`defineTrainable("Router.route").symbol` recreates the symbol.
 
 ```ts
 import { training } from "ts-autocode";
@@ -115,7 +126,7 @@ const tests = [
 ];
 
 const run = await training.train({
-  trainable: "Router.route",
+  trainable: route.symbol,
   objective: "Preserve correct billing and fallback routing",
   evaluation: {
     tests,

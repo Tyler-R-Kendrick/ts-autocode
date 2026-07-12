@@ -1,6 +1,6 @@
 import type { EvalTestInput } from "@agentv/core";
 
-import { configureTraining } from "../src/index.js";
+import { configureTraining, defineTrainable } from "../src/index.js";
 
 class Router {
 	route(input: string): string {
@@ -14,11 +14,14 @@ const tests = [
 	{ id: "fallback", input: "Reset my password", assert: [{ type: "equals", value: "fallback" }] },
 ] satisfies EvalTestInput[];
 
+// The token's symbol binds these evals to the directive-marked method above.
+const route = defineTrainable("Router.route");
+
 export async function optimizeRouter() {
 	const training = configureTraining({ source: { files: [import.meta.filename] } });
 	const router = new Router();
 	return training.train({
-		trainable: "Router.route",
+		trainable: route.symbol,
 		objective: "Keep billing routing correct and preserve the fallback",
 		evaluation: {
 			tests,

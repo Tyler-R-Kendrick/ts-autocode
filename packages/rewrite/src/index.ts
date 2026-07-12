@@ -1,4 +1,4 @@
-export { check, digest, isNonEmptyString } from "./canonical.js";
+export { check, digest } from "./canonical.js";
 
 export { installInstrumentation, installedInstrumentation, instrumentKey } from "./instrument.js";
 export type { InstrumentEntry, InstrumentRegistry, InstrumentTarget, Instrumentation, Marker } from "./instrument.js";
@@ -12,16 +12,11 @@ export { promoteCandidate, revertPromotion } from "./promotion.js";
 export type { PromotionResult, PromotionSnapshot, RewriteApproval } from "./promotion.js";
 
 export {
-	Rewrite,
 	annotateRewrite,
 	configureRewrite,
 	declaringContainer,
 	dispatchRewrite,
-	enableRewriteWeaving,
-	hasRewriteMarker,
-	normalizeMarker,
 	restoreImplementation,
-	rewriteMarkers,
 	swapImplementation,
 	swappedImplementation,
 } from "./aspect.js";

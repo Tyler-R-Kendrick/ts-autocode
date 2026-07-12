@@ -28,6 +28,7 @@ export type { TrainableId, TrainableIdentity, TrainableToken } from "./token.js"
 export { discoverInSource, discoverTrainables, trainingMarker } from "./source.js";
 export type { SourceSettings, TrainableTarget } from "./source.js";
 
+export { candidateDeclaration } from "./engine.js";
 export type {
 	BoundEvaluation,
 	CandidatePatch,

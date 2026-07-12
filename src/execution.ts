@@ -1,7 +1,7 @@
 import { AxJSRuntime } from "@ax-llm/ax";
 import ts from "typescript";
 
-import type { TrainableTarget } from "ts-autocode-training";
+import { candidateDeclaration, type TrainableTarget } from "ts-autocode-training";
 
 export async function executeImplementation(
 	target: TrainableTarget,
@@ -12,10 +12,7 @@ export async function executeImplementation(
 	const runtime = new AxJSRuntime({ outputMode: "return", timeout: options.timeoutMs ?? 5_000 });
 	const session = runtime.createSession({ args: [...args] });
 	try {
-		const declaration = `${target.async ? "async " : ""}function candidate(${target.parameters
-			.map((parameter) => parameter.declaration)
-			.join(", ")}): ${target.returnType} {\n${implementation}\n}`;
-		const javascript = ts.transpileModule(declaration, {
+		const javascript = ts.transpileModule(candidateDeclaration(target, implementation), {
 			compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
 		}).outputText;
 		return await session.execute(

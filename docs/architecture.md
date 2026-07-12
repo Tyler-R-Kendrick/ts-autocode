@@ -4,7 +4,11 @@
 
 `TrainableToken` is the durable join key. A token id binds a trainable method to
 its runtime captures, AgentV evaluations, optimizer request, candidate, and
-promotion decision.
+promotion decision. Training APIs (`train`, `evaluate`, `evolve`, `optimize`,
+`records`) identify their target by the token or its symbol, never by a raw
+string; the `@trainable()` decorator auto-generates a token when no symbol is
+passed, and `defineTrainable(id)` recreates the same token and symbol anywhere,
+so tests and evals can bind to a training target directly.
 
 The first-statement `"use training"` directive is the consumer-facing marker.
 The TypeScript compiler API discovers the enclosing method directly and records

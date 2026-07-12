@@ -53,14 +53,15 @@ describe("AgentV evaluation", () => {
 				return { implementation: "return input;" };
 			},
 		};
+		const route = defineTrainable("Router.route");
 		const training = configureTraining({ engine, executor: functionExecutor });
-		await training.evaluate("Router.route", {
+		await training.evaluate(route.symbol, {
 			tests: [{ id: "identity", input: "hello", assert: [{ type: "equals", value: "hello" }] }],
 			task: (input) => input,
 			outputDir: "test/output/agentv-training",
 		});
 
-		await training.optimize({ trainable: "Router.route", objective: "retain identity", target });
+		await training.optimize({ trainable: route.symbol, objective: "retain identity", target });
 	});
 
 	it("runs AgentV against the candidate body before promotion", async () => {
@@ -101,7 +102,7 @@ describe("AgentV evaluation", () => {
 		const training = configureTraining({ engine, executor: functionExecutor, source: { files: [import.meta.filename] } });
 		const evaluateCandidate = vi.spyOn(training, "evaluateCandidate");
 		const run = await training.train({
-			trainable: "pipelineTarget",
+			trainable: defineTrainable("pipelineTarget").symbol,
 			objective: "uppercase the result",
 			signal,
 			evaluation: {

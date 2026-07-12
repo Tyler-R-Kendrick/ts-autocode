@@ -186,6 +186,7 @@ class TrainingRuntime implements Training {
 	readonly #tracer: Tracer;
 	readonly #pending = new Set<Promise<void>>();
 	readonly #evaluations = new Map<string, BoundEvaluation[]>();
+	readonly #evolutionState = new Map<string, { running: boolean; queued: boolean; attempted: number }>();
 
 	constructor(settings: TrainingSettings) {
 		const concurrency = settings.concurrency ?? Number.POSITIVE_INFINITY;
@@ -222,8 +223,6 @@ class TrainingRuntime implements Training {
 		}
 		return executor;
 	}
-
-	readonly #evolutionState = new Map<string, { running: boolean; queued: boolean; attempted: number }>();
 
 	#maybeEvolve(token: TrainableToken): void {
 		const evolution = this.#settings.evolution ?? defaultProviders.evolution;
@@ -299,13 +298,31 @@ class TrainingRuntime implements Training {
 
 	async train(input: TrainInput): Promise<TrainingRun> {
 		const baseline = await this.evaluate(input.trainable, input.evaluation);
-		const { task: _task, outputDir, ...candidateEvaluation } = input.evaluation;
+		const { task: _task, outputDir = ".agentv", ...candidateEvaluation } = input.evaluation;
 		let evaluations: readonly BoundEvaluation[] = baseline.evaluations;
+		const assess = async (candidate: CandidatePatch, candidateOutputDir: string, signal?: AbortSignal): Promise<CandidateAssessment> => {
+			const verification = await this.evaluateCandidate(candidate, {
+				...candidateEvaluation,
+				...(signal === undefined ? {} : { signal }),
+				outputDir: candidateOutputDir,
+			});
+			const decision = await evaluatePromotionGate({
+				candidate,
+				evaluations: verification.evaluations,
+				// The engine already validated the candidate; `conformance: false` waives the
+				// requirement rather than reporting a failed check to the gate.
+				conformance: true,
+				...(input.minScore === undefined ? {} : { minScore: input.minScore }),
+				...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
+				...(input.policy === undefined ? {} : { policy: input.policy }),
+			});
+			return { verification, decision };
+		};
 		const harness = defineTrainingHarness<CandidatePatch, CandidateAssessment, string>({
 			candidateId: (candidate) => candidate.id,
 			...(input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds }),
 		});
-		const bus = new WriteAheadAgentBus({ file: resolve(outputDir ?? ".agentv", "harness-actions.jsonl") });
+		const bus = new WriteAheadAgentBus({ file: resolve(outputDir, "harness-actions.jsonl") });
 		const result = await harness.run<CandidateAssessment>({
 			bus,
 			task: { trainable: toTrainableToken(input.trainable).id, objective: input.objective },
@@ -326,23 +343,9 @@ class TrainingRuntime implements Training {
 				});
 			},
 			teacher: async (candidate, { round, signal }) => {
-				const verification = await this.evaluateCandidate(candidate, {
-					...candidateEvaluation,
-					...(signal === undefined ? {} : { signal }),
-					outputDir: `${outputDir ?? ".agentv"}/candidate-${round}`,
-				});
-				const decision = await evaluatePromotionGate({
-					candidate,
-					evaluations: verification.evaluations,
-					// The engine already validated the candidate; `conformance: false` waives the
-					// requirement rather than reporting a failed check to the gate.
-					conformance: true,
-					...(input.minScore === undefined ? {} : { minScore: input.minScore }),
-					...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
-					...(input.policy === undefined ? {} : { policy: input.policy }),
-				});
-				evaluations = [...evaluations, ...verification.evaluations];
-				return { assessment: { verification, decision }, feedback: decision.failures };
+				const assessment = await assess(candidate, `${outputDir}/candidate-${round}`, signal);
+				evaluations = [...evaluations, ...assessment.verification.evaluations];
+				return { assessment, feedback: assessment.decision.failures };
 			},
 			judge: (input) => {
 				const request = input as JudgeRequest<CandidatePatch, CandidateAssessment, CandidateAssessment>;
@@ -354,22 +357,7 @@ class TrainingRuntime implements Training {
 				}
 				return "fail";
 			},
-			adversary: async (candidate, { signal }) => {
-				const verification = await this.evaluateCandidate(candidate, {
-					...candidateEvaluation,
-					...(signal === undefined ? {} : { signal }),
-					outputDir: `${outputDir ?? ".agentv"}/adversary-${candidate.id}`,
-				});
-				const decision = await evaluatePromotionGate({
-					candidate,
-					evaluations: verification.evaluations,
-					conformance: true,
-					...(input.minScore === undefined ? {} : { minScore: input.minScore }),
-					...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
-					...(input.policy === undefined ? {} : { policy: input.policy }),
-				});
-				return { verification, decision };
-			},
+			adversary: (candidate, { signal }) => assess(candidate, `${outputDir}/adversary-${candidate.id}`, signal),
 			reviseRubric: (challenge, { rubric }) => ({
 				rubric: `${rubric}\nAdversarial criteria: ${challenge.decision.failures.join("; ")}`,
 				feedback: challenge.decision.failures,
@@ -651,11 +639,14 @@ export const training: Training = Object.freeze<Training>({
 
 const wrappedMarker = Symbol.for("ts-autocode.wrapped");
 
-/** Decorator form: `@trainable()`. Identity is inferred from the class that
- * declares the method; pass a symbol (for example `defineTrainable("Router.route").symbol`)
- * only to override the inferred id. The method is woven through the
- * ts-autocode-rewrite aspect under the "use training" marker at first
- * construction, so promoted candidates can hot-swap it. */
+/** Decorator form: `@trainable()`. Pass a symbol (for example
+ * `defineTrainable("acme.route").symbol`) to bind an explicit identity that
+ * evals, tests, and `training.train` reuse to target this exact method. When
+ * no symbol is provided, a token is auto-generated from the declaring class
+ * and method name; `defineTrainable("Router.route").symbol` recreates the same
+ * stable symbol anywhere. The method is woven through the ts-autocode-rewrite
+ * aspect under the "use training" marker at first construction, so promoted
+ * candidates can hot-swap it. */
 export function trainable(identity?: symbol): TrainableDecorator {
 	if (identity !== undefined && typeof identity !== "symbol") {
 		throw new TypeError("trainable identity must be a symbol; omit it to infer from the decorated method");
@@ -669,9 +660,10 @@ export function trainable(identity?: symbol): TrainableDecorator {
 		context.addInitializer(function (this: This) {
 			const owner = (context.static ? this : (this as object).constructor) as abstract new (...args: never[]) => unknown;
 			// Infer from the class that actually declares the method, so a base method
-			// first initialized through a subclass still resolves to Base.method.
-			const id = explicit?.id ?? `${declaringClassName(owner, name, context.static) ?? "Anonymous"}.${name}`;
-			annotateRewrite(owner, name, id, trainingMarker);
+			// first initialized through a subclass still resolves to Base.method. The
+			// auto-generated token's Symbol.for symbol is recreatable via defineTrainable.
+			const token = explicit ?? defineTrainable(`${declaringClassName(owner, name, context.static) ?? "Anonymous"}.${name}`);
+			annotateRewrite(owner, name, token.id, trainingMarker);
 		});
 		return method;
 	};

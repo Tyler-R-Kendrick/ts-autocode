@@ -60,6 +60,13 @@ export type ImplementationExecutor = (
 	options?: Readonly<{ timeoutMs?: number; signal?: AbortSignal; receiver?: unknown }>,
 ) => Promise<unknown>;
 
+/** The synthetic `function candidate(...)` declaration that wraps a proposed body.
+ * Executors transpile and run exactly what `optimizeCandidate` validated. */
+export function candidateDeclaration(target: TrainableTarget, implementation: string): string {
+	const parameters = target.parameters.map((parameter) => parameter.declaration).join(", ");
+	return `${target.async ? "async " : ""}function candidate(${parameters}): ${target.returnType} {\n${implementation}\n}`;
+}
+
 export async function optimizeCandidate(
 	engine: TrainingEngine,
 	request: OptimizeRequest,
@@ -99,10 +106,7 @@ function cleanImplementation(value: string): string {
 }
 
 function validateImplementation(target: TrainableTarget, implementation: string): void {
-	const declaration = `${target.async ? "async " : ""}function candidate(${target.parameters
-		.map((parameter) => parameter.declaration)
-		.join(", ")}): ${target.returnType} {\n${implementation}\n}`;
-	const diagnostics = ts.transpileModule(declaration, {
+	const diagnostics = ts.transpileModule(candidateDeclaration(target, implementation), {
 		compilerOptions: { target: ts.ScriptTarget.ES2022 },
 		reportDiagnostics: true,
 	}).diagnostics ?? [];
