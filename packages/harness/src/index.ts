@@ -183,9 +183,9 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 						context: await provide(await input.bus.read()),
 						...(input.signal === undefined ? {} : { signal: input.signal }),
 					}));
-				const revised = revision.rubric.trim();
-				if (!revised || revised === rubric) throw new Error("teacher must improve the rubric after an approved adversarial challenge");
-				rubric = rubricText.parse(revised);
+				const revised: string = rubricText.parse(revision.rubric);
+				if (revised === rubric) throw new Error("teacher must improve the rubric after an approved adversarial challenge");
+				rubric = revised;
 				feedback = Object.freeze([...revision.feedback]);
 				rounds.push(Object.freeze({ round, candidate, assessment: assessment.assessment, judgeDecision: candidateDecision,
 					adversary: Object.freeze({ challenge: adversary, decision: adversaryDecision }), rubric }));

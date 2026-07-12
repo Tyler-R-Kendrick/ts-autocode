@@ -7,6 +7,7 @@ import {
 	type ContextProvider,
 	type JudgeRequest,
 } from "ts-autocode-harness";
+import { z } from "zod";
 import type { CandidatePatch, CandidateReview, TrainingLoop } from "ts-autocode-training";
 
 type Request = JudgeRequest<CandidatePatch, CandidateReview, CandidateReview>;
@@ -18,13 +19,16 @@ export const defaultActionLogFile = "harness-actions.jsonl";
 /** How many trailing bus entries the default context provider keeps. */
 export const defaultContextWindow = 100;
 
-/** Rolling-window context: actors see the trailing `limit` bus entries. The
- * bus does no context management, so optimization lives here — a consumer
- * needing more than a window (rolling summaries in the style of Semantic
- * Kernel's chat-history reduction, relevance filtering, ...) substitutes its
- * own ContextProvider. */
+const contextWindow = z.number().int().min(0, "context window must be a non-negative integer");
+
+/** Rolling-window context: actors see the trailing `limit` bus entries (zero
+ * means none). The bus does no context management, so optimization lives here
+ * — a consumer needing more than a window (rolling summaries in the style of
+ * Semantic Kernel's chat-history reduction, relevance filtering, ...)
+ * substitutes its own ContextProvider. */
 export function windowedContext(limit = defaultContextWindow): ContextProvider {
-	return (entries) => entries.slice(-limit);
+	const window = contextWindow.parse(limit);
+	return (entries) => entries.slice(Math.max(entries.length - window, 0));
 }
 
 export interface HarnessLoopOptions {

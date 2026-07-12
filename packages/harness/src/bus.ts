@@ -19,7 +19,10 @@ export type AgentBusAccess =
 
 /** Ordered storage for bus entries. Implementations may keep entries in
  * memory, on disk, or behind a remote service — the bus does not care, and
- * any object with these two methods plugs in. */
+ * any object with these two methods plugs in. A store belongs to one writing
+ * bus at a time: the bus resumes sequence numbering from the store's tail and
+ * then owns it, so concurrent writers need a store with its own reservation
+ * semantics behind this interface. */
 export interface AgentBusStore {
 	/** Appends one entry, preserving sequence order. */
 	append(entry: AgentBusEntry): Promise<void>;
@@ -151,11 +154,16 @@ function parseEntries(content: string): AgentBusEntry[] {
 	for (let index = 0; index < lines.length; index += 1) {
 		const line = lines[index]?.trim();
 		if (!line) continue;
+		let value: unknown;
 		try {
-			entries.push(agentBusEntry.parse(JSON.parse(line)));
+			value = JSON.parse(line);
 		} catch (error) {
-			if (index !== lines.length - 1) throw error;
+			// Only an incomplete trailing fragment (a crashed writer) is
+			// recoverable; a complete record that fails the schema is not.
+			if (index === lines.length - 1) continue;
+			throw error;
 		}
+		entries.push(agentBusEntry.parse(value));
 	}
 	return entries;
 }
