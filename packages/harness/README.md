@@ -13,8 +13,7 @@ Every other role has a default, and all defaults follow one evidence
 convention — feedback is the verdict:
 
 - **judge** accepts any input and returns only `pass` or `fail`. Unset, a candidate passes when the teacher reports no feedback, a challenge stands when the adversary reports evidence, and actions are logged ungated.
-- **adversary** receives only the artifact under test and its own prior messages, and reports `{ challenge, feedback }`. Unset, a passing candidate is accepted without adversarial review.
-- **reviseRubric** tightens the rubric after a standing challenge. Unset, the challenge evidence is appended as new criteria.
+- **adversary** is a config of its own: its required `challenge` callback receives only the artifact under test and its own prior messages, and reports `{ challenge, feedback }`; its optional `reviseRubric` callback tightens the rubric after a standing challenge — unset, the challenge evidence is appended as new criteria. With no adversary at all, a passing candidate is accepted without adversarial review.
 - **bus** defaults to an in-memory write-ahead bus, returned on the run result for auditing.
 
 The harness does not create, configure, or select agents — no models, prompts,
@@ -63,8 +62,7 @@ const result = await harness.run({
   student: myStudent,
   teacher: myTeacher,
   judge: myJudge,
-  adversary: myAdversary,
-  reviseRubric: myRubricRevision,
+  adversary: { challenge: myAdversary, reviseRubric: myRubricRevision },
 });
 ```
 

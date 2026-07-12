@@ -9,7 +9,9 @@ export type { AbsolutePath, AgentBusEntry, AgentMessage } from "./schema.js";
 
 export { defaultMaxRounds, defineTrainingHarness } from "./harness.js";
 export type {
+	AdversaryConfig,
 	AdversaryResult,
+	AdversaryTurn,
 	ContextProvider,
 	HarnessInput,
 	HarnessRound,
@@ -17,6 +19,7 @@ export type {
 	HarnessSettings,
 	JudgeRequest,
 	RubricRevision,
+	RubricRevisionTurn,
 	StudentTurn,
 	TeacherResult,
 	TrainingHarness,

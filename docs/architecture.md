@@ -136,7 +136,7 @@ by an exact pass/fail decision, and records its outcome; the judge is just
 another actor whose verdicts land on the bus as ordinary `agent.decision`
 messages, and denied actions never execute. AgentV supplies objective
 evidence; judge rejection never invents feedback. Teacher feedback guides the
-student, and judge-approved adversarial challenges require the teacher to
+student, and judge-approved adversarial challenges require the adversary to
 improve the rubric.
 Agent and skill lifecycle management is deliberately outside the harness.
 Consumers may evolve agents independently and inject the resulting callbacks
