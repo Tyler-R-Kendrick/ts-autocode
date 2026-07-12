@@ -30,8 +30,9 @@ export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoo
 			task: { trainable: input.trainableId, objective: input.objective },
 			rubric: input.rubric,
 			...(input.signal === undefined ? {} : { signal: input.signal }),
+			// The governed harness explores one candidate per round; fan-out stays 1.
 			student: ({ round, feedback, signal }) =>
-				input.propose({ round, feedback, ...(signal === undefined ? {} : { signal }) }),
+				input.propose({ round, slot: 1, feedback, ...(signal === undefined ? {} : { signal }) }),
 			teacher: async (candidate, { round, signal }) => {
 				const review = await input.review(candidate, {
 					label: `candidate-${round}`,

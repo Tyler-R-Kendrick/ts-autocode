@@ -5,11 +5,8 @@ export type { InstrumentEntry, InstrumentRegistry, InstrumentTarget, Instrumenta
 
 export { createRewriter, emitInstrumentation } from "./emit.js";
 
-export { applyCandidate } from "./apply.js";
-export type { RewriteCandidate, RewriteTarget } from "./apply.js";
-
-export { promoteCandidate, revertPromotion } from "./promotion.js";
-export type { PromotionResult, PromotionSnapshot, RewriteApproval } from "./promotion.js";
+export { applyCandidate, commitRewrite, revertRewrite } from "./apply.js";
+export type { AppliedRewrite, RewriteCandidate, RewriteSnapshot, RewriteTarget } from "./apply.js";
 
 export {
 	annotateRewrite,

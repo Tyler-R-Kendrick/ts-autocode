@@ -3,25 +3,29 @@ import { provideTrainingDefaults } from "ts-autocode-training";
 import { executeImplementation } from "./execution.js";
 import { createAxEngine } from "./providers/ax.js";
 import { createHarnessLoop } from "./providers/harness.js";
-import { rewriteWeaver, sourcePromoter } from "./providers/rewrite.js";
+import { configureRewriteCapture, rewritePromotion } from "./providers/rewrite.js";
 
 // This package connects the provider-neutral training runtime to its concrete
 // providers: Ax optimizes and executes candidates, the governed agent harness
-// drives training rounds, and the rewrite package weaves and promotes. The
-// sibling packages never import each other; they meet only here.
+// drives training rounds, and the rewrite package intercepts marked methods
+// into runtime capture and applies gated promotions. The sibling packages
+// never import each other; they meet only here.
 provideTrainingDefaults({
 	engine: () => createAxEngine(),
 	executor: executeImplementation,
 	loop: createHarnessLoop(),
-	weaver: rewriteWeaver,
-	promoter: sourcePromoter,
+	promote: rewritePromotion,
 });
+configureRewriteCapture();
 
 export { createHarnessLoop, defaultActionLogFile } from "./providers/harness.js";
 export type { HarnessLoopOptions } from "./providers/harness.js";
-export { rewriteWeaver, sourcePromoter } from "./providers/rewrite.js";
+export { configureRewriteCapture, rewritePromotion } from "./providers/rewrite.js";
+export { instrumentTrainable, trainable, wrapTrainable } from "./instrumentation.js";
+export type { TrainableDecorator } from "./instrumentation.js";
 
 export {
+	captureTrainable,
 	configureTraining,
 	createMemoryTrainingStore,
 	defaultEvolution,
@@ -32,12 +36,12 @@ export {
 	discoverTrainables,
 	evaluatePromotionGate,
 	provideTrainingDefaults,
-	trainable,
 	training,
 	trainingMarker,
 } from "ts-autocode-training";
 export type {
 	Activation,
+	AppliedPromotion,
 	BoundEvaluation,
 	CandidatePatch,
 	CandidateReview,
@@ -46,12 +50,15 @@ export type {
 	EngineContext,
 	EvolutionSettings,
 	ImplementationExecutor,
-	MethodWeaver,
 	OptimizeRequest,
+	PromotionApplier,
 	PromotionDecision,
+	PromotionGate,
+	PromotionGateContext,
 	PromotionGateInput,
+	RoundObserver,
+	RoundSequence,
 	SecretProvider,
-	SourcePromoter,
 	SourceSettings,
 	TrainInput,
 	TrainableEvalRun,
@@ -75,9 +82,9 @@ export type {
 
 export {
 	applyCandidate,
-	promoteCandidate,
+	commitRewrite,
 	restoreImplementation,
-	revertPromotion,
+	revertRewrite,
 	swapImplementation,
 } from "ts-autocode-rewrite";
-export type { PromotionResult, PromotionSnapshot } from "ts-autocode-rewrite";
+export type { AppliedRewrite, RewriteCandidate, RewriteSnapshot, RewriteTarget } from "ts-autocode-rewrite";

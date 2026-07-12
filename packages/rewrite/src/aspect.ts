@@ -2,7 +2,7 @@ import { AnnotationFactory, AnnotationKind } from "@aspectjs/common";
 import { Around, Aspect, getWeaver, on, type AroundContext, type JoinPoint } from "@aspectjs/core";
 
 /** Marks a method for the weaver. Carries the stable id and the configured
- * marker (e.g. `"use training"`) so dispatch can look up that marker's config.
+ * marker (e.g. `"use audit"`) so dispatch can look up that marker's config.
  * Applied programmatically by `annotateRewrite`, never with decorator syntax,
  * so it does not depend on any compiler decorator configuration. */
 const Rewrite = new AnnotationFactory("ts-autocode").create(
@@ -26,7 +26,7 @@ export interface RewriteInvocation {
 export type RewriteInterceptor = (invocation: RewriteInvocation) => unknown;
 
 /** A marker's rewrite behavior. Registered once by the consumer (for example
- * ts-autocode-training registers `"use training"` with its capture interceptor);
+ * an auditing consumer registers `"use audit"` with a logging interceptor);
  * `"use <name>"` in source is the shorthand that selects this configuration. */
 export interface RewriteConfig {
 	readonly marker: string;
@@ -56,9 +56,9 @@ export function configureRewrite(config: RewriteConfig): void {
 }
 
 /** Hot-swappable advice: replaces the live implementation for a rewrite id.
- * Every woven call dispatches through the swap, without touching source. The
- * single config entry point drives this on promotion; it is exported for tests
- * and advanced orchestration, not the default consumer path. */
+ * Every woven call dispatches through the swap, without touching source.
+ * Consumers typically drive this when they commit a rewrite; it is exported
+ * for tests and advanced orchestration, not the default consumer path. */
 export function swapImplementation(id: string, implementation: AnyMethod): void {
 	swaps.set(id, implementation);
 }

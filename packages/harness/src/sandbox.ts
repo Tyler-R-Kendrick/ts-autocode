@@ -13,7 +13,8 @@ import {
 	type FileUploadResponse,
 } from "deepagents";
 
-import { judgeControl, WriteAheadAgentBus, type AgentRole } from "./bus.js";
+import { WriteAheadAgentBus } from "./bus.js";
+import { dispatchAction, type ActionGate } from "./dispatch.js";
 import { assertHarnessPolicy } from "./policy.js";
 
 export interface MxcSandboxSettings {
@@ -21,7 +22,11 @@ export interface MxcSandboxSettings {
 	readonly workspace: string;
 	readonly policy: SandboxPolicy;
 	readonly bus: WriteAheadAgentBus;
-	readonly role: AgentRole;
+	/** The bus actor this sandbox's operations are recorded as. */
+	readonly actor: string;
+	/** Gate consulted before every operation runs; without one, operations are
+	 * still written ahead and recorded but execute ungated. */
+	readonly gate?: ActionGate;
 	readonly spawn?: Omit<SandboxSpawnOptions, "usePty">;
 }
 
@@ -30,7 +35,8 @@ export class MxcSandbox extends BaseSandbox {
 	readonly #workspace: string;
 	readonly #policy: SandboxPolicy;
 	readonly #bus: WriteAheadAgentBus;
-	readonly #role: AgentRole;
+	readonly #actor: string;
+	readonly #gate: ActionGate | undefined;
 	readonly #spawn: Omit<SandboxSpawnOptions, "usePty">;
 
 	constructor(settings: MxcSandboxSettings) {
@@ -44,7 +50,8 @@ export class MxcSandbox extends BaseSandbox {
 		}
 		this.#policy = settings.policy;
 		this.#bus = settings.bus;
-		this.#role = settings.role;
+		this.#actor = settings.actor;
+		this.#gate = settings.gate;
 		this.#spawn = settings.spawn ?? {};
 	}
 
@@ -99,9 +106,7 @@ export class MxcSandbox extends BaseSandbox {
 	}
 
 	#perform<T>(kind: string, payload: unknown, execute: () => Promise<T>): Promise<T> {
-		return this.#role === "judge"
-			? judgeControl(this.#bus, kind, payload, execute)
-			: this.#bus.dispatch(this.#role, kind, payload, execute);
+		return dispatchAction(this.#bus, this.#actor, kind, payload, this.#gate, execute);
 	}
 
 	#path(path: string): string {

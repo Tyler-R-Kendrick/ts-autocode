@@ -1,18 +1,18 @@
 export {
+	captureTrainable,
 	configureTraining,
 	defaultEvolution,
 	defaultObjective,
 	defaultOutputDir,
-	instrumentTrainable,
 	provideTrainingDefaults,
-	trainable,
 	training,
-	wrapTrainable,
 } from "./training.js";
 export type {
 	Activation,
+	AppliedPromotion,
 	CaptureSettings,
 	EvolutionSettings,
+	PromotionApplier,
 	TrainInput,
 	Training,
 	TrainingProviders,
@@ -21,26 +21,20 @@ export type {
 	TracingSettings,
 } from "./training.js";
 
-export { defaultMaxRounds, sequentialLoop } from "./loop.js";
+export { defaultFanOut, defaultMaxRounds, sequentialLoop, trainingRounds } from "./loop.js";
 export type {
 	CandidateReview,
 	ProposalTurn,
 	ReviewContext,
+	RoundObserver,
+	RoundSequence,
 	TrainingLoop,
 	TrainingLoopInput,
 	TrainingLoopRun,
 	TrainingRound,
 } from "./loop.js";
 
-export type {
-	MethodWeaver,
-	PromotionResult,
-	PromotionSnapshot,
-	SourcePromoter,
-	WeaveInvocation,
-} from "./ports.js";
-
-export { defineTrainable } from "./token.js";
+export { defineTrainable, trainableTokenFromSymbol } from "./token.js";
 export type { TrainableId, TrainableIdentity, TrainableToken } from "./token.js";
 
 export { defaultTsconfig, discoverInSource, discoverTrainables, inMemoryArtifactRef, trainingMarker } from "./source.js";
@@ -60,8 +54,8 @@ export type {
 
 export type { TrainableEvalRun } from "./evaluation.js";
 
-export { evaluatePromotionGate } from "./promotion.js";
-export type { PromotionDecision, PromotionGateInput } from "./promotion.js";
+export { defaultPromotionGates, evaluatePromotionGate } from "./promotion.js";
+export type { PromotionDecision, PromotionGate, PromotionGateContext, PromotionGateInput } from "./promotion.js";
 
 export { createMemoryTrainingStore } from "./records.js";
 export type { TrainingRecord, TrainingStore } from "./records.js";

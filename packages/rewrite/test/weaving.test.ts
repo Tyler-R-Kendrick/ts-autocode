@@ -12,7 +12,7 @@ import {
 	type RewriteInvocation,
 } from "../src/index.js";
 
-const MARKER = "use training";
+const MARKER = "use audit";
 
 // Weaving is exercised entirely in memory: hot-swapped advice, never source
 // edits, so these tests can never rewrite themselves.
@@ -138,17 +138,17 @@ describe("rewrite weaving", () => {
 			route(input: string): string { return input; }
 			ping(input: string): string { return input; }
 		}
-		const training: string[] = [];
-		const audit: string[] = [];
-		configureRewrite({ marker: "use training", intercept: (i) => { training.push(i.id); return i.proceed(); } });
-		configureRewrite({ marker: "use audit", intercept: (i) => { audit.push(i.id); return i.proceed(); } });
-		annotateRewrite(Router, "route", "Router.route", "use training");
-		annotateRewrite(Router, "ping", "Router.ping", "use audit");
+		const audited: string[] = [];
+		const measured: string[] = [];
+		configureRewrite({ marker: "use audit", intercept: (i) => { audited.push(i.id); return i.proceed(); } });
+		configureRewrite({ marker: "use metrics", intercept: (i) => { measured.push(i.id); return i.proceed(); } });
+		annotateRewrite(Router, "route", "Router.route", "use audit");
+		annotateRewrite(Router, "ping", "Router.ping", "use metrics");
 
 		const router = new Router();
 		router.route("a");
 		router.ping("b");
-		expect(training).toEqual(["Router.route"]);
-		expect(audit).toEqual(["Router.ping"]);
+		expect(audited).toEqual(["Router.route"]);
+		expect(measured).toEqual(["Router.ping"]);
 	});
 });

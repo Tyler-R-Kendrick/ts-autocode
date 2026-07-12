@@ -2,22 +2,25 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 
-export type AgentRole = "student" | "teacher" | "judge" | "adversary";
-export type JudgeDecision = "pass" | "fail";
-
-export interface AgentAction {
-	readonly id: string;
-	readonly role: AgentRole;
+/** One message an actor writes to the bus. The bus attaches identity,
+ * ordering, and time; it attaches no meaning — kinds and payloads are the
+ * writers' vocabulary, not the bus's. */
+export interface AgentMessage {
+	readonly actor: string;
 	readonly kind: string;
-	readonly payload: unknown;
+	readonly payload?: unknown;
 }
 
-export interface AgentBusEntry extends AgentAction {
+export interface AgentBusEntry extends AgentMessage {
+	readonly id: string;
 	readonly sequence: number;
 	readonly timestamp: string;
-	readonly phase: "proposed" | "approved" | "denied" | "completed" | "failed";
-	readonly detail?: unknown;
 }
+
+/** One requested bus operation, offered to the `allow` hook. */
+export type AgentBusAccess =
+	| Readonly<{ operation: "append"; actor: string; kind: string }>
+	| Readonly<{ operation: "read"; actor?: string }>;
 
 export interface AgentBusSettings {
 	readonly file: string;
@@ -25,35 +28,26 @@ export interface AgentBusSettings {
 	readonly idFactory?: () => string;
 	readonly now?: () => Date;
 	readonly redact?: (value: unknown) => unknown;
+	/** Decides whether an append or read may proceed; everything is allowed
+	 * when unset. Refused operations throw. */
+	readonly allow?: (access: AgentBusAccess) => boolean;
 }
 
-/** How many trailing bus entries `context()` returns when `contextEntries` is unset. */
+/** How many trailing bus entries `read()` returns when `contextEntries` is unset. */
 export const defaultContextEntries = 100;
 
-export type ActionJudge = (
-	action: AgentAction,
-	context: readonly AgentBusEntry[],
-) => JudgeDecision | Promise<JudgeDecision>;
-
-const judgeControlAction = Symbol("judgeControlAction");
-
-export class AgentActionDeniedError extends Error {
-	readonly action: AgentAction;
-
-	constructor(action: AgentAction) {
-		super(`judge denied ${action.role} action: ${action.kind}`);
-		this.name = "AgentActionDeniedError";
-		this.action = action;
-	}
-}
-
+/** A durable append-only message log shared by the actors of a run. Writers
+ * append before they act (hence write-ahead) and readers see the trailing
+ * window, but the bus itself knows nothing about any actor: approval,
+ * rejection, and every other protocol is just messages that some actor
+ * chooses to write and others choose to read. */
 export class WriteAheadAgentBus {
 	readonly file: string;
 	readonly #contextEntries: number;
 	readonly #idFactory: () => string;
 	readonly #now: () => Date;
 	readonly #redact: (value: unknown) => unknown;
-	#judge?: ActionJudge;
+	readonly #allow: (access: AgentBusAccess) => boolean;
 	#sequence = 0;
 	#initialized = false;
 	#pending: Promise<void> = Promise.resolve();
@@ -69,39 +63,54 @@ export class WriteAheadAgentBus {
 		this.#idFactory = settings.idFactory ?? randomUUID;
 		this.#now = settings.now ?? (() => new Date());
 		this.#redact = settings.redact ?? ((value) => value);
+		this.#allow = settings.allow ?? (() => true);
 	}
 
-	setJudge(judge: ActionJudge): void {
-		if (this.#judge) throw new Error("agent bus judge is already configured");
-		this.#judge = judge;
-	}
-
-	async dispatch<T>(role: Exclude<AgentRole, "judge">, kind: string, payload: unknown, execute: () => Promise<T>): Promise<T> {
-		const judge = this.#judge;
-		if (!judge) throw new Error("agent bus judge is not configured");
-		const action = this.#action(role, kind, payload);
-		await this.#append(action, "proposed");
-		let decision: JudgeDecision;
-		try {
-			decision = await judge(action, await this.context());
-			if (decision !== "pass" && decision !== "fail") throw new Error("judge must return exactly pass or fail");
-		} catch (error) {
-			await this.#append(action, "failed", { stage: "judge", message: error instanceof Error ? error.message : String(error) });
-			throw error;
+	/** Durably appends one message and returns the recorded entry. */
+	async append(message: AgentMessage): Promise<AgentBusEntry> {
+		const actor = message.actor.trim();
+		const kind = message.kind.trim();
+		if (!actor) throw new TypeError("agent message actor must be non-empty");
+		if (!kind) throw new TypeError("agent message kind must be non-empty");
+		if (!this.#allow({ operation: "append", actor, kind })) {
+			throw new Error(`agent bus refused append from ${actor}: ${kind}`);
 		}
-		await this.#append(action, decision === "pass" ? "approved" : "denied", { decision });
-		if (decision === "fail") throw new AgentActionDeniedError(action);
-		return this.#execute(action, execute);
+		const id = this.#idFactory().trim();
+		if (!id) throw new TypeError("agent message id must be non-empty");
+		let appended!: AgentBusEntry;
+		const write = this.#pending.then(async () => {
+			await mkdir(dirname(this.file), { recursive: true });
+			if (!this.#initialized) {
+				this.#sequence = await lastSequence(this.file);
+				this.#initialized = true;
+			}
+			const entry: AgentBusEntry = Object.freeze({
+				id,
+				actor,
+				kind,
+				...(message.payload === undefined ? {} : { payload: this.#redact(message.payload) }),
+				sequence: ++this.#sequence,
+				timestamp: this.#now().toISOString(),
+			});
+			const handle = await open(this.file, "a");
+			try {
+				await handle.appendFile(`${safeJson(entry)}\n`, "utf8");
+				await handle.sync();
+			} finally {
+				await handle.close();
+			}
+			appended = entry;
+		});
+		this.#pending = write.catch(() => undefined);
+		await write;
+		return appended;
 	}
 
-	async [judgeControlAction]<T>(kind: string, payload: unknown, execute: () => Promise<T>): Promise<T> {
-		const action = this.#action("judge", kind, payload);
-		await this.#append(action, "proposed");
-		await this.#append(action, "approved", { bootstrap: true });
-		return this.#execute(action, execute);
-	}
-
-	async context(role?: AgentRole): Promise<readonly AgentBusEntry[]> {
+	/** The trailing window of entries, optionally filtered to one actor. */
+	async read(actor?: string): Promise<readonly AgentBusEntry[]> {
+		if (!this.#allow({ operation: "read", ...(actor === undefined ? {} : { actor }) })) {
+			throw new Error(`agent bus refused read${actor === undefined ? "" : ` of ${actor}`}`);
+		}
 		await this.#pending;
 		let content: string;
 		try {
@@ -111,81 +120,9 @@ export class WriteAheadAgentBus {
 			throw error;
 		}
 		const entries = parseEntries(content);
-		const filtered = role === undefined ? entries : entries.filter((entry) => entry.role === role);
+		const filtered = actor === undefined ? entries : entries.filter((entry) => entry.actor === actor);
 		return Object.freeze(filtered.slice(-this.#contextEntries).map((entry) => Object.freeze(entry)));
 	}
-
-	async #execute<T>(action: AgentAction, execute: () => Promise<T>): Promise<T> {
-		try {
-			const result = await execute();
-			await this.#append(action, "completed", this.#redact(result));
-			return result;
-		} catch (error) {
-			await this.#append(action, "failed", { message: error instanceof Error ? error.message : String(error) });
-			throw error;
-		}
-	}
-
-	#action(role: AgentRole, kind: string, payload: unknown): AgentAction {
-		if (!kind.trim()) throw new TypeError("agent action kind must be non-empty");
-		const id = this.#idFactory().trim();
-		if (!id) throw new TypeError("agent action id must be non-empty");
-		return Object.freeze({ id, role, kind, payload: this.#redact(payload) });
-	}
-
-	async #append(action: AgentAction, phase: AgentBusEntry["phase"], detail?: unknown): Promise<void> {
-		const write = this.#pending.then(async () => {
-			await mkdir(dirname(this.file), { recursive: true });
-			if (!this.#initialized) {
-				this.#sequence = await lastSequence(this.file);
-				this.#initialized = true;
-			}
-			const entry: AgentBusEntry = {
-				...action,
-				sequence: ++this.#sequence,
-				timestamp: this.#now().toISOString(),
-				phase,
-				...(detail === undefined ? {} : { detail: this.#redact(detail) }),
-			};
-			const handle = await open(this.file, "a");
-			try {
-				await handle.appendFile(`${safeJson(entry)}\n`, "utf8");
-				await handle.sync();
-			} finally {
-				await handle.close();
-			}
-		});
-		this.#pending = write.catch(() => undefined);
-		await write;
-	}
-}
-
-export function judgeControl<T>(
-	bus: WriteAheadAgentBus,
-	kind: string,
-	payload: unknown,
-	execute: () => Promise<T>,
-): Promise<T> {
-	return bus[judgeControlAction](kind, payload, execute);
-}
-
-export function parseJudgeDecision(result: unknown): JudgeDecision {
-	const content = lastContent(result).trim().toLowerCase();
-	if (content === "pass" || content === "fail") return content;
-	throw new Error("judge must return exactly pass or fail");
-}
-
-function lastContent(result: unknown): string {
-	if (typeof result === "string") return result;
-	if (!result || typeof result !== "object" || !("messages" in result) || !Array.isArray(result.messages)) return "";
-	const message = result.messages.at(-1);
-	if (!message || typeof message !== "object" || !("content" in message)) return "";
-	if (typeof message.content === "string") return message.content;
-	if (!Array.isArray(message.content)) return "";
-	return message.content.map((block: unknown) => {
-		if (typeof block === "string") return block;
-		return block && typeof block === "object" && "text" in block && typeof block.text === "string" ? block.text : "";
-	}).join("");
 }
 
 async function lastSequence(file: string): Promise<number> {

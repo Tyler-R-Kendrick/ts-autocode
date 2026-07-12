@@ -8,10 +8,9 @@ import "./wiring.js";
 
 import * as publicApi from "../src/index.js";
 import {
+	captureTrainable,
 	configureTraining,
 	defineTrainable,
-	instrumentTrainable,
-	trainable,
 	training as defaultTraining,
 	type Activation,
 	type ImplementationExecutor,
@@ -19,7 +18,7 @@ import {
 } from "../src/index.js";
 
 describe("trainable identity", () => {
-	it("marks methods with only the directive and exposes no wrapper API", () => {
+	it("marks methods with only the directive and exposes no weaving API", () => {
 		class Router {
 			route(input: string): string {
 				"use training";
@@ -31,6 +30,10 @@ describe("trainable identity", () => {
 		expect("useTraining" in publicApi).toBe(false);
 		expect("createTraining" in publicApi).toBe(false);
 		expect("default" in publicApi).toBe(false);
+		// Weaving and decorators live with the instrumentation wiring, not here.
+		expect("trainable" in publicApi).toBe(false);
+		expect("instrumentTrainable" in publicApi).toBe(false);
+		expect("wrapTrainable" in publicApi).toBe(false);
 	});
 
 	it("uses a durable id and stable symbol", () => {
@@ -39,42 +42,10 @@ describe("trainable identity", () => {
 		expect(first.symbol).toBe(second.symbol);
 	});
 
-	it("infers the decorator identity from the decorated class and method", async () => {
-		configureTraining({ tracing: { enabled: false } });
-		class InferredRouter {
-			route(input: string): string { return input; }
-		}
-		applyMethodDecorator(InferredRouter, "route", trainable());
-
-		expect(new InferredRouter().route("billing")).toBe("billing");
-		// The auto-generated symbol is recreatable, so tests can target the trainable.
-		const [record] = await defaultTraining.records(defineTrainable("InferredRouter.route").symbol);
-		expect(record?.trainableId).toBe("InferredRouter.route");
-		expect(record?.succeeded).toBe(true);
-	});
-
-	it("rejects non-symbol decorator identities", () => {
-		expect(() => trainable("Router.route" as never)).toThrow("must be a symbol");
-	});
-
 	it("rejects string identities in training APIs", async () => {
 		await expect(defaultTraining.records("Router.route" as never)).rejects.toThrow(
 			"must be a symbol or TrainableToken",
 		);
-	});
-
-	it("instruments classes in place for capture without the decorator", async () => {
-		configureTraining({ tracing: { enabled: false } });
-		class Plain {
-			route(input: string): string { return input; }
-		}
-		instrumentTrainable(Plain, "route", "Plain.route");
-		instrumentTrainable(Plain, "route", "Plain.route");
-
-		expect(new Plain().route("billing")).toBe("billing");
-		const records = await defaultTraining.records(defineTrainable("Plain.route"));
-		expect(records).toHaveLength(1);
-		expect(records[0]?.trainableId).toBe("Plain.route");
 	});
 });
 
@@ -85,12 +56,8 @@ describe("trainable method capture", () => {
 			capture: { enabled: false },
 			tracing: { enabled: false, tracer: { startActiveSpan } as never },
 		});
-		class Router {
-			route(input: string): string { return input; }
-		}
-		applyMethodDecorator(Router, "route", trainable());
 
-		expect(new Router().route("billing")).toBe("billing");
+		expect(captureTrainable("Router.route", "route", undefined, (input: string) => input, ["billing"])).toBe("billing");
 		expect(startActiveSpan).not.toHaveBeenCalled();
 		expect(await training.records(defineTrainable("Router.route"))).toEqual([]);
 	});
@@ -100,28 +67,21 @@ describe("trainable method capture", () => {
 			tracing: { enabled: false },
 			capture: { mapInput: () => undefined, mapOutput: () => undefined },
 		});
-		class Router {
-			route(input: string): string { return input; }
-		}
 		const redacted = defineTrainable("Router.redacted");
-		applyMethodDecorator(Router, "route", trainable(redacted.symbol));
 
-		expect(new Router().route("secret-input")).toBe("secret-input");
+		expect(captureTrainable(redacted.id, "route", undefined, (input: string) => input, ["secret-input"])).toBe("secret-input");
 		const [record] = await training.records(redacted.symbol);
 		expect(record?.succeeded).toBe(true);
 		expect(JSON.stringify(record)).not.toContain("secret-input");
 	});
 
-	it("supports the decorator without external source metadata", async () => {
+	it("captures failed asynchronous calls without source metadata", async () => {
 		const training = configureTraining({});
-		class Router {
-			async fail(): Promise<void> {
-				throw new Error("boom");
-			}
-		}
-		applyMethodDecorator(Router, "fail", trainable());
+		const fail = async (): Promise<void> => {
+			throw new Error("boom");
+		};
 
-		await expect(new Router().fail()).rejects.toThrow("boom");
+		await expect(captureTrainable("Router.fail", "fail", undefined, fail, [])).rejects.toThrow("boom");
 		const [record] = await training.records(defineTrainable("Router.fail"));
 		expect(record?.succeeded).toBe(false);
 		expect(record?.trace.errorCount).toBe(1);
@@ -129,7 +89,7 @@ describe("trainable method capture", () => {
 });
 
 describe("training execution", () => {
-	it("trains from successful live traces and promotes the gated candidate", async () => {
+	it("trains from successful live traces and activates the gated candidate", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-live-"));
 		const artifact = join(directory, "normalize.ts");
 		await writeFile(artifact, `export function liveNormalize(input: string): string {
@@ -147,17 +107,13 @@ describe("training execution", () => {
 			source: { files: [artifact] },
 			tracing: { enabled: false },
 		});
-		class RuntimeNormalizer {
-			normalize(input: string): string { return input.toUpperCase(); }
-		}
-		const liveNormalize = defineTrainable("liveNormalize");
-		applyMethodDecorator(RuntimeNormalizer, "normalize", trainable(liveNormalize.symbol));
-		const normalize = new RuntimeNormalizer();
-		normalize.normalize("alpha");
-		normalize.normalize("beta");
+		const normalize = (input: string) =>
+			captureTrainable("liveNormalize", "normalize", undefined, (value: string) => value.toUpperCase(), [input]);
+		normalize("alpha");
+		normalize("beta");
 
 		const run = await training.train({
-			trainable: liveNormalize.symbol,
+			trainable: defineTrainable("liveNormalize").symbol,
 			objective: "Preserve behavior observed in live traces",
 			minTraces: 2,
 			evaluation: { workers: 2, outputDir: join(directory, "agentv") },
@@ -167,7 +123,6 @@ describe("training execution", () => {
 		expect(run.final.verification.run.summary.passed).toBe(2);
 
 		const activation = await run.activate();
-		expect(activation.promotion.source).toContain("return input.toUpperCase();");
 		expect(await readFile(artifact, "utf8")).toContain("return input.toUpperCase();");
 		expect(await readFile(artifact, "utf8")).toContain('"use training"');
 
@@ -199,13 +154,10 @@ describe("training execution", () => {
 				onEvolved: (activation) => resolveEvolved(activation),
 			},
 		});
-		class AutoNormalizer {
-			normalize(input: string): string { return input.toUpperCase(); }
-		}
-		instrumentTrainable(AutoNormalizer, "normalize", "autoNormalize");
-		const normalizer = new AutoNormalizer();
-		normalizer.normalize("alpha");
-		normalizer.normalize("beta");
+		const normalize = (input: string) =>
+			captureTrainable("autoNormalize", "normalize", undefined, (value: string) => value.toUpperCase(), [input]);
+		normalize("alpha");
+		normalize("beta");
 
 		const activation = await evolved;
 		expect(errors).toEqual([]);
@@ -272,12 +224,8 @@ describe("training execution", () => {
 
 	it("requires enough successful runtime traces before training from captured traffic", async () => {
 		const training = configureTraining({ tracing: { enabled: false } });
-		class Router {
-			route(input: string): string { return input; }
-		}
 		const live = defineTrainable("Router.live");
-		applyMethodDecorator(Router, "route", trainable(live.symbol));
-		new Router().route("one");
+		captureTrainable(live.id, "route", undefined, (input: string) => input, ["one"]);
 
 		await expect(training.train({
 			trainable: live.symbol,
@@ -289,29 +237,3 @@ describe("training execution", () => {
 
 const functionExecutor: ImplementationExecutor = async (target, implementation, args) =>
 	new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args);
-
-function applyMethodDecorator<Class extends abstract new (...args: never[]) => object>(
-	constructor: Class,
-	name: string,
-	decorator: ReturnType<typeof trainable>,
-): void {
-	const prototype = constructor.prototype as Record<string, unknown>;
-	const method = prototype[name] as (...args: unknown[]) => unknown;
-	const initializers: Array<(this: object) => void> = [];
-	const replacement = decorator(method, {
-		kind: "method",
-		name,
-		static: false,
-		private: false,
-		access: {
-			has: (value: unknown) => name in (value as object),
-			get: (value: unknown) => (value as Record<string, unknown>)[name] as (...args: unknown[]) => unknown,
-		},
-		addInitializer(initializer: (this: object) => void) {
-			initializers.push(initializer);
-		},
-		metadata: undefined,
-	} as unknown as ClassMethodDecoratorContext);
-	Object.defineProperty(prototype, name, { value: replacement, configurable: true, writable: true });
-	for (const initializer of initializers) initializer.call(Object.create(constructor.prototype) as object);
-}

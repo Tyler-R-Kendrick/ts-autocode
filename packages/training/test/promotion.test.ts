@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { promoteCandidate, revertPromotion } from "ts-autocode-rewrite";
+import { commitRewrite, revertRewrite } from "ts-autocode-rewrite";
 
 import {
 	defineTrainable,
@@ -41,12 +41,36 @@ describe("promotion", () => {
 			evaluations: evaluated.evaluations.map((evaluation) => ({ ...evaluation, candidateId: patch.id })),
 			conformance: true,
 		});
-		const promoted = promoteCandidate({ source, candidate: patch, decision });
+		// The gate decides; the training-agnostic rewrite commit is only reached
+		// once the consumer has checked it — mirroring the wired applier.
+		expect(decision.promote).toBe(true);
+		const committed = commitRewrite(source, patch);
 
-		expect(promoted.source).toContain('return "new";');
-		expect(revertPromotion(promoted.source, promoted.snapshot)).toBe(source);
-		expect(() => revertPromotion(promoted.source.replace('return "new";', 'return "changed";'), promoted.snapshot))
+		expect(committed.source).toContain('return "new";');
+		expect(revertRewrite(committed.source, committed.snapshot)).toBe(source);
+		expect(() => revertRewrite(committed.source.replace('return "new";', 'return "changed";'), committed.snapshot))
 			.toThrow("changed before revert");
+	});
+
+	it("runs configured extension gates after the standard set", async () => {
+		const patch = candidate();
+		const evaluated = await evaluateTrainable(defineTrainable(patch.trainableId), {
+			tests: [{ id: "candidate", input: "route", assert: [{ type: "equals", value: "new" }] }],
+			task: () => new Function(patch.implementation)() as string,
+			outputDir: "test/output/agentv-promotion-gates",
+		});
+		const decision = await evaluatePromotionGate({
+			candidate: patch,
+			evaluations: evaluated.evaluations.map((evaluation) => ({ ...evaluation, candidateId: patch.id })),
+			conformance: true,
+			gates: [
+				({ candidate: subject }) => subject.implementation.includes("eval(") ? "implementation must not call eval" : undefined,
+				() => ["no deploys on friday"],
+			],
+		});
+
+		expect(decision.promote).toBe(false);
+		expect(decision.failures).toEqual(["no deploys on friday"]);
 	});
 
 	it("rejects evaluations bound to another trainable", async () => {

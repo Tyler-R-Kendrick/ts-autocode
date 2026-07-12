@@ -1,17 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
 
 import { buildTraceFromMessages, getTextContent, type EvalConfig, type EvalTestInput } from "@agentv/core";
 import { OpenInferenceSpanKind, SemanticConventions } from "@arizeai/openinference-semantic-conventions";
 import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "@opentelemetry/api";
 
-import type {
-	MethodWeaver,
-	PromotionResult,
-	SourcePromoter,
-} from "./ports.js";
 import {
-	optimizeCandidate,
+	CandidateEngine,
 	type BoundEvaluation,
 	type CandidatePatch,
 	type ImplementationExecutor,
@@ -20,41 +14,21 @@ import {
 } from "./engine.js";
 import { evaluateTrainable, type TrainableEvalRun } from "./evaluation.js";
 import { sequentialLoop, type TrainingLoop, type TrainingRound } from "./loop.js";
-import { evaluatePromotionGate } from "./promotion.js";
+import { evaluatePromotionGate, type PromotionDecision, type PromotionGate } from "./promotion.js";
 import { createMemoryTrainingStore, type TrainingRecord, type TrainingStore } from "./records.js";
 import {
 	findTrainable,
-	trainingMarker,
 	type SourceSettings,
 } from "./source.js";
 import {
 	defineTrainable,
 	toTrainableToken,
-	trainableTokenFromSymbol,
 	type TrainableIdentity,
 	type TrainableToken,
 } from "./token.js";
 
 const trainableAttribute = "ts_autocode.trainable.id";
 const tracerName = "ts-autocode";
-
-// Registers training's capture behavior on a wired weaver: every method woven
-// under the "use training" marker routes through runtime capture, and `proceed`
-// resolves the live (possibly hot-swapped) implementation so captures reflect
-// what ran. Runs whenever a weaver is provided; configuring twice is harmless.
-function configureCapture(weaver: MethodWeaver): void {
-	weaver.configure({
-		marker: trainingMarker,
-		intercept: ({ id, methodName, thisValue, args, proceed }) =>
-			runtime().invoke(
-				thisValue,
-				function (this: unknown, ...next: unknown[]) { return proceed(...next); },
-				[...args],
-				defineTrainable(id),
-				methodName,
-			),
-	});
-}
 
 export interface CaptureSettings {
 	readonly enabled?: boolean;
@@ -123,9 +97,14 @@ export interface TrainInput {
 	readonly engine?: TrainingEngine;
 	readonly signal?: AbortSignal;
 	readonly maxRounds?: number;
+	/** Maximum candidates proposed and reviewed concurrently per round; loops
+	 * that do not support fan-out may ignore it. */
+	readonly fanOut?: number;
 	readonly minScore?: number;
 	readonly minPassRate?: number;
 	readonly policy?: (candidate: CandidatePatch) => boolean | Promise<boolean>;
+	/** Extra promotion gates run after the standard set for every review. */
+	readonly gates?: readonly PromotionGate[];
 }
 
 export interface TrainingRun {
@@ -133,19 +112,32 @@ export interface TrainingRun {
 	readonly baseline: TrainableEvalRun;
 	readonly rounds: readonly TrainingRound[];
 	readonly final: TrainingRound;
-	/** Apply the final gated candidate: digest-guarded source rewrite plus live
-	 * hot-swap for async targets. Throws unless the candidate passed the gate. */
+	/** Apply the final candidate through the wired promotion applier. Throws
+	 * unless the candidate passed the promotion gate. */
 	activate(): Promise<Activation>;
 }
 
 /** An applied training result. */
 export interface Activation {
 	readonly run: TrainingRun;
-	readonly promotion: PromotionResult;
-	/** Restore the pre-activation source and live implementation; refuses to
-	 * overwrite edits made after activation. */
+	/** Undo the activation: the wired applier restores whatever it changed. */
 	rollback(): Promise<void>;
 }
+
+/** An applied promotion and how to undo it exactly. */
+export interface AppliedPromotion {
+	rollback(): Promise<void>;
+}
+
+/** Applies a gate-approved candidate — to its source artifact and, where the
+ * wired provider supports it, the running process. How is the provider's
+ * concern; training only requires that the application be undoable. The
+ * resolved executor is passed along for providers that run candidates live. */
+export type PromotionApplier = (
+	candidate: CandidatePatch,
+	decision: PromotionDecision,
+	executor?: ImplementationExecutor,
+) => Promise<AppliedPromotion>;
 
 type CandidateEvalConfig = Omit<EvalConfig, "task"> & { readonly signal?: AbortSignal };
 
@@ -156,17 +148,12 @@ export interface Training {
 	flush(): Promise<void>;
 }
 
-export type TrainableDecorator = <This, Args extends unknown[], Result>(
-	method: (this: This, ...args: Args) => Result,
-	context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
-) => (this: This, ...args: Args) => Result;
-
 class TrainingRuntime implements Training {
 	readonly #settings: TrainingSettings;
 	readonly #variables: Readonly<Record<string, string>>;
 	readonly #store: TrainingStore;
 	readonly #tracer: Tracer;
-	#engine: TrainingEngine | undefined;
+	#engine: CandidateEngine | undefined;
 	readonly #pending = new Set<Promise<void>>();
 	readonly #evaluations = new Map<string, BoundEvaluation[]>();
 	readonly #evolutionState = new Map<string, { running: boolean; queued: boolean; attempted: number }>();
@@ -178,11 +165,14 @@ class TrainingRuntime implements Training {
 		this.#tracer = settings.tracing?.tracer ?? trace.getTracer(tracerName);
 	}
 
-	#engineFor(override?: TrainingEngine): TrainingEngine {
-		if (override) return override;
-		this.#engine ??= this.#settings.engine ?? defaultProviders.engine?.();
+	#engineFor(override?: TrainingEngine): CandidateEngine {
+		if (override) return new CandidateEngine(override);
 		if (!this.#engine) {
-			throw new Error('no training engine is configured; import "ts-autocode" for the Ax default or set TrainingSettings.engine');
+			const strategy = this.#settings.engine ?? defaultProviders.engine?.();
+			if (!strategy) {
+				throw new Error('no training engine is configured; import "ts-autocode" for the Ax default or set TrainingSettings.engine');
+			}
+			this.#engine = new CandidateEngine(strategy);
 		}
 		return this.#engine;
 	}
@@ -283,6 +273,7 @@ class TrainingRuntime implements Training {
 			rubric: promotionRubric(input),
 			outputDir,
 			...(input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds }),
+			...(input.fanOut === undefined ? {} : { fanOut: input.fanOut }),
 			...(input.signal === undefined ? {} : { signal: input.signal }),
 			propose: ({ feedback, signal }) => this.#propose(token, {
 				objective,
@@ -307,6 +298,7 @@ class TrainingRuntime implements Training {
 					...(input.minScore === undefined ? {} : { minScore: input.minScore }),
 					...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
 					...(input.policy === undefined ? {} : { policy: input.policy }),
+					...(input.gates === undefined ? {} : { gates: input.gates }),
 				});
 				return { verification, decision };
 			},
@@ -361,8 +353,7 @@ class TrainingRuntime implements Training {
 	}): Promise<CandidatePatch> {
 		const target = findTrainable(token.id, this.#settings.source);
 		const records = await this.records(token);
-		return optimizeCandidate(
-			this.#engineFor(input.engine),
+		return this.#engineFor(input.engine).propose(
 			{
 				trainableId: token.id,
 				objective: input.objective,
@@ -381,38 +372,16 @@ class TrainingRuntime implements Training {
 
 	async #activate(run: TrainingRun): Promise<Activation> {
 		const { candidate, decision } = run.final;
-		const promoter = promoterOrThrow();
-		const source = await readFile(candidate.target.artifactRef, "utf8");
-		const promotion = promoter.promote({ source, candidate, decision });
-		await writeFile(candidate.target.artifactRef, promotion.source, "utf8");
-		this.#hotSwap(candidate);
-		return Object.freeze({
-			run,
-			promotion,
-			rollback: async () => {
-				const snapshot = promotion.snapshot;
-				const current = await readFile(snapshot.artifactRef, "utf8");
-				await writeFile(snapshot.artifactRef, promoter.revert(current, snapshot), "utf8");
-				// A swap only exists where a weaver dispatched calls in the first place.
-				defaultProviders.weaver?.restore(snapshot.trainableId);
-			},
-		});
-	}
-
-	/** Promoted candidates go live in-process through the hot-swappable advice.
-	 * Only async targets swap: the executor returns a promise, so swapping a
-	 * synchronous method would change its calling convention. Without a weaver
-	 * no call dispatches through swaps, so there is nothing to go live in. */
-	#hotSwap(candidate: CandidatePatch): void {
-		if (!candidate.target.async) return;
-		const weaver = defaultProviders.weaver;
+		if (!decision.promote) {
+			throw new Error(`candidate has not passed the promotion gate: ${candidate.id}`);
+		}
+		const promote = defaultProviders.promote;
+		if (!promote) {
+			throw new Error('activation requires a promotion applier; import "ts-autocode" for the default or set TrainingProviders.promote');
+		}
 		const executor = this.#settings.executor ?? defaultProviders.executor;
-		if (!weaver || !executor) return;
-		// Normal function so the call receiver is captured and forwarded to
-		// executors that can bind it (the sandbox executor ignores it).
-		weaver.swap(candidate.trainableId, function (this: unknown, ...args: unknown[]) {
-			return executor(candidate.target, candidate.implementation, args, { receiver: this });
-		});
+		const applied = await promote(candidate, decision, executor);
+		return Object.freeze({ run, rollback: () => applied.rollback() });
 	}
 
 	async flush(): Promise<void> {
@@ -554,36 +523,17 @@ export interface TrainingProviders {
 	readonly executor?: ImplementationExecutor;
 	readonly loop?: TrainingLoop;
 	readonly evolution?: EvolutionSettings;
-	readonly weaver?: MethodWeaver;
-	readonly promoter?: SourcePromoter;
+	readonly promote?: PromotionApplier;
 }
 
 let defaultProviders: TrainingProviders = {};
 
 /** Provider packages call this to supply lazy fallbacks (ts-autocode wires the
- * Ax engine, its sandbox executor, the governed harness loop, and the rewrite
- * weaver and promoter) without this package depending on any provider.
- * Explicit settings win. A supplied weaver is configured immediately so
- * directive-marked methods route through runtime capture. */
+ * Ax engine, its sandbox executor, the governed harness loop, and a promotion
+ * applier) without this package depending on any provider. Explicit settings
+ * win. */
 export function provideTrainingDefaults(providers: TrainingProviders): void {
 	defaultProviders = { ...defaultProviders, ...providers };
-	if (providers.weaver) configureCapture(providers.weaver);
-}
-
-function weaverOrThrow(): MethodWeaver {
-	const weaver = defaultProviders.weaver;
-	if (!weaver) {
-		throw new Error('method weaving requires a weaver; import "ts-autocode" for the default or set TrainingProviders.weaver');
-	}
-	return weaver;
-}
-
-function promoterOrThrow(): SourcePromoter {
-	const promoter = defaultProviders.promoter;
-	if (!promoter) {
-		throw new Error('promotion requires a source promoter; import "ts-autocode" for the default or set TrainingProviders.promoter');
-	}
-	return promoter;
 }
 
 /** Default runtime: the "use training" directive is the only required marker.
@@ -596,74 +546,19 @@ export const training: Training = Object.freeze<Training>({
 	flush: () => runtime().flush(),
 });
 
-const wrappedMarker = Symbol.for("ts-autocode.wrapped");
-
-/** Decorator form: `@trainable()`. Pass a symbol (for example
- * `defineTrainable("acme.route").symbol`) to bind an explicit identity that
- * evals, tests, and `training.train` reuse to target this exact method. When
- * no symbol is provided, a token is auto-generated from the declaring class
- * and method name; `defineTrainable("Router.route").symbol` recreates the same
- * stable symbol anywhere. The method is woven through the wired weaver under
- * the "use training" marker at first construction, so promoted candidates can
- * hot-swap it. */
-export function trainable(identity?: symbol): TrainableDecorator {
-	if (identity !== undefined && typeof identity !== "symbol") {
-		throw new TypeError("trainable identity must be a symbol; omit it to infer from the decorated method");
-	}
-	const explicit = identity === undefined ? undefined : trainableTokenFromSymbol(identity);
-	return function <This, Args extends unknown[], Result>(
-		method: (this: This, ...args: Args) => Result,
-		context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
-	) {
-		const name = String(context.name);
-		context.addInitializer(function (this: This) {
-			const weaver = weaverOrThrow();
-			const owner = (context.static ? this : (this as object).constructor) as abstract new (...args: never[]) => unknown;
-			// Infer from the class that actually declares the method, so a base method
-			// first initialized through a subclass still resolves to Base.method. The
-			// auto-generated token's Symbol.for symbol is recreatable via defineTrainable.
-			const token = explicit ?? defineTrainable(`${declaringClassName(weaver, owner, name, context.static) ?? "Anonymous"}.${name}`);
-			weaver.annotate(owner, name, token.id, trainingMarker);
-		});
-		return method;
-	};
-}
-
-/** Load-time instrumentation (`ts-autocode/register`): wrap a directive-marked free
- * function through the same hot-swappable dispatch as woven methods. Idempotent. */
-export function wrapTrainable<F extends (...args: never[]) => unknown>(fn: F, id: string): F {
-	if ((fn as Partial<Record<typeof wrappedMarker, boolean>>)[wrappedMarker]) return fn;
-	const name = fn.name || id;
-	const method = fn as unknown as (this: unknown, ...args: unknown[]) => unknown;
-	const wrapped = function (this: unknown, ...args: unknown[]): unknown {
-		return weaverOrThrow().dispatch(id, trainingMarker, name, method, this, args);
-	};
-	Object.defineProperty(wrapped, "name", { value: name, configurable: true });
-	Object.defineProperty(wrapped, wrappedMarker, { value: true });
-	return wrapped as unknown as F;
-}
-
-/** Load-time instrumentation (`ts-autocode/register`): weave a directive-marked
- * class method through the wired weaver. Idempotent. */
-export function instrumentTrainable(
-	owner: abstract new (...args: never[]) => unknown,
-	methodName: string,
+/** Routes one call of a marked trainable through runtime capture: the call is
+ * recorded against `id`, spans are emitted per the tracing settings, and
+ * background evolution may be scheduled. Instrumentation wiring (for example
+ * ts-autocode's rewrite integration) calls this from whatever interception
+ * mechanism it owns; this package has no knowledge of that mechanism. */
+export function captureTrainable<This, Args extends unknown[], Result>(
 	id: string,
-): void {
-	weaverOrThrow().annotate(owner, methodName, id, trainingMarker);
-}
-
-/** Name of the class that declares `methodName`, walking to the owning prototype
- * so an inherited method resolves to its base class rather than a subclass. */
-function declaringClassName(
-	weaver: MethodWeaver,
-	owner: abstract new (...args: never[]) => unknown,
 	methodName: string,
-	isStatic: boolean,
-): string | undefined {
-	const container = weaver.declaringContainer(owner, methodName);
-	const constructor = isStatic ? container : (container as { constructor?: unknown } | undefined)?.constructor;
-	return typeof constructor === "function" && constructor.name ? constructor.name : undefined;
+	thisValue: This,
+	method: (this: This, ...args: Args) => Result,
+	args: Args,
+): Result {
+	return runtime().invoke(thisValue, method, args, defineTrainable(id), methodName);
 }
 
 function runtime(): TrainingRuntime {

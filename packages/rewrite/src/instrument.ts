@@ -1,8 +1,8 @@
 /** A `"use <name>"` directive; compile-time mirror of `normalizeMarker`'s runtime rule. */
 export type Marker = `use ${string}`;
 
-/** Structural subset of ts-autocode-training's TrainableTarget, so any discovery
- * that names a method (and optionally its class) can drive instrumentation. */
+/** Any discovery that names a method (and optionally its class) can drive
+ * instrumentation with these fields. */
 export interface InstrumentTarget {
 	readonly id: string;
 	readonly methodName: string;
@@ -19,8 +19,8 @@ export type InstrumentEntry =
 /** The function generated code calls once per module with its entries. */
 export type InstrumentRegistry = (entries: readonly InstrumentEntry[]) => void;
 
-/** What the runtime does with a discovered target (ts-autocode-training supplies
- * its idempotent instrumentTrainable/wrapTrainable here). */
+/** What the runtime does with a discovered target; consumers supply their own
+ * idempotent method and free-function handlers here. */
 export interface Instrumentation {
 	method(owner: abstract new (...args: never[]) => unknown, methodName: string, id: string): void;
 	wrap<F extends (...args: never[]) => unknown>(fn: F, id: string): F;

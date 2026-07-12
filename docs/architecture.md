@@ -40,14 +40,21 @@ activation's `rollback()` restores both. All
 AspectJS decorators are applied programmatically, keeping consumer projects on
 standard TC39 decorators.
 
-`ts-autocode-training` never imports the rewrite package. It defines weaver and
-promoter ports (`MethodWeaver`, `SourcePromoter`) that mirror the rewrite API
-structurally — the same pattern rewrite uses toward training with
-`RewriteTarget` and `RewriteApproval` — and the root `ts-autocode` package
-wires the implementations through `provideTrainingDefaults`, exactly as it
-wires the harness `TrainingLoop`. Body digests are the shared protocol between
-the two packages: both compute sha256 over canonical JSON, and guarded
-application refuses a candidate whose target digest no longer matches.
+`ts-autocode-training` never imports the rewrite package and has no concept of
+weaving, interception, or hot-swapping. It exposes exactly two seams in its own
+vocabulary: `captureTrainable(...)`, the entry any instrumentation mechanism
+calls to route a marked-method call through runtime capture, and the
+`PromotionApplier` provider, which applies a gate-approved candidate and
+returns how to undo it. The root `ts-autocode` package alone connects rewrite
+to both — its `configureRewriteCapture()` points the rewrite interceptor at
+`captureTrainable`, and its `rewritePromotion` applier performs the
+digest-guarded source rewrite and live hot-swap — exactly as it wires the
+harness `TrainingLoop`. The decorator and load-time instrumentation helpers
+(`trainable`, `wrapTrainable`, `instrumentTrainable`) live in the root package
+for the same reason: they are where identities meet weaving. Body digests are
+the shared protocol between training and rewrite: both compute sha256 over
+canonical JSON, and guarded application refuses a candidate whose target
+digest no longer matches.
 
 ## Zero-config runtime patch
 
@@ -63,8 +70,8 @@ precede its instrumentation; traffic after startup is captured. The training
 runtime itself lives in the provider-neutral `ts-autocode-training` package.
 All cross-package wiring happens in the root `ts-autocode` package: it supplies
 Ax as the default engine and executor, the harness as the default training
-loop, and the rewrite package as the weaver and promoter, all via
-`provideTrainingDefaults`. Sibling packages never import each other.
+loop, and the rewrite package as capture interception and the promotion
+applier. Sibling packages never import each other.
 
 Training, optimization, and evolution are one operation: `train()` without
 explicit eval tests converts distinct, successful captured inputs and outputs
@@ -76,8 +83,12 @@ write on its own.
 ## Evaluation and optimization
 
 AgentV's TypeScript `evaluate()` API runs eval cases and binds results to the
-trainable id. `TrainingEngine` is provider-neutral and returns a replacement
-method implementation.
+trainable id. `TrainingEngine` is a provider-neutral strategy that returns a
+replacement method implementation; the runtime composes it into its internal
+`CandidateEngine`, which owns request validation, implementation cleanup,
+TypeScript validation, and candidate identity. Engine overrides are therefore
+always composition — a strategy slotted into the same pipeline — never
+inheritance, and none of that pipeline is exposed to consumers.
 
 Ax is the default engine. It builds an Ax signature from the TypeScript method
 signature, creates examples from runtime captures and AgentV results, and scores
@@ -95,29 +106,48 @@ the original traces and the bound baseline results.
 
 `ts-autocode-training` knows nothing about the harness. It defines the
 provider-neutral `TrainingLoop` contract — bounded propose/review rounds over
-its own candidate and promotion types — and ships a minimal sequential loop as
-the default. `ts-autocode` (the root package) specifies the connection: its
-`createHarnessLoop` provider adapts the standalone `ts-autocode-harness`
-package to `TrainingLoop` and registers it through `provideTrainingDefaults`,
-exactly as it wires the Ax engine and executor.
+its own candidate and promotion types — and ships the default loop as an
+observable round sequence: `trainingRounds()` pushes each reviewed round to a
+subscriber as it settles, unsubscribing aborts in-flight work, and
+`sequentialLoop` is simply the subscription collected into one run. Rounds run
+in order, but within a round `fanOut` caps how many candidate propose→review
+pipelines run concurrently; duplicate proposals are skipped, a round that
+reviews nothing new stalls the run, and when several candidates pass the gate
+the highest-scoring one is emitted last as the winner. `ts-autocode` (the root
+package) specifies the connection: its `createHarnessLoop` provider adapts the
+standalone `ts-autocode-harness` package to `TrainingLoop` and registers it
+through `provideTrainingDefaults`, exactly as it wires the Ax engine and
+executor.
 
-The harness supports independently configured student, teacher, judge, and
-adversary Deep Agents. A write-ahead bus records proposed actions before an
-exact pass/fail judge decision and prevents denied agent or MXC sandbox actions
-from executing. AgentV supplies objective evidence; judge rejection never invents
-feedback. Teacher feedback guides the student, and judge-approved adversarial
-challenges require the teacher to improve the rubric. Deep Agents and direct
-application functions both implement the same Flue-style callback contract;
-there is no separate agent execution path.
-Agent and skill optimization are deliberately outside the harness. Consumers
-may evolve agents independently and inject the resulting callbacks into the
-same run contract; the library remains focused on evaluated code evolution.
+The harness is callbacks all the way down: student, teacher, judge, and
+adversary are functions the consumer supplies, and the harness creates no
+agents, selects no models, and carries no prompts. Actors share a durable
+append-only message bus that knows nothing about any of them — it records
+messages with identity, ordering, and time, and an optional access hook
+decides who may append or read. The write-ahead convention is layered on top:
+every actor invocation and MXC sandbox operation records its intent, is gated
+by an exact pass/fail decision, and records its outcome; the judge is just
+another actor whose verdicts land on the bus as ordinary `agent.decision`
+messages, and denied actions never execute. AgentV supplies objective
+evidence; judge rejection never invents feedback. Teacher feedback guides the
+student, and judge-approved adversarial challenges require the teacher to
+improve the rubric.
+Agent and skill lifecycle management is deliberately outside the harness.
+Consumers may evolve agents independently and inject the resulting callbacks
+into the same run contract; the library remains focused on evaluated code
+evolution.
 
 AgentV retains its own `workers` setting for eval parallelism.
 
 ## Promotion
 
 Candidates can replace only the discovered method body. Application verifies the
-body digest before editing. Promotion additionally requires conformance, AgentV
-thresholds, and optional policy. An activation's rollback stores only the
-previous and promoted method body and refuses to overwrite subsequent edits.
+body digest before editing. The promotion gate is a rule set, not a procedure:
+each `PromotionGate` is a pure function over one shared `PromotionGateContext`
+(candidate, candidate-bound results, thresholds, aggregates) returning the
+failures it sees. The standard rules — conformance, evaluation binding,
+execution errors, score and pass-rate thresholds — always run;
+`PromotionGateInput.gates` (or `TrainInput.gates`) appends extension rules,
+and the configured `policy` participates as one more gate. An activation's
+rollback stores only the previous and promoted method body and refuses to
+overwrite subsequent edits.

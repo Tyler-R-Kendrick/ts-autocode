@@ -16,11 +16,11 @@ interception live in `ts-autocode-rewrite`; governed agent coordination lives
 in the independent `ts-autocode-harness` package. This package specifies the
 connections: it re-exports the training runtime with Ax registered as the
 default engine and executor and the harness adapted as the default
-`TrainingLoop`. The harness's single Flue-style callback loop supports
-configurable student, teacher, judge, and adversary Deep Agents, MXC
-execution, and a write-ahead approval bus. Consumers can supply callbacks from
-their own agent lifecycle or optimization pipeline without coupling it to this
-code-evolution library.
+`TrainingLoop`. The harness's single callback loop coordinates student,
+teacher, judge, and adversary callbacks over a durable agent message bus, with
+optional MXC-sandboxed execution. It creates no agents of its own: consumers
+supply callbacks from their own agent lifecycle or optimization pipeline
+without coupling it to this code-evolution library.
 
 ## Install
 
@@ -211,6 +211,13 @@ never treated as proof that a rewrite passes. Set `TrainingSettings.loop` to
 substitute your own orchestration; the lower-level `evaluate` and
 `ts-autocode-rewrite` promotion primitives also remain available.
 
+The built-in loop is an observable round sequence (`trainingRounds()`
+pushes each reviewed round to a subscriber; `sequentialLoop` collects the
+subscription into one run). `TrainInput.fanOut` caps how many candidates a
+round proposes and reviews concurrently — the best gated candidate wins the
+round — and `TrainInput.gates` appends custom promotion rules to the standard
+gate set; the configured `policy` runs as one such rule.
+
 No Ax program is supplied by the caller. The default engine derives its fields,
 descriptions, executable examples, and return contract from the TypeScript
 method signature. Ax optimizes the generated program, and its metric executes
@@ -240,10 +247,13 @@ box, and `configureTraining(settings)` only overrides its settings. The default
 Ax implementation reads `OPENAI_API_KEY` from the configured secret provider or
 process environment.
 All cross-package wiring lives in this root package: importing `ts-autocode`
-connects `ts-autocode-rewrite` (weaving, guarded promotion) and
-`ts-autocode-harness` (governed rounds) into `ts-autocode-training`'s provider
-ports via `provideTrainingDefaults`. The sibling packages never import each
-other, so any structurally compatible implementation can replace them.
+connects `ts-autocode-rewrite` (interception into runtime capture, the guarded
+promotion applier) and `ts-autocode-harness` (governed rounds) into
+`ts-autocode-training`'s provider slots. The training package itself has no
+knowledge of weaving or rewriting; the `trainable` decorator and load-time
+instrumentation live here, next to that wiring. The sibling packages never
+import each other, so any structurally compatible implementation can replace
+them.
 Provider-specific Ax tuning remains isolated to the optional `ts-autocode/ax`
 adapter and is passed through the provider-neutral `engine` slot.
 

@@ -9,8 +9,8 @@ import { trainableIdFromKey, type TrainableId } from "./token.js";
  * so training markers apply anywhere a rewriter marker is expected. */
 export type Marker = `use ${string}`;
 
-/** The directive that marks a method for training; the marker training registers
- * with the wired weaver. */
+/** The directive that marks a method for training. Instrumentation wiring
+ * (outside this package) uses it to route marked calls into runtime capture. */
 export const trainingMarker: Marker = "use training";
 
 /** Where `discoverTrainables` looks when `SourceSettings.tsconfig` is unset. */
