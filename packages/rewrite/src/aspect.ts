@@ -1,18 +1,20 @@
 import { AnnotationFactory, AnnotationKind } from "@aspectjs/common";
 import { Around, Aspect, getWeaver, on, type AroundContext, type JoinPoint } from "@aspectjs/core";
 
-/** Marks a method as trainable for the weaver. Applied programmatically by
- * `annotateTrainable`, never with decorator syntax, so it works under both
- * standard and legacy decorator configurations. */
-export const Trainable = new AnnotationFactory("ts-autocode").create(
+/** Marks a method for the weaver. Carries the stable id and the configured
+ * marker (e.g. `"use training"`) so dispatch can look up that marker's config.
+ * Applied programmatically by `annotateRewrite`, never with decorator syntax,
+ * so it works under both standard and legacy decorator configurations. */
+export const Rewrite = new AnnotationFactory("ts-autocode").create(
 	AnnotationKind.METHOD,
-	"Trainable",
+	"Rewrite",
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	function Trainable(id: string) {},
+	function Rewrite(id: string, marker: string) {},
 );
 
-export interface TrainableInvocation {
+export interface RewriteInvocation {
 	readonly id: string;
+	readonly marker: string;
 	readonly methodName: string;
 	readonly thisValue: unknown;
 	readonly args: readonly unknown[];
@@ -21,21 +23,53 @@ export interface TrainableInvocation {
 	readonly proceed: (...args: unknown[]) => unknown;
 }
 
-export type TrainableInterceptor = (invocation: TrainableInvocation) => unknown;
+export type RewriteInterceptor = (invocation: RewriteInvocation) => unknown;
+
+/** A marker's rewrite behavior. Registered once by the consumer (for example
+ * ts-autocode-training registers `"use training"` with its capture interceptor);
+ * `"use <name>"` in source is the shorthand that selects this configuration. */
+export interface RewriteConfig {
+	readonly marker: string;
+	readonly intercept?: RewriteInterceptor;
+}
 
 type AnyMethod = (this: unknown, ...args: unknown[]) => unknown;
 
-let interceptor: TrainableInterceptor | undefined;
+const configs = new Map<string, RewriteConfig>();
 const swaps = new Map<string, AnyMethod>();
 
-/** One interceptor per process observes every trainable invocation
- * (ts-autocode-training wires runtime capture here). */
-export function setTrainableInterceptor(next: TrainableInterceptor | undefined): void {
-	interceptor = next;
+/** Normalizes a `"use <name>"` directive to its canonical single-spaced form. */
+export function normalizeMarker(marker: string): string {
+	const trimmed = marker.trim().replace(/\s+/g, " ");
+	if (!/^use \S/.test(trimmed)) throw new TypeError(`rewrite marker must be a "use <name>" directive: ${marker}`);
+	return trimmed;
 }
 
-/** Hot-swappable advice: replaces the live implementation for a trainable id.
- * Every woven call dispatches through the swap, without touching source. */
+/** Single configuration entry point: binds a `"use <name>"` marker to its rewrite
+ * behavior. After this, marking a method with that directive is all a consumer
+ * needs — weaving and swapping happen through the configured behavior, not
+ * through explicit `annotateRewrite`/`swapImplementation` calls. */
+export function configureRewrite(config: RewriteConfig): void {
+	const marker = normalizeMarker(config.marker);
+	configs.set(marker, Object.freeze({ ...config, marker }));
+}
+
+export function rewriteMarkers(): readonly string[] {
+	return [...configs.keys()];
+}
+
+export function hasRewriteMarker(marker: string): boolean {
+	try {
+		return configs.has(normalizeMarker(marker));
+	} catch {
+		return false;
+	}
+}
+
+/** Hot-swappable advice: replaces the live implementation for a rewrite id.
+ * Every woven call dispatches through the swap, without touching source. The
+ * single config entry point drives this on promotion; it is exported for tests
+ * and advanced orchestration, not the default consumer path. */
 export function swapImplementation(id: string, implementation: AnyMethod): void {
 	swaps.set(id, implementation);
 }
@@ -49,9 +83,10 @@ export function swappedImplementation(id: string): AnyMethod | undefined {
 }
 
 /** Shared dispatch for the aspect and for wrapped free functions: hot-swap first,
- * then the interceptor, then the original implementation. */
-export function dispatchTrainable(
+ * then the marker's configured interceptor, then the original implementation. */
+export function dispatchRewrite(
 	id: string,
+	marker: string,
 	methodName: string,
 	original: AnyMethod,
 	thisValue: unknown,
@@ -61,17 +96,27 @@ export function dispatchTrainable(
 		const active = swaps.get(id) ?? original;
 		return active.apply(thisValue, next.length > 0 ? next : [...args]);
 	};
-	if (!interceptor) return proceed();
-	return interceptor(Object.freeze({ id, methodName, thisValue, args, proceed }));
+	const config = configs.get(safeNormalize(marker));
+	if (!config?.intercept) return proceed();
+	return config.intercept(Object.freeze({ id, marker: safeNormalize(marker), methodName, thisValue, args, proceed }));
 }
 
-class TrainableAspectImpl {
+function safeNormalize(marker: string): string {
+	try {
+		return normalizeMarker(marker);
+	} catch {
+		return marker;
+	}
+}
+
+class RewriteAspectImpl {
 	intercept(context: AroundContext, joinpoint: JoinPoint, args: unknown[]): unknown {
-		const found = context.annotations(Trainable).find()[0];
+		const found = context.annotations(Rewrite).find()[0];
 		const id = String(found?.args?.[0] ?? "");
+		const marker = String(found?.args?.[1] ?? "");
 		const methodName = String((context.target as { propertyKey?: unknown }).propertyKey ?? id);
 		const original: AnyMethod = (...next: unknown[]) => joinpoint(...next);
-		return dispatchTrainable(id, methodName, original, context.instance, args);
+		return dispatchRewrite(id, marker, methodName, original, context.instance, args);
 	}
 }
 
@@ -79,23 +124,26 @@ let wovenWeaver: unknown;
 
 /** Idempotent per weaver context; `configureTesting(WeaverModule)` swaps the
  * context, after which the next annotate re-enables the aspect. */
-export function enableTrainableWeaving(): void {
+export function enableRewriteWeaving(): void {
 	const weaver = getWeaver();
 	if (weaver === wovenWeaver) return;
 	wovenWeaver = weaver;
-	applyLegacyDecorator(Around(on.methods.withAnnotations(Trainable)), TrainableAspectImpl.prototype, "intercept");
-	const Enhanced = (Aspect()(TrainableAspectImpl) ?? TrainableAspectImpl) as typeof TrainableAspectImpl;
+	applyLegacyDecorator(Around(on.methods.withAnnotations(Rewrite)), RewriteAspectImpl.prototype, "intercept");
+	const Enhanced = (Aspect()(RewriteAspectImpl) ?? RewriteAspectImpl) as typeof RewriteAspectImpl;
 	weaver.enable(new Enhanced());
 }
 
 const annotatedMethods = new WeakMap<object, Set<string>>();
 
-/** Weaves a class (or static) method for hot-swappable trainable dispatch.
- * Walks the prototype chain to the owning container; idempotent per method. */
-export function annotateTrainable(
+/** Weaves a class (or static) method for hot-swappable rewrite dispatch under a
+ * marker. Consumers do not call this directly: the `"use <name>"` directive (via
+ * a consumer's discovery/register hook or decorator) is the shorthand that drives
+ * it. Walks the prototype chain to the owning container; idempotent per method. */
+export function annotateRewrite(
 	owner: abstract new (...args: never[]) => unknown,
 	methodName: string,
 	id: string,
+	marker = "",
 ): void {
 	const container = owningContainer(owner, methodName);
 	if (!container) return;
@@ -103,8 +151,16 @@ export function annotateTrainable(
 	if (marked.has(methodName)) return;
 	marked.add(methodName);
 	annotatedMethods.set(container, marked);
-	enableTrainableWeaving();
-	applyLegacyDecorator(Trainable(id) as LegacyMethodDecorator, container, methodName);
+	enableRewriteWeaving();
+	applyLegacyDecorator(Rewrite(id, marker) as LegacyMethodDecorator, container, methodName);
+}
+
+/** The prototype (or the constructor itself, for statics) that declares `methodName`. */
+export function declaringContainer(
+	owner: abstract new (...args: never[]) => unknown,
+	methodName: string,
+): object | undefined {
+	return owningContainer(owner, methodName);
 }
 
 type LegacyMethodDecorator = (

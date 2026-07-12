@@ -50,12 +50,14 @@ export interface TrainingEngine {
 	optimize(request: OptimizeRequest, context: EngineContext): Promise<EngineCandidate>;
 }
 
-/** Runs a proposed implementation against arguments in provider-owned isolation. */
+/** Runs a proposed implementation against arguments in provider-owned isolation.
+ * `receiver` is the live `this` when a hot-swapped instance method is invoked;
+ * sandboxed executors may ignore it. */
 export type ImplementationExecutor = (
 	target: TrainableTarget,
 	implementation: string,
 	args: readonly unknown[],
-	options?: Readonly<{ timeoutMs?: number; signal?: AbortSignal }>,
+	options?: Readonly<{ timeoutMs?: number; signal?: AbortSignal; receiver?: unknown }>,
 ) => Promise<unknown>;
 
 export async function optimizeCandidate(

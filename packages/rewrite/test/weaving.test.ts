@@ -3,21 +3,23 @@ import { WeaverModule } from "@aspectjs/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-	annotateTrainable,
-	dispatchTrainable,
+	annotateRewrite,
+	configureRewrite,
+	dispatchRewrite,
 	restoreImplementation,
-	setTrainableInterceptor,
 	swapImplementation,
 	swappedImplementation,
-	type TrainableInvocation,
+	type RewriteInvocation,
 } from "../src/index.js";
+
+const MARKER = "use training";
 
 // Weaving is exercised entirely in memory: hot-swapped advice, never source
 // edits, so these tests can never rewrite themselves.
-describe("trainable weaving", () => {
+describe("rewrite weaving", () => {
 	beforeEach(() => {
 		configureTesting(WeaverModule);
-		setTrainableInterceptor(undefined);
+		configureRewrite({ marker: MARKER });
 		restoreImplementation("Router.route");
 		restoreImplementation("Router.fallback");
 		restoreImplementation("Static.echo");
@@ -29,12 +31,9 @@ describe("trainable weaving", () => {
 			route(input: string): string { return input; }
 			fallback(input: string): string { return input; }
 		}
-		annotateTrainable(Router, "route", "Router.route");
+		annotateRewrite(Router, "route", "Router.route", MARKER);
 		const seen: string[] = [];
-		setTrainableInterceptor((invocation) => {
-			seen.push(invocation.id);
-			return invocation.proceed();
-		});
+		configureRewrite({ marker: MARKER, intercept: (invocation) => { seen.push(invocation.id); return invocation.proceed(); } });
 
 		const router = new Router();
 		expect(router.route("abc")).toBe("abc");
@@ -46,7 +45,7 @@ describe("trainable weaving", () => {
 		class Router {
 			route(input: string): string { return input; }
 		}
-		annotateTrainable(Router, "route", "Router.route");
+		annotateRewrite(Router, "route", "Router.route", MARKER);
 		const router = new Router();
 
 		expect(router.route("abc")).toBe("abc");
@@ -63,29 +62,27 @@ describe("trainable weaving", () => {
 			prefix = "id:";
 			route(input: string): string { return `${this.prefix}${input}`; }
 		}
-		annotateTrainable(Router, "route", "Router.route");
-		const invocations: TrainableInvocation[] = [];
-		setTrainableInterceptor((invocation) => {
-			invocations.push(invocation);
-			return invocation.proceed();
-		});
+		annotateRewrite(Router, "route", "Router.route", MARKER);
+		const invocations: RewriteInvocation[] = [];
+		configureRewrite({ marker: MARKER, intercept: (invocation) => { invocations.push(invocation); return invocation.proceed(); } });
 		swapImplementation("Router.route", function (this: unknown, input) {
 			return `${(this as Router).prefix}${String(input).toUpperCase()}`;
 		});
 
 		expect(new Router().route("abc")).toBe("id:ABC");
 		expect(invocations[0]?.id).toBe("Router.route");
+		expect(invocations[0]?.marker).toBe(MARKER);
 		expect(invocations[0]?.methodName).toBe("route");
 		expect(invocations[0]?.args).toEqual(["abc"]);
 	});
 
-	it("keeps swaps scoped to their trainable id", () => {
+	it("keeps swaps scoped to their rewrite id", () => {
 		class Router {
 			route(input: string): string { return input; }
 			fallback(input: string): string { return input; }
 		}
-		annotateTrainable(Router, "route", "Router.route");
-		annotateTrainable(Router, "fallback", "Router.fallback");
+		annotateRewrite(Router, "route", "Router.route", MARKER);
+		annotateRewrite(Router, "fallback", "Router.fallback", MARKER);
 		swapImplementation("Router.route", () => "swapped");
 
 		const router = new Router();
@@ -97,20 +94,20 @@ describe("trainable weaving", () => {
 		class Router {
 			route(input: string): string { return input; }
 		}
-		annotateTrainable(Router, "route", "Router.route");
-		annotateTrainable(Router, "route", "Router.route");
-		const interceptor = vi.fn((invocation: TrainableInvocation) => invocation.proceed());
-		setTrainableInterceptor(interceptor);
+		annotateRewrite(Router, "route", "Router.route", MARKER);
+		annotateRewrite(Router, "route", "Router.route", MARKER);
+		const intercept = vi.fn((invocation: RewriteInvocation) => invocation.proceed());
+		configureRewrite({ marker: MARKER, intercept });
 
 		expect(new Router().route("abc")).toBe("abc");
-		expect(interceptor).toHaveBeenCalledTimes(1);
+		expect(intercept).toHaveBeenCalledTimes(1);
 	});
 
 	it("weaves static methods and inherited methods through the owning container", () => {
 		class Static {
 			static echo(input: string): string { return input; }
 		}
-		annotateTrainable(Static, "echo", "Static.echo");
+		annotateRewrite(Static, "echo", "Static.echo", MARKER);
 		swapImplementation("Static.echo", (input) => `static:${String(input)}`);
 		expect(Static.echo("x")).toBe("static:x");
 
@@ -118,7 +115,7 @@ describe("trainable weaving", () => {
 			route(input: string): string { return input; }
 		}
 		class Derived extends Base {}
-		annotateTrainable(Derived, "route", "Router.route");
+		annotateRewrite(Derived, "route", "Router.route", MARKER);
 		swapImplementation("Router.route", () => "woven");
 		expect(new Derived().route("abc")).toBe("woven");
 		expect(new Base().route("abc")).toBe("woven");
@@ -127,7 +124,7 @@ describe("trainable weaving", () => {
 	it("dispatches wrapped free functions through the same swap registry", () => {
 		const normalize = (input: string): string => input.trim();
 		const call = (input: string): unknown =>
-			dispatchTrainable("free.normalize", "normalize", normalize as (...args: unknown[]) => unknown, undefined, [input]);
+			dispatchRewrite("free.normalize", MARKER, "normalize", normalize as (...args: unknown[]) => unknown, undefined, [input]);
 
 		expect(call("  x  ")).toBe("x");
 		swapImplementation("free.normalize", (input) => String(input).trim().toUpperCase());
@@ -136,19 +133,22 @@ describe("trainable weaving", () => {
 		expect(call("  x  ")).toBe("x");
 	});
 
-	it("interceptors can observe without altering results, and clearing them restores plain dispatch", () => {
+	it("routes each marker to its own configured interceptor", () => {
 		class Router {
 			route(input: string): string { return input; }
+			ping(input: string): string { return input; }
 		}
-		annotateTrainable(Router, "route", "Router.route");
-		const router = new Router();
-		const interceptor = vi.fn((invocation: TrainableInvocation) => invocation.proceed());
-		setTrainableInterceptor(interceptor);
-		expect(router.route("abc")).toBe("abc");
-		expect(interceptor).toHaveBeenCalledTimes(1);
+		const training: string[] = [];
+		const audit: string[] = [];
+		configureRewrite({ marker: "use training", intercept: (i) => { training.push(i.id); return i.proceed(); } });
+		configureRewrite({ marker: "use audit", intercept: (i) => { audit.push(i.id); return i.proceed(); } });
+		annotateRewrite(Router, "route", "Router.route", "use training");
+		annotateRewrite(Router, "ping", "Router.ping", "use audit");
 
-		setTrainableInterceptor(undefined);
-		expect(router.route("abc")).toBe("abc");
-		expect(interceptor).toHaveBeenCalledTimes(1);
+		const router = new Router();
+		router.route("a");
+		router.ping("b");
+		expect(training).toEqual(["Router.route"]);
+		expect(audit).toEqual(["Router.ping"]);
 	});
 });

@@ -31,7 +31,9 @@ export function applyCandidate(source: string, candidate: RewriteCandidate): str
 }
 
 function formatImplementation(implementation: string, methodIndent: string, source: string): string {
-	const indentUnit = source.includes("\t") ? "\t" : "  ";
+	// Match the method's own indentation style rather than the whole file's,
+	// so a tab-indented method in a mostly-spaces file still gets tabs.
+	const indentUnit = methodIndent.includes("\t") ? "\t" : source.includes("\t") ? "\t" : "  ";
 	const bodyIndent = `${methodIndent}${indentUnit}`;
 	const lines = implementation.split("\n");
 	const minimumIndent = Math.min(

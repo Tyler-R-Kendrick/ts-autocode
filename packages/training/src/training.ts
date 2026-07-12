@@ -7,12 +7,13 @@ import { OpenInferenceSpanKind, SemanticConventions } from "@arizeai/openinferen
 import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "@opentelemetry/api";
 import { defineTrainingHarness, WriteAheadAgentBus, type JudgeRequest } from "ts-autocode-harness";
 import {
-	annotateTrainable,
-	dispatchTrainable,
+	annotateRewrite,
+	configureRewrite,
+	declaringContainer,
+	dispatchRewrite,
 	promoteCandidate,
 	restoreImplementation,
 	revertPromotion,
-	setTrainableInterceptor,
 	swapImplementation,
 	type PromotionResult,
 	type PromotionSnapshot,
@@ -44,6 +45,25 @@ import {
 } from "./token.js";
 
 const trainableAttribute = "ts_autocode.trainable.id";
+
+/** Training is one consumer of the generic rewrite engine; this is the marker it
+ * configures. The `"use training"` directive is the shorthand that weaves a method. */
+const trainingMarker = "use training";
+
+// Register training's rewrite behavior once: every method woven under the
+// "use training" marker routes through runtime capture, and `proceed` resolves
+// the live (possibly hot-swapped) implementation so captures reflect what ran.
+configureRewrite({
+	marker: trainingMarker,
+	intercept: ({ id, methodName, thisValue, args, proceed }) =>
+		runtime().invoke(
+			thisValue,
+			function (this: unknown, ...next: unknown[]) { return proceed(...next); },
+			[...args],
+			defineTrainable(id),
+			methodName,
+		),
+});
 
 export interface CaptureSettings {
 	readonly enabled?: boolean;
@@ -462,8 +482,11 @@ class TrainingRuntime implements Training {
 		if (!candidate.target.async) return;
 		const executor = this.#settings.executor ?? defaultProviders.executor;
 		if (!executor) return;
-		swapImplementation(candidate.trainableId, (...args: unknown[]) =>
-			executor(candidate.target, candidate.implementation, args));
+		// Normal function so the call receiver is captured and forwarded to
+		// executors that can bind it (the sandbox executor ignores it).
+		swapImplementation(candidate.trainableId, function (this: unknown, ...args: unknown[]) {
+			return executor(candidate.target, candidate.implementation, args, { receiver: this });
+		});
 	}
 
 	async flush(): Promise<void> {
@@ -631,22 +654,11 @@ export const training: Training = Object.freeze<Training>({
 
 const wrappedMarker = Symbol.for("ts-autocode.wrapped");
 
-// Every woven or wrapped trainable dispatches through ts-autocode-rewrite's
-// hot-swappable advice; this interceptor routes each invocation into runtime
-// capture, and `proceed` resolves the live (possibly swapped) implementation.
-setTrainableInterceptor(({ id, methodName, thisValue, args, proceed }) =>
-	runtime().invoke(
-		thisValue,
-		function (this: unknown, ...next: unknown[]) { return proceed(...next); },
-		[...args],
-		defineTrainable(id),
-		methodName,
-	));
-
-/** Decorator form: `@trainable()`. Identity is inferred from the decorated class and
- * method; pass a symbol (for example `defineTrainable("Router.route").symbol`) only
- * to override the inferred id. The method is woven through the ts-autocode-rewrite
- * aspect at first construction, so promoted candidates can hot-swap it. */
+/** Decorator form: `@trainable()`. Identity is inferred from the class that
+ * declares the method; pass a symbol (for example `defineTrainable("Router.route").symbol`)
+ * only to override the inferred id. The method is woven through the
+ * ts-autocode-rewrite aspect under the "use training" marker at first
+ * construction, so promoted candidates can hot-swap it. */
 export function trainable(identity?: symbol): TrainableDecorator {
 	if (identity !== undefined && typeof identity !== "symbol") {
 		throw new TypeError("trainable identity must be a symbol; omit it to infer from the decorated method");
@@ -659,8 +671,10 @@ export function trainable(identity?: symbol): TrainableDecorator {
 		const name = String(context.name);
 		context.addInitializer(function (this: This) {
 			const owner = (context.static ? this : (this as object).constructor) as abstract new (...args: never[]) => unknown;
-			const id = explicit?.id ?? `${inferredClassName(context.static ? owner : this) ?? "Anonymous"}.${name}`;
-			annotateTrainable(owner, name, id);
+			// Infer from the class that actually declares the method, so a base method
+			// first initialized through a subclass still resolves to Base.method.
+			const id = explicit?.id ?? `${declaringClassName(owner, name, context.static) ?? "Anonymous"}.${name}`;
+			annotateRewrite(owner, name, id, trainingMarker);
 		});
 		return method;
 	};
@@ -673,7 +687,7 @@ export function wrapTrainable<F extends (...args: never[]) => unknown>(fn: F, id
 	const name = fn.name || id;
 	const method = fn as unknown as (this: unknown, ...args: unknown[]) => unknown;
 	const wrapped = function (this: unknown, ...args: unknown[]): unknown {
-		return dispatchTrainable(id, name, method, this, args);
+		return dispatchRewrite(id, trainingMarker, name, method, this, args);
 	};
 	Object.defineProperty(wrapped, "name", { value: name, configurable: true });
 	Object.defineProperty(wrapped, wrappedMarker, { value: true });
@@ -687,12 +701,18 @@ export function instrumentTrainable(
 	methodName: string,
 	id: string,
 ): void {
-	annotateTrainable(owner, methodName, id);
+	annotateRewrite(owner, methodName, id, trainingMarker);
 }
 
-function inferredClassName(thisValue: unknown): string | undefined {
-	if (typeof thisValue === "function") return thisValue.name || undefined;
-	const constructor = (thisValue as { constructor?: unknown } | undefined)?.constructor;
+/** Name of the class that declares `methodName`, walking to the owning prototype
+ * so an inherited method resolves to its base class rather than a subclass. */
+function declaringClassName(
+	owner: abstract new (...args: never[]) => unknown,
+	methodName: string,
+	isStatic: boolean,
+): string | undefined {
+	const container = declaringContainer(owner, methodName);
+	const constructor = isStatic ? container : (container as { constructor?: unknown } | undefined)?.constructor;
 	return typeof constructor === "function" && constructor.name ? constructor.name : undefined;
 }
 

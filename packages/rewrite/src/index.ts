@@ -7,13 +7,17 @@ export { promoteCandidate, revertPromotion } from "./promotion.js";
 export type { PromotionResult, PromotionSnapshot, RewriteApproval } from "./promotion.js";
 
 export {
-	Trainable,
-	annotateTrainable,
-	dispatchTrainable,
-	enableTrainableWeaving,
+	Rewrite,
+	annotateRewrite,
+	configureRewrite,
+	declaringContainer,
+	dispatchRewrite,
+	enableRewriteWeaving,
+	hasRewriteMarker,
+	normalizeMarker,
 	restoreImplementation,
-	setTrainableInterceptor,
+	rewriteMarkers,
 	swapImplementation,
 	swappedImplementation,
 } from "./aspect.js";
-export type { TrainableInterceptor, TrainableInvocation } from "./aspect.js";
+export type { RewriteConfig, RewriteInterceptor, RewriteInvocation } from "./aspect.js";
