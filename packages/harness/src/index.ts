@@ -1,8 +1,8 @@
 export { WriteAheadAgentBus } from "./bus.js";
 export type { AgentBusAccess, AgentBusSettings, AgentBusStore } from "./bus.js";
 
-export { MemoryBusStore } from "./memory-store.js";
-export { FileBusStore } from "./file-store.js";
+export { JsonlBusStore } from "./jsonl-store.js";
+export type { BusFileSystem } from "./jsonl-store.js";
 
 export { AgentActionDeniedError, decisionKind, dispatchAction } from "./dispatch.js";
 export type { ActionGate } from "./dispatch.js";

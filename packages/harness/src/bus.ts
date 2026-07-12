@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { MemoryBusStore } from "./memory-store.js";
+import { JsonlBusStore } from "./jsonl-store.js";
 import { agentBusEntry, agentMessage, messageId, type AgentBusEntry, type AgentMessage } from "./schema.js";
 
 /** One requested bus operation, offered to the `allow` hook. */
@@ -21,7 +21,7 @@ export interface AgentBusStore {
 }
 
 export interface AgentBusSettings {
-	/** Where entries live; volatile in-memory storage when unset. */
+	/** Where entries live; a JSONL log on an in-memory filesystem when unset. */
 	readonly store?: AgentBusStore;
 	readonly idFactory?: () => string;
 	readonly now?: () => Date;
@@ -46,7 +46,7 @@ export class WriteAheadAgentBus {
 	#pending: Promise<void> = Promise.resolve();
 
 	constructor(settings: AgentBusSettings = {}) {
-		this.#store = settings.store ?? new MemoryBusStore();
+		this.#store = settings.store ?? JsonlBusStore.inMemory();
 		this.#idFactory = settings.idFactory ?? randomUUID;
 		this.#now = settings.now ?? (() => new Date());
 		this.#redact = settings.redact ?? ((value) => value);

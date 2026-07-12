@@ -4,12 +4,13 @@ import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
+import { Volume } from "memfs";
 import {
 	AgentActionDeniedError,
-	FileBusStore,
 	createHarnessPolicy,
 	defineTrainingHarness,
 	dispatchAction,
+	JsonlBusStore,
 	MxcSandbox,
 	WriteAheadAgentBus,
 	type AgentBusEntry,
@@ -202,12 +203,23 @@ describe("training harness", () => {
 	it("continues sequence numbers and recovers an incomplete trailing entry", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-bus-recovery-"));
 		const file = join(directory, "actions.jsonl");
-		const first = new WriteAheadAgentBus({ store: new FileBusStore(file) });
+		const first = new WriteAheadAgentBus({ store: new JsonlBusStore(file) });
 		await dispatchAction(first, "student", "first", {}, () => "pass", async () => "one");
-		const second = new WriteAheadAgentBus({ store: new FileBusStore(file) });
+		const second = new WriteAheadAgentBus({ store: new JsonlBusStore(file) });
 		await dispatchAction(second, "teacher", "second", {}, () => "pass", async () => "two");
 		await appendFile(file, "{\"incomplete\"", "utf8");
 		expect((await second.read()).map(({ sequence }) => sequence)).toEqual([1, 2, 3, 4, 5, 6]);
+	});
+
+	it("runs the same store over any filesystem — a memfs volume standing in for disk", async () => {
+		const volume = new Volume();
+		const first = new WriteAheadAgentBus({ store: new JsonlBusStore("/bus/actions.jsonl", volume.promises) });
+		await first.append({ actor: "student", kind: "test.first" });
+		// A second bus over the same volume resumes where the first left off.
+		const second = new WriteAheadAgentBus({ store: new JsonlBusStore("/bus/actions.jsonl", volume.promises) });
+		const appended = await second.append({ actor: "teacher", kind: "test.second" });
+		expect(appended.sequence).toBe(2);
+		expect(volume.toJSON()["/bus/actions.jsonl"]).toContain("test.first");
 	});
 
 	it("gates sandbox file actions and keeps the bus outside writable workspaces", async () => {

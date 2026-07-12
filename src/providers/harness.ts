@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 
 import {
 	defineTrainingHarness,
-	FileBusStore,
+	JsonlBusStore,
 	WriteAheadAgentBus,
 	type ContextProvider,
 	type JudgeDecision,
@@ -17,8 +17,9 @@ export const defaultActionLogFile = "harness-actions.jsonl";
 /** Every collaborator is injectable; the options only choose defaults. */
 export interface HarnessLoopOptions {
 	/** Builds the message bus for a run. Unset, each run gets a write-ahead bus
-	 * over a JSONL `FileBusStore` in its output directory — swap in any
-	 * `AgentBusStore`-backed bus (memory, remote, ...) here. */
+	 * over a `JsonlBusStore` in its output directory on the local filesystem —
+	 * swap in any `AgentBusStore`-backed bus, or the same store over another
+	 * `BusFileSystem` (memfs, a remote filesystem, ...), here. */
 	readonly bus?: (input: TrainingLoopInput) => WriteAheadAgentBus;
 	/** File name for the default file-backed bus; ignored when `bus` is set. */
 	readonly actionLogFile?: string;
@@ -36,7 +37,7 @@ export interface HarnessLoopOptions {
  * one, and the review's gate failures are the feedback the harness weighs. */
 export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoop {
 	const createBus = options.bus ?? ((input: TrainingLoopInput) =>
-		new WriteAheadAgentBus({ store: new FileBusStore(resolve(input.outputDir, options.actionLogFile ?? defaultActionLogFile)) }));
+		new WriteAheadAgentBus({ store: new JsonlBusStore(resolve(input.outputDir, options.actionLogFile ?? defaultActionLogFile)) }));
 	const contextProvider = options.contextProvider ?? windowedContext();
 	return async (input) => {
 		const harness = defineTrainingHarness<CandidatePatch, CandidateReview, string>(
