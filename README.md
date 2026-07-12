@@ -130,12 +130,31 @@ const promoted = await training.promote(run.final.candidate, run.final.decision)
 await training.revert(promoted.snapshot);
 ```
 
-## Evolve from live traces
+## Zero-config evolution
 
-When runtime capture is enabled, `evolve()` turns successful captured calls into
-AgentV equality evals, trains a replacement, verifies the candidate against the
-same cases, applies the promotion gate, and updates the marked TypeScript body.
-The write is explicit: capturing traffic alone never changes source code.
+Load the runtime patch once and directive-marked functions evolve from live
+traffic with no further code — capture, training, verification, gating, and the
+guarded source rewrite all apply automatically:
+
+```bash
+node --import ts-autocode/register ./dist/server.js
+```
+
+The register hook instruments every `"use training"` function at module load.
+Once a trainable accumulates `evolution.minTraces` successful traces (default
+3), it is trained against those traces, verified candidate-bound, gated, and —
+only when the gate passes — its source body is rewritten. Failures surface
+through `TrainingSettings.onError` with the `"evolve"` phase and never block or
+alter application calls. Set `TS_AUTOCODE_EVOLVE=off` (or configure
+`evolution: { enabled: false }`) to capture without rewriting, and use
+`evolution.onEvolved` to observe applied rewrites.
+
+## Evolve from live traces explicitly
+
+Without the register patch, `evolve()` is the explicit form of the same loop:
+it turns successful captured calls into AgentV equality evals, trains a
+replacement, verifies the candidate against the same cases, applies the
+promotion gate, and updates the marked TypeScript body.
 
 ```ts
 const result = await training.evolve({

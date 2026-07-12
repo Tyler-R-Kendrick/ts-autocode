@@ -1,12 +1,15 @@
 export {
 	configureTraining,
+	instrumentTrainable,
 	provideTrainingDefaults,
 	trainable,
 	training,
+	wrapTrainable,
 } from "./training.js";
 export type {
 	CaptureSettings,
 	CandidateEvalConfig,
+	EvolutionSettings,
 	EvolveInput,
 	EvolveResult,
 	OptimizeInput,

@@ -8,8 +8,10 @@ import * as publicApi from "../src/index.js";
 import {
 	configureTraining,
 	defineTrainable,
+	instrumentTrainable,
 	trainable,
 	training as defaultTraining,
+	type EvolveResult,
 	type ImplementationExecutor,
 	type TrainingEngine,
 } from "../src/index.js";
@@ -59,6 +61,20 @@ describe("trainable identity", () => {
 
 	it("rejects non-symbol decorator identities", () => {
 		expect(() => trainable("Router.route" as never)).toThrow("must be a symbol");
+	});
+
+	it("instruments classes in place for capture without the decorator", async () => {
+		configureTraining({ tracing: { enabled: false } });
+		class Plain {
+			route(input: string): string { return input; }
+		}
+		instrumentTrainable(Plain, "route", "Plain.route");
+		instrumentTrainable(Plain, "route", "Plain.route");
+
+		expect(new Plain().route("billing")).toBe("billing");
+		const records = await defaultTraining.records("Plain.route");
+		expect(records).toHaveLength(1);
+		expect(records[0]?.trainableId).toBe("Plain.route");
 	});
 });
 
@@ -172,6 +188,44 @@ describe("training execution", () => {
 		expect(result.training.baseline.run.summary.passed).toBe(2);
 		expect(result.training.final.verification.run.summary.passed).toBe(2);
 		expect(result.promotion.source).toContain("return input.toUpperCase();");
+		expect(await readFile(artifact, "utf8")).toContain("return input.toUpperCase();");
+		expect(await readFile(artifact, "utf8")).toContain('"use training"');
+	});
+
+	it("evolves automatically from runtime traffic when evolution is enabled", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-auto-"));
+		const artifact = join(directory, "auto.ts");
+		await writeFile(artifact, `export function autoNormalize(input: string): string {
+  "use training";
+  return input;
+}\n`);
+		let resolveEvolved!: (result: EvolveResult) => void;
+		const evolved = new Promise<EvolveResult>((resolve) => { resolveEvolved = resolve; });
+		const errors: unknown[] = [];
+		configureTraining({
+			engine: { id: "auto-test", optimize: async () => ({ implementation: "return input.toUpperCase();" }) },
+			executor: functionExecutor,
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+			onError: (error) => errors.push(error),
+			evolution: {
+				enabled: true,
+				minTraces: 2,
+				evaluation: { outputDir: join(directory, "agentv") },
+				onEvolved: (result) => resolveEvolved(result),
+			},
+		});
+		class AutoNormalizer {
+			normalize(input: string): string { return input.toUpperCase(); }
+		}
+		instrumentTrainable(AutoNormalizer, "normalize", "autoNormalize");
+		const normalizer = new AutoNormalizer();
+		normalizer.normalize("alpha");
+		normalizer.normalize("beta");
+
+		const result = await evolved;
+		expect(errors).toEqual([]);
+		expect(result.training.outcome).toBe("ready");
 		expect(await readFile(artifact, "utf8")).toContain("return input.toUpperCase();");
 		expect(await readFile(artifact, "utf8")).toContain('"use training"');
 	});

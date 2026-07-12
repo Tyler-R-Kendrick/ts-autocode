@@ -58,9 +58,20 @@ export interface TracingSettings {
 	readonly attributes?: Attributes;
 }
 
+/** Background code evolution driven by captured traffic; disabled unless enabled here
+ * or via `ts-autocode/register`. Rewrites still pass the full gate before applying. */
+export interface EvolutionSettings {
+	readonly enabled?: boolean;
+	readonly minTraces?: number;
+	readonly objective?: string;
+	readonly evaluation?: Omit<EvalConfig, "specFile" | "target" | "task" | "tests">;
+	readonly onEvolved?: (result: EvolveResult) => void;
+}
+
 export interface TrainingSettings {
 	readonly engine?: TrainingEngine;
 	readonly executor?: ImplementationExecutor;
+	readonly evolution?: EvolutionSettings;
 	readonly source?: SourceSettings;
 	readonly store?: TrainingStore;
 	readonly secrets?: SecretProvider;
@@ -70,7 +81,7 @@ export interface TrainingSettings {
 	readonly tracing?: TracingSettings;
 	readonly idFactory?: () => string;
 	readonly now?: () => Date;
-	readonly onError?: (error: unknown, phase: "capture" | "store") => void;
+	readonly onError?: (error: unknown, phase: "capture" | "store" | "evolve") => void;
 }
 
 export interface OptimizeInput {
@@ -189,6 +200,42 @@ class TrainingRuntime implements Training {
 			throw new Error('candidate execution requires an executor; import "ts-autocode" or set TrainingSettings.executor');
 		}
 		return executor;
+	}
+
+	readonly #evolutionState = new Map<string, { running: boolean; queued: boolean; attempted: number }>();
+
+	#maybeEvolve(token: TrainableToken): void {
+		const evolution = this.#settings.evolution ?? defaultProviders.evolution;
+		if (evolution?.enabled !== true) return;
+		const state = this.#evolutionState.get(token.id) ?? { running: false, queued: false, attempted: 0 };
+		this.#evolutionState.set(token.id, state);
+		if (state.running) {
+			state.queued = true;
+			return;
+		}
+		state.running = true;
+		void (async () => {
+			await this.flush();
+			const minTraces = Math.max(1, evolution.minTraces ?? 3);
+			const successes = (await this.#store.list(token.id)).filter((record) => record.succeeded).length;
+			if (successes < state.attempted + minTraces) return;
+			state.attempted = successes;
+			const result = await this.evolve({
+				trainable: token,
+				objective: evolution.objective ?? "Preserve behavior observed in successful runtime traces",
+				minTraces,
+				...(evolution.evaluation === undefined ? {} : { evaluation: evolution.evaluation }),
+			});
+			evolution.onEvolved?.(result);
+		})()
+			.catch((error) => this.#settings.onError?.(error, "evolve"))
+			.finally(() => {
+				state.running = false;
+				if (state.queued) {
+					state.queued = false;
+					this.#maybeEvolve(token);
+				}
+			});
 	}
 
 	async records(identity?: TrainableIdentity): Promise<readonly TrainingRecord[]> {
@@ -509,6 +556,7 @@ class TrainingRuntime implements Training {
 				}),
 			};
 			this.#enqueue(this.#store.append(record));
+			if (error === undefined) this.#maybeEvolve(token);
 		} catch (captureError) {
 			this.#settings.onError?.(captureError, "capture");
 		}
@@ -537,6 +585,7 @@ export function configureTraining(settings: TrainingSettings = {}): Training {
 export interface TrainingProviders {
 	readonly engine?: () => TrainingEngine;
 	readonly executor?: ImplementationExecutor;
+	readonly evolution?: EvolutionSettings;
 }
 
 let defaultProviders: TrainingProviders = {};
@@ -563,6 +612,8 @@ export const training: Training = Object.freeze<Training>({
 	flush: () => runtime().flush(),
 });
 
+const wrappedMarker = Symbol.for("ts-autocode.wrapped");
+
 /** Decorator form: `@trainable()`. Identity is inferred from the decorated class and
  * method; pass a symbol (for example `defineTrainable("Router.route").symbol`) only
  * to override the inferred id. */
@@ -577,11 +628,44 @@ export function trainable(identity?: symbol): TrainableDecorator {
 	) {
 		const name = String(context.name);
 		let token = explicit;
-		return function (this: This, ...args: Args): Result {
+		const wrapped = function (this: This, ...args: Args): Result {
 			token ??= defineTrainable(`${inferredClassName(this) ?? "Anonymous"}.${name}`);
 			return runtime().invoke(this, method, args, token, name);
 		};
+		return markWrapped(wrapped);
 	};
+}
+
+/** Load-time instrumentation (`ts-autocode/register`): capture-wrap a directive-marked
+ * function. Idempotent — already-wrapped functions (decorator or register) pass through. */
+export function wrapTrainable<F extends (...args: never[]) => unknown>(fn: F, id: string): F {
+	if ((fn as Partial<Record<typeof wrappedMarker, boolean>>)[wrappedMarker]) return fn;
+	const token = defineTrainable(id);
+	const name = fn.name || token.id;
+	const method = fn as unknown as (this: unknown, ...args: unknown[]) => unknown;
+	const wrapped = function (this: unknown, ...args: unknown[]): unknown {
+		return runtime().invoke(this, method, args, token, name);
+	};
+	Object.defineProperty(wrapped, "name", { value: name, configurable: true });
+	return markWrapped(wrapped) as unknown as F;
+}
+
+/** Load-time instrumentation (`ts-autocode/register`): capture-wrap a directive-marked
+ * class method in place. Idempotent and tolerant of missing members. */
+export function instrumentTrainable(
+	owner: abstract new (...args: never[]) => unknown,
+	methodName: string,
+	id: string,
+): void {
+	const container = (Object.hasOwn(owner, methodName) ? owner : owner.prototype) as Record<string, unknown>;
+	const method = container?.[methodName];
+	if (typeof method !== "function") return;
+	container[methodName] = wrapTrainable(method as (...args: never[]) => unknown, id);
+}
+
+function markWrapped<F>(fn: F): F {
+	Object.defineProperty(fn, wrappedMarker, { value: true });
+	return fn;
 }
 
 function inferredClassName(thisValue: unknown): string | undefined {

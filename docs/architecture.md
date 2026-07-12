@@ -25,6 +25,21 @@ arguments, synchronous or asynchronous return behavior, and thrown errors.
 Captured traces use AgentV's `Trace`; spans use official OpenTelemetry and
 OpenInference APIs.
 
+## Zero-config runtime patch
+
+`ts-autocode/register` installs a `node:module` load hook that appends guarded
+instrumentation to every application module containing a `"use training"`
+directive, wiring each discovered class method or function declaration into the
+same capture path as the decorator. It also enables background evolution by
+default: after `evolution.minTraces` successful captures, the runtime runs the
+same `evolve()` pipeline — replay evals, candidate verification, promotion
+gate, guarded rewrite — off the hot path, reporting failures through
+`onError("evolve")`. Calls made during a module's own top-level evaluation
+precede its instrumentation; traffic after startup is captured. The training
+runtime itself lives in the provider-neutral `ts-autocode-training` package;
+`ts-autocode` wires Ax as the default engine and executor via
+`provideTrainingDefaults`.
+
 `evolve()` is the explicit runtime-to-source bridge. It converts distinct,
 successful captured inputs and outputs into official AgentV eval cases, replays
 them as the baseline, and evaluates generated TypeScript against those same
