@@ -35,6 +35,7 @@
 	"dependencies": {
 		"@microsoft/mxc-sdk": "^0.7.0",
 		"deepagents": "^1.10.7",
+		"effect": "^3.21.4",
 		"unstorage": "^1.17.5",
 		"zod": "^4.4.3"
 	},

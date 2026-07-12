@@ -232,6 +232,22 @@ Runtime dependencies enter through `TrainingSettings`:
 - `loop` replaces the default harness orchestration with any `TrainingLoop`.
 - `secrets` and `variables` are passed to engine factories without entering traces.
 - `store`, `capture`, and `tracing` configure recording globally.
+- `resilience` attaches named timeout/retry policies to runtime operations —
+  `propose` (the engine/LLM call), `evaluate` (each candidate execution inside
+  an eval run), and `store` (capture writes). A policy composes a per-attempt
+  `timeoutMs` (surfacing as a typed `OperationTimeoutError`) with jittered
+  exponential-backoff retries; operations without a policy behave exactly as
+  before. For example, to retry rate-limited proposals up to three times with
+  a 30-second cap per attempt:
+
+  ```ts
+  configureTraining({
+    resilience: {
+      propose: { timeoutMs: 30_000, retry: { attempts: 3 } },
+    },
+  });
+  ```
+
 - `source` overrides TypeScript project discovery when the default `tsconfig.json`
   is not the desired project.
 - `outputDir` relocates run artifacts and eval output (default `.agentv`,

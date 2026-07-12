@@ -10,6 +10,7 @@ import {
 
 import type { EngineContext, OptimizeRequest, TrainingEngine } from "ts-autocode-training";
 
+import { attempt, attemptAsync } from "../attempt.js";
 import { defaultExecutionTimeoutMs, executeImplementation } from "../execution.js";
 
 export { defaultExecutionTimeoutMs } from "../execution.js";
@@ -170,15 +171,14 @@ async function scoreImplementation(
 ): Promise<number> {
 	if (!prediction?.[field.output]?.trim()) return 0;
 	const args = JSON.parse(String(exampleValue[field.args] ?? "[]")) as unknown[];
-	try {
+	// A candidate that fails to run simply scores zero.
+	return attemptAsync(async () => {
 		const actual = await executeImplementation(request.target, prediction[field.output], args, {
 			timeoutMs: timeout,
 			...(signal === undefined ? {} : { signal }),
 		});
 		return outputText(actual) === String(exampleValue[field.expected] ?? "") ? 1 : 0;
-	} catch {
-		return 0;
-	}
+	}, () => 0);
 }
 
 async function service(value: Service | undefined, context: EngineContext): Promise<AxAIService> {
@@ -211,12 +211,10 @@ function argsFromMessages(messages: OptimizeRequest["evaluations"][number]["resu
 function argsFromContent(content: unknown): unknown[] | undefined {
 	const text = contentText(content);
 	if (text === undefined) return undefined;
-	try {
+	return attempt(() => {
 		const parsed = JSON.parse(text) as unknown;
 		return Array.isArray(parsed) ? parsed : [parsed];
-	} catch {
-		return [text];
-	}
+	}, () => [text]);
 }
 
 function contentText(content: unknown): string | undefined {

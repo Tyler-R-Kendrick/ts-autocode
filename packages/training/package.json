@@ -36,6 +36,7 @@
 		"@agentv/core": "^4.42.4",
 		"@arizeai/openinference-semantic-conventions": "^2.5.0",
 		"@opentelemetry/api": "^1.9.1",
+		"effect": "^3.21.4",
 		"typescript": "^5.9.3",
 		"zod": "^4.4.3"
 	},

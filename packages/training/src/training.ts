@@ -5,6 +5,7 @@ import { z } from "zod";
 import { OpenInferenceSpanKind, SemanticConventions } from "@arizeai/openinference-semantic-conventions";
 import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "@opentelemetry/api";
 
+import { attempt, errorMessage } from "./attempt.js";
 import {
 	CandidateEngine,
 	type BoundEvaluation,
@@ -13,6 +14,7 @@ import {
 	type SecretProvider,
 	type TrainingEngine,
 } from "./engine.js";
+import { withPolicy, type ResilienceSettings } from "./resilience.js";
 import { evaluateTrainable, type TrainableEvalRun } from "./evaluation.js";
 import { sequentialLoop, type TrainingLoop, type TrainingRound } from "./loop.js";
 import { evaluatePromotionGate, type PromotionDecision, type PromotionGate } from "./promotion.js";
@@ -82,8 +84,15 @@ export interface TrainingSettings {
 	readonly variables?: Readonly<Record<string, string>>;
 	readonly capture?: CaptureSettings;
 	readonly tracing?: TracingSettings;
-	readonly onError?: (error: unknown, phase: "capture" | "store" | "evolve") => void;
+	/** Timeout/retry policies for named runtime operations; operations without
+	 * a policy behave exactly as before. */
+	readonly resilience?: ResilienceSettings;
+	readonly onError?: (error: unknown, phase: ErrorPhase) => void;
 }
+
+/** Where a background failure was routed from: trace capture, store writes,
+ * or background evolution. These never fail the traced call itself. */
+export type ErrorPhase = "capture" | "store" | "evolve";
 
 export interface TrainInput {
 	readonly trainable: TrainableIdentity;
@@ -214,7 +223,7 @@ class TrainingRuntime implements Training {
 			}
 			evolution.onEvolved?.(await run.activate());
 		})()
-			.catch((error) => this.#settings.onError?.(error, "evolve"))
+			.catch(this.#report("evolve"))
 			.finally(() => {
 				state.running = false;
 				if (state.queued) {
@@ -244,11 +253,16 @@ class TrainingRuntime implements Training {
 		const evaluated = await evaluateTrainable(token, {
 			...evaluation,
 			task: async (input) => {
-				const output = await execute(
-					candidate.target,
-					candidate.implementation,
-					evaluationArgs(input),
-					signal === undefined ? {} : { signal },
+				const output = await withPolicy(
+					this.#settings.resilience?.evaluate,
+					"candidate.execute",
+					(attemptSignal) => execute(
+						candidate.target,
+						candidate.implementation,
+						evaluationArgs(input),
+						attemptSignal === undefined ? {} : { signal: attemptSignal },
+					),
+					signal,
 				);
 				return typeof output === "string" ? output : JSON.stringify(output) ?? String(output);
 			},
@@ -352,20 +366,25 @@ class TrainingRuntime implements Training {
 	}): Promise<CandidatePatch> {
 		const target = findTrainable(token.id, this.#settings.source);
 		const records = await this.records(token);
-		return this.#engineFor(input.engine).propose(
-			{
-				trainableId: token.id,
-				objective: input.objective,
-				target,
-				records,
-				evaluations: this.#evaluations.get(token.id) ?? [],
-				...(input.constraints.length === 0 ? {} : { constraints: input.constraints }),
-			},
-			{
-				variables: this.#variables,
-				...(this.#settings.secrets === undefined ? {} : { secrets: this.#settings.secrets }),
-				...(input.signal === undefined ? {} : { signal: input.signal }),
-			},
+		return withPolicy(
+			this.#settings.resilience?.propose,
+			"engine.propose",
+			(signal) => this.#engineFor(input.engine).propose(
+				{
+					trainableId: token.id,
+					objective: input.objective,
+					target,
+					records,
+					evaluations: this.#evaluations.get(token.id) ?? [],
+					...(input.constraints.length === 0 ? {} : { constraints: input.constraints }),
+				},
+				{
+					variables: this.#variables,
+					...(this.#settings.secrets === undefined ? {} : { secrets: this.#settings.secrets }),
+					...(signal === undefined ? {} : { signal }),
+				},
+			),
+			input.signal,
 		);
 	}
 
@@ -462,7 +481,7 @@ class TrainingRuntime implements Training {
 		}
 		const capture = this.#settings.capture ?? {};
 		if (capture.enabled === false) return;
-		try {
+		attempt(() => {
 			const spanContext = span?.spanContext();
 			const input = capture.mapInput ? capture.mapInput(args, token) : args;
 			const output = error === undefined
@@ -491,21 +510,27 @@ class TrainingRuntime implements Training {
 					...(error === undefined ? {} : { error: errorMessage(error) }),
 				}),
 			};
-			this.#enqueue(this.#store.append(record));
+			this.#enqueue(() => this.#store.append(record));
 			if (error === undefined) this.#maybeEvolve(token);
-		} catch (captureError) {
-			this.#settings.onError?.(captureError, "capture");
-		}
+		}, this.#report("capture"));
+	}
+
+	/** The boundary sink for background failures: every capture, store, and
+	 * evolution error funnels through here into `TrainingSettings.onError`. */
+	#report(phase: ErrorPhase): (error: unknown) => void {
+		return (error) => this.#settings.onError?.(error, phase);
 	}
 
 	#serialize(value: unknown): string {
 		return (this.#settings.capture?.serialize ?? defaultSerialize)(value);
 	}
 
-	#enqueue(write: Promise<void>): void {
-		const pending = write.catch((error) => this.#settings.onError?.(error, "store")).finally(() => {
-			this.#pending.delete(pending);
-		});
+	#enqueue(write: () => Promise<void>): void {
+		const pending = withPolicy(this.#settings.resilience?.store, "store.append", write)
+			.catch(this.#report("store"))
+			.finally(() => {
+				this.#pending.delete(pending);
+			});
 		this.#pending.add(pending);
 	}
 }
@@ -570,24 +595,14 @@ function isPromise<T>(value: T): value is T & Promise<Awaited<T>> {
 
 function defaultSerialize(value: unknown): string {
 	if (typeof value === "string") return value;
-	try {
-		return JSON.stringify(value) ?? String(value);
-	} catch {
-		return String(value);
-	}
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+	return attempt(() => JSON.stringify(value) ?? String(value), () => String(value));
 }
 
 function evaluationArgs(input: string): readonly unknown[] {
-	try {
+	return attempt(() => {
 		const parsed = JSON.parse(input) as unknown;
 		return Array.isArray(parsed) ? parsed : [parsed];
-	} catch {
-		return [input];
-	}
+	}, () => [input]);
 }
 
 function liveEvalCases(records: readonly TrainingRecord[]): readonly EvalTestInput[] {

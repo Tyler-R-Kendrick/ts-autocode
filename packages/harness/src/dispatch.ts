@@ -1,3 +1,6 @@
+import { Cause, Effect, Exit } from "effect";
+
+import { errorMessage } from "./attempt.js";
 import type { WriteAheadAgentBus } from "./bus.js";
 import type { AgentBusEntry } from "./schema.js";
 
@@ -14,6 +17,7 @@ export type ActionGate = (
 ) => JudgeDecision | Promise<JudgeDecision>;
 
 export class AgentActionDeniedError extends Error {
+	readonly _tag = "AgentActionDenied" as const;
 	readonly action: AgentBusEntry;
 
 	constructor(action: AgentBusEntry) {
@@ -42,7 +46,8 @@ export function recordDecision(
 /** The write-ahead convention, layered on top of the plain message bus:
  * record the intent, ask the gate, record the verdict as the judge's own
  * message, execute only after a pass, and record the outcome. Without a gate
- * the action is logged and executed. */
+ * the action is logged and executed. Failure records are best-effort taps —
+ * the gate or execution error stays the outcome, rethrown as itself. */
 export async function dispatchAction<T>(
 	bus: WriteAheadAgentBus,
 	actor: string,
@@ -53,34 +58,33 @@ export async function dispatchAction<T>(
 ): Promise<T> {
 	const agent = bus.agent(actor);
 	const action = await agent(kind, payload);
-	if (gate) {
-		let decision: JudgeDecision;
-		try {
-			decision = await gate(action, await bus.read());
-		} catch (error) {
-			// The gate error is the outcome; a failing failure record must not replace it.
-			await agent(failureOf(kind), { actionId: action.id, stage: "gate", message: errorMessage(error) })
-				.catch(() => undefined);
-			throw error;
+	const recordFailure = (error: unknown, detail: Readonly<Record<string, unknown>>) =>
+		Effect.ignore(promised(() => agent(failureOf(kind), { actionId: action.id, ...detail, message: errorMessage(error) })));
+	const program = Effect.gen(function* () {
+		if (gate) {
+			const decision = yield* promised(async () => gate(action, await bus.read())).pipe(
+				Effect.tapError((error) => recordFailure(error, { stage: "gate" })),
+			);
+			yield* promised(() => recordDecision(bus, { subject: "action", actionId: action.id, decision }));
+			if (decision === "fail") return yield* Effect.fail(new AgentActionDeniedError(action));
 		}
-		await recordDecision(bus, { subject: "action", actionId: action.id, decision });
-		if (decision === "fail") throw new AgentActionDeniedError(action);
-	}
-	let result: T;
-	try {
-		result = await execute();
-	} catch (error) {
-		// Likewise: the execution error is the outcome, recorded best-effort.
-		await agent(failureOf(kind), { actionId: action.id, message: errorMessage(error) })
-			.catch(() => undefined);
-		throw error;
-	}
-	// Recorded after the fact, outside the catch: a failing completion append
-	// surfaces as a bus error, never as a failed action.
-	await agent(completionOf(kind), { actionId: action.id, result });
-	return result;
+		const result = yield* promised(async () => execute()).pipe(
+			Effect.tapError((error) => recordFailure(error, {})),
+		);
+		// Recorded outside the failure tap: a failing completion append surfaces
+		// as a bus error, never as a failed action.
+		yield* promised(() => agent(completionOf(kind), { actionId: action.id, result }));
+		return result;
+	});
+	return runUnwrapped(program);
 }
 
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+const promised = <A>(fn: () => Promise<A>) => Effect.tryPromise({ try: fn, catch: (error) => error });
+
+/** Settles the pipeline into promise semantics, rejecting with the original
+ * error rather than Effect's fiber wrapper. */
+async function runUnwrapped<T>(effect: Effect.Effect<T, unknown>): Promise<T> {
+	const exit = await Effect.runPromiseExit(effect);
+	if (Exit.isSuccess(exit)) return exit.value;
+	throw Cause.squash(exit.cause);
 }
