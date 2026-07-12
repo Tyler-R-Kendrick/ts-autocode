@@ -1,16 +1,17 @@
-import { appendFile, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { Volume } from "memfs";
+import { createStorage } from "unstorage";
+import fsDriver from "unstorage/drivers/fs";
+
 import {
 	AgentActionDeniedError,
 	createHarnessPolicy,
 	defineTrainingHarness,
 	dispatchAction,
-	JsonlBusStore,
 	MxcSandbox,
 	WriteAheadAgentBus,
 	type AgentBusEntry,
@@ -157,23 +158,16 @@ describe("training harness", () => {
 		await expect(bus.read("student")).rejects.toThrow("refused read");
 	});
 
-	it("accepts any store implementation and resumes its sequence numbering", async () => {
-		// A hand-rolled store standing in for memory, disk, or a remote service.
-		const remote: AgentBusEntry[] = [];
-		const bus = new WriteAheadAgentBus({
-			store: {
-				append: async (entry) => {
-					remote.push(entry);
-				},
-				load: async () => [...remote],
-			},
-		});
-
-		await bus.append({ actor: "student", kind: "test.first" });
-		remote.push({ ...remote[0]!, sequence: 7 as AgentBusEntry["sequence"] });
-		const appended = await bus.append({ actor: "student", kind: "test.second" });
-		expect(appended.sequence).toBe(2);
-		expect(remote).toHaveLength(3);
+	it("accepts any unstorage driver and resumes its sequence numbering", async () => {
+		// The memory driver stands in for fs, redis, or any other driver.
+		const storage = createStorage();
+		const first = new WriteAheadAgentBus({ storage });
+		const initial = await first.append({ actor: "student", kind: "test.first" });
+		// Another writer advanced the shared log; a new bus resumes behind it.
+		await storage.setItem("entry:7", { ...initial, sequence: 7 });
+		const appended = await new WriteAheadAgentBus({ storage }).append({ actor: "student", kind: "test.second" });
+		expect(appended.sequence).toBe(8);
+		expect(await storage.getKeys("entry")).toHaveLength(3);
 	});
 
 	it("hands actors provider-shaped context instead of the raw log", async () => {
@@ -200,26 +194,13 @@ describe("training harness", () => {
 		expect((await callbacks.bus.read()).length).toBeGreaterThan(1);
 	});
 
-	it("continues sequence numbers and recovers an incomplete trailing entry", async () => {
-		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-bus-recovery-"));
-		const file = join(directory, "actions.jsonl");
-		const first = new WriteAheadAgentBus({ store: new JsonlBusStore(file) });
+	it("persists through the fs driver and continues sequence numbers across buses", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-bus-fs-"));
+		const first = new WriteAheadAgentBus({ storage: createStorage({ driver: fsDriver({ base: directory }) }) });
 		await dispatchAction(first, "student", "first", {}, () => "pass", async () => "one");
-		const second = new WriteAheadAgentBus({ store: new JsonlBusStore(file) });
+		const second = new WriteAheadAgentBus({ storage: createStorage({ driver: fsDriver({ base: directory }) }) });
 		await dispatchAction(second, "teacher", "second", {}, () => "pass", async () => "two");
-		await appendFile(file, "{\"incomplete\"", "utf8");
 		expect((await second.read()).map(({ sequence }) => sequence)).toEqual([1, 2, 3, 4, 5, 6]);
-	});
-
-	it("runs the same store over any filesystem — a memfs volume standing in for disk", async () => {
-		const volume = new Volume();
-		const first = new WriteAheadAgentBus({ store: new JsonlBusStore("/bus/actions.jsonl", volume.promises) });
-		await first.append({ actor: "student", kind: "test.first" });
-		// A second bus over the same volume resumes where the first left off.
-		const second = new WriteAheadAgentBus({ store: new JsonlBusStore("/bus/actions.jsonl", volume.promises) });
-		const appended = await second.append({ actor: "teacher", kind: "test.second" });
-		expect(appended.sequence).toBe(2);
-		expect(volume.toJSON()["/bus/actions.jsonl"]).toContain("test.first");
 	});
 
 	it("gates sandbox file actions and keeps the bus outside writable workspaces", async () => {

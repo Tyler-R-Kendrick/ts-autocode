@@ -18,7 +18,7 @@ provideTrainingDefaults({
 });
 configureRewriteCapture();
 
-export { createHarnessLoop, defaultActionLogFile } from "./providers/harness.js";
+export { createHarnessLoop, defaultActionLogDir } from "./providers/harness.js";
 export type { HarnessLoopOptions } from "./providers/harness.js";
 export { defaultContextWindow, windowedContext } from "./providers/context.js";
 export { configureRewriteCapture, rewritePromotion } from "./providers/rewrite.js";

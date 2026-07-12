@@ -237,11 +237,11 @@ Runtime dependencies enter through `TrainingSettings`:
 - `outputDir` relocates run artifacts and eval output (default `.agentv`,
   exported as `defaultOutputDir`); a run's `EvalConfig.outputDir` still
   overrides it. Every `createHarnessLoop` collaborator is injectable:
-  `bus` builds the run's message bus (replacing the default file-backed
-  write-ahead log named by `actionLogFile` inside that directory), `judge`
-  gates every harness action and verdict, and `contextProvider` replaces the
-  default rolling-window context management (`windowedContext`) — for example
-  with a rolling-summary reducer.
+  `storage` builds the [unstorage](https://unstorage.unjs.io) instance backing
+  a run's write-ahead bus with any driver (unset, the fs driver under
+  `<outputDir>/harness-actions`), `judge` gates every harness action and
+  verdict, and `contextProvider` replaces the default rolling-window context
+  management (`windowedContext`) — for example with a rolling-summary reducer.
 
 AgentV's `workers` option parallelizes live-trace and candidate evals. Independent
 trainables can be trained concurrently by the application, while the configured

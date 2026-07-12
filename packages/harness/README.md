@@ -47,7 +47,9 @@ and a bespoke rubric revision:
 
 ```ts
 import { join } from "node:path";
-import { defineTrainingHarness, JsonlBusStore, WriteAheadAgentBus } from "ts-autocode-harness";
+import { defineTrainingHarness, WriteAheadAgentBus } from "ts-autocode-harness";
+import { createStorage } from "unstorage";
+import fsDriver from "unstorage/drivers/fs";
 
 const harness = defineTrainingHarness<Candidate, Assessment, string>({
   maxRounds: 3,
@@ -55,7 +57,7 @@ const harness = defineTrainingHarness<Candidate, Assessment, string>({
 });
 
 const result = await harness.run({
-  bus: new WriteAheadAgentBus({ store: new JsonlBusStore(join(root, "actions.jsonl")) }),
+  bus: new WriteAheadAgentBus({ storage: createStorage({ driver: fsDriver({ base: join(root, "actions") }) }) }),
   task: { objective, target },
   rubric: "The candidate must pass AgentV and preserve its public contract.",
   student: myStudent,
@@ -80,19 +82,15 @@ identity, ordering, and time, and `read(actor?)` returns the full history. An
 optional `allow` hook decides whether a given append or read may proceed.
 Configure `redact` when payloads may contain sensitive application data.
 
-Storage is pluggable at two standard seams. `AgentBusStore` — anything with
-`append(entry)` and `load()` — is the entry-level seam for services that store
-entries natively (a database, a queue). The shipped implementation is
-`JsonlBusStore`: an append-only JSONL log (synced per append, resilient to an
-incomplete trailing line) written through `BusFileSystem`, the slice of the
-standard `node:fs/promises` API it uses. That filesystem seam is the
-TypeScript ecosystem's equivalent of C#'s `IFileProvider` or Python's fsspec:
-inject `node:fs/promises` for disk (the default), a [memfs](https://www.npmjs.com/package/memfs)
-volume's `.promises` for memory (`JsonlBusStore.inMemory()` does exactly
-this, and is what a bus uses when given no store), or any compatible
-implementation for remote storage. Messages and entries are parsed at the
-boundary with zod schemas (`agentMessage`, `agentBusEntry`), so malformed
-values never enter the log.
+Storage is [unstorage](https://unstorage.unjs.io) — the bus owns no storage
+logic of its own. Pass any unstorage instance through
+`AgentBusSettings.storage` and pick the driver that fits the deployment:
+memory (the default when unset), fs, redis, http, cloud KV, and the rest of
+the driver ecosystem. Entries live under the `entry:*` keys of that storage;
+a bus expects sole write access to them, so mount or prefix a shared storage
+rather than pointing two writers at the same keys. Messages and entries are
+parsed at the boundary with zod schemas (`agentMessage`, `agentBusEntry`), so
+malformed values never enter the log.
 
 The bus does **no context management** — no trailing windows, no truncation.
 Shaping history into actor context is the consumer's job through
