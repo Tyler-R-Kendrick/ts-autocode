@@ -118,12 +118,16 @@ and the evidence convention's verdicts are appended the same way.
 
 `HarnessSandbox` is a Deep-Agents-compatible sandbox backend. Every
 execute/upload/download operation is dispatched through the bus as the
-configured `actor`, gated when a `gate` is supplied. The sandbox enforces its
-own policy: writes are confined to the workspace; network, local-network, UI,
-clipboard, and input access are denied by default; and `protectedPaths` (for
-example a file-backed bus log) must lie outside every writable sandbox
-workspace. Add `allowedHosts` only when a sandboxed tool genuinely needs
-outbound access.
+configured `actor`, gated when a `gate` is supplied. When no `policy` is
+given, the sandbox builds the harness's default policy with
+`createSandboxPolicy`: writes confined to the workspace; network,
+local-network, UI, clipboard, and input access all denied; and the policy
+schema version taken from the installed `@microsoft/mxc-sdk`. The default is
+a starting point, not a requirement — pass any `SandboxPolicy` as `policy`
+(including one built by spreading over `createSandboxPolicy`'s result) to
+grant different access. `protectedPaths` (for example a file-backed bus log)
+must lie outside every writable sandbox path. Add `allowedHosts` only when a
+sandboxed tool genuinely needs outbound access.
 
 ```ts
 import { HarnessSandbox, WriteAheadAgentBus } from "ts-autocode-harness";
