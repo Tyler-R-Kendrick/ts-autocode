@@ -203,7 +203,8 @@ configured promotion policy.
 Training rounds run through the provider-neutral `TrainingLoop` contract.
 This package registers `createHarnessLoop()` as the default, so
 `ts-autocode-harness` owns bounded rounds, feedback, cancellation, and stall
-detection. Training reviews serve as the harness's evidence: a candidate
+detection. By default, training reviews serve as the harness's evidence — a
+configured judge may decide differently: a candidate
 passes exactly when its review reports no gate failures, accepted candidates
 are re-reviewed by an isolated adversary, and a standing challenge tightens
 the rubric before the next round. Baseline results are never treated as proof

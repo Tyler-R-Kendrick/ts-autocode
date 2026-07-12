@@ -6,6 +6,7 @@ import {
 	WriteAheadAgentBus,
 	type ContextProvider,
 	type JudgeDecision,
+	type JudgeRequest,
 } from "ts-autocode-harness";
 import type { CandidatePatch, CandidateReview, TrainingLoop, TrainingLoopInput } from "ts-autocode-training";
 
@@ -28,7 +29,9 @@ export interface HarnessLoopOptions {
 	/** Gates every harness action and verdict. Unset, the harness's evidence
 	 * convention decides — equivalent here, because training promotes a
 	 * candidate exactly when its review reports no gate failures. */
-	readonly judge?: (input: unknown) => JudgeDecision | Promise<JudgeDecision>;
+	readonly judge?: (
+		request: JudgeRequest<CandidatePatch, CandidateReview, string, CandidateReview>,
+	) => JudgeDecision | Promise<JudgeDecision>;
 }
 
 /** Adapts the governed ts-autocode-harness loop to the provider-neutral

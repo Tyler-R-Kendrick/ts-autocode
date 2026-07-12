@@ -37,10 +37,13 @@ export interface RubricRevision<TFeedback> {
 	readonly feedback: readonly TFeedback[];
 }
 
-export type JudgeRequest<TCandidate, TAssessment, TChallenge> =
+/** Every request carries the evidence the default verdicts weigh, so a
+ * configured judge can apply the same convention even when its bus context is
+ * windowed or redacted. */
+export type JudgeRequest<TCandidate, TAssessment, TFeedback, TChallenge> =
 	| Readonly<{ subject: "action"; action: AgentBusEntry; context: readonly AgentBusEntry[] }>
-	| Readonly<{ subject: "candidate"; task: unknown; candidate: TCandidate; assessment: TAssessment; rubric: string; context: readonly AgentBusEntry[] }>
-	| Readonly<{ subject: "adversary"; task: unknown; candidate: TCandidate; challenge: TChallenge; rubric: string; context: readonly AgentBusEntry[] }>;
+	| Readonly<{ subject: "candidate"; task: unknown; candidate: TCandidate; assessment: TAssessment; feedback: readonly TFeedback[]; rubric: string; context: readonly AgentBusEntry[] }>
+	| Readonly<{ subject: "adversary"; task: unknown; candidate: TCandidate; challenge: TChallenge; feedback: readonly TFeedback[]; rubric: string; context: readonly AgentBusEntry[] }>;
 
 export interface HarnessRound<TCandidate, TAssessment, TChallenge> {
 	readonly round: number;
@@ -76,7 +79,9 @@ export interface HarnessInput<TCandidate, TAssessment, TFeedback, TChallenge> {
 	readonly bus?: WriteAheadAgentBus;
 	/** Gates every action and verdict. When unset, actions are logged ungated
 	 * and verdicts follow the evidence convention above. */
-	readonly judge?: (input: unknown) => JudgeDecision | Promise<JudgeDecision>;
+	readonly judge?: (
+		request: JudgeRequest<TCandidate, TAssessment, TFeedback, TChallenge>,
+	) => JudgeDecision | Promise<JudgeDecision>;
 	/** Challenges candidates the judge accepted. When unset, a passing
 	 * candidate is accepted without adversarial review. */
 	readonly adversary?: (
@@ -141,7 +146,7 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 				dispatchAction(bus, actor, kind, payload, gate, execute);
 			const decide = async (
 				payload: Readonly<Record<string, unknown>>,
-				request: JudgeRequest<TCandidate, TAssessment, TChallenge>,
+				request: JudgeRequest<TCandidate, TAssessment, TFeedback, TChallenge>,
 				fallback: () => JudgeDecision,
 			): Promise<JudgeDecision> => {
 				const decision = judge === undefined
@@ -179,6 +184,7 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 					task: input.task,
 					candidate,
 					assessment: assessment.assessment,
+					feedback: assessment.feedback,
 					rubric,
 					context: [],
 				}, () => assessment.feedback.length === 0 ? "pass" : "fail");
@@ -207,6 +213,7 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 					task: input.task,
 					candidate,
 					challenge: challenge.challenge,
+					feedback: challenge.feedback,
 					rubric,
 					context: [],
 				}, () => challenge.feedback.length > 0 ? "pass" : "fail");
@@ -226,6 +233,7 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 						context: await provide(await bus.read()),
 						...(input.signal === undefined ? {} : { signal: input.signal }),
 					}));
+				input.signal?.throwIfAborted();
 				const revised: string = rubricText.parse(revision.rubric);
 				if (revised === rubric) throw new Error("teacher must improve the rubric after an approved adversarial challenge");
 				rubric = revised;
