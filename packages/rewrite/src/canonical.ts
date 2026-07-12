@@ -8,6 +8,11 @@ export function digest(value: unknown): string {
 	return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
 }
 
+/** Invariant guard: throws with `message` when `condition` fails, narrowing on success. */
+export function check(condition: unknown, message: string): asserts condition {
+	if (!condition) throw new Error(message);
+}
+
 export function isNonEmptyString(value: unknown): value is string {
 	return typeof value === "string" && value.trim().length > 0;
 }

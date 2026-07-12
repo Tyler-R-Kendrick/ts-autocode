@@ -1,4 +1,4 @@
-import { digest } from "./canonical.js";
+import { check, digest } from "./canonical.js";
 
 /** The discovered method-body span a candidate may replace. Structural subset of
  * ts-autocode-training's TrainableTarget so either package's targets apply. */
@@ -21,11 +21,9 @@ export interface RewriteCandidate {
 /** Replace exactly the discovered method body if it has not changed. */
 export function applyCandidate(source: string, candidate: RewriteCandidate): string {
 	const { target } = candidate;
-	if (target.id !== candidate.trainableId) throw new Error("candidate target must match its trainable id");
+	check(target.id === candidate.trainableId, "candidate target must match its trainable id");
 	const current = source.slice(target.bodyStart, target.bodyEnd);
-	if (digest(current) !== target.bodyDigest) {
-		throw new Error(`trainable method changed after optimization started: ${target.id}`);
-	}
+	check(digest(current) === target.bodyDigest, `trainable method changed after optimization started: ${target.id}`);
 	const replacement = formatImplementation(candidate.implementation, target.indentation, source);
 	return `${source.slice(0, target.bodyStart)}${replacement}${source.slice(target.bodyEnd)}`;
 }

@@ -1,4 +1,5 @@
 import { applyCandidate, type RewriteCandidate } from "./apply.js";
+import { check } from "./canonical.js";
 
 /** Structural subset of ts-autocode-training's PromotionDecision. */
 export interface RewriteApproval {
@@ -29,9 +30,7 @@ export function promoteCandidate({
 	candidate: RewriteCandidate;
 	decision: RewriteApproval;
 }): PromotionResult {
-	if (!decision.promote || decision.candidateId !== candidate.id) {
-		throw new Error("candidate has not passed the promotion gate");
-	}
+	check(decision.promote && decision.candidateId === candidate.id, "candidate has not passed the promotion gate");
 	const updated = applyCandidate(source, candidate);
 	const previous = source.slice(candidate.target.bodyStart, candidate.target.bodyEnd);
 	const promotedLength = updated.length - source.length + previous.length;
@@ -50,8 +49,6 @@ export function promoteCandidate({
 
 export function revertPromotion(source: string, snapshot: PromotionSnapshot): string {
 	const endOffset = snapshot.startOffset + snapshot.promoted.length;
-	if (source.slice(snapshot.startOffset, endOffset) !== snapshot.promoted) {
-		throw new Error("promoted method changed before revert");
-	}
+	check(source.slice(snapshot.startOffset, endOffset) === snapshot.promoted, "promoted method changed before revert");
 	return `${source.slice(0, snapshot.startOffset)}${snapshot.previous}${source.slice(endOffset)}`;
 }

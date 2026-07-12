@@ -1,16 +1,14 @@
 import { registerHooks } from "node:module";
 import { fileURLToPath } from "node:url";
 
+import { installInstrumentation } from "ts-autocode-rewrite";
 import { instrumentTrainable, provideTrainingDefaults, wrapTrainable } from "ts-autocode-training";
 
-import { augmentSource, instrumentKey } from "./register/hook.js";
+import { augmentSource } from "./register/hook.js";
 // Importing the package entry wires the Ax engine and executor defaults.
 import "./index.js";
 
-(globalThis as Record<symbol, unknown>)[Symbol.for(instrumentKey)] = Object.freeze({
-	method: instrumentTrainable,
-	wrap: wrapTrainable,
-});
+installInstrumentation({ method: instrumentTrainable, wrap: wrapTrainable });
 
 const evolveFlag = (process.env["TS_AUTOCODE_EVOLVE"] ?? "").trim().toLowerCase();
 if (!["0", "false", "off"].includes(evolveFlag)) {
