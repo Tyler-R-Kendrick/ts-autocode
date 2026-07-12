@@ -75,9 +75,10 @@ class Router {
 }
 ```
 
-The inferred identity above is `Router.route`. Passing an identity is optional
-and takes a symbol, for callers that need a durable id detached from the class
-name:
+When no symbol is passed, one is auto-generated for the decorated method: the
+identity above is `Router.route`, and `defineTrainable("Router.route").symbol`
+recreates its stable symbol anywhere. Pass a symbol explicitly for a durable
+id detached from the class name:
 
 ```ts
 import { defineTrainable, trainable } from "ts-autocode";
@@ -93,13 +94,20 @@ class Router {
 ```
 
 A token contains a durable string id and stable `Symbol.for(...)` symbol. The
-same id binds the method, captures, AgentV results, optimizer candidate, and
-promotion decision.
+same symbol binds the method, its captures, AgentV results, optimizer
+candidate, and promotion decision — so evals, tests, and training reuse it to
+target exactly this trainable, binding evals to a training target at test time
+instead of only iterating during runtime.
 
 ## Train and promote
 
 AgentV owns eval definitions, graders, traces, scores, and result types. The
 `training` export is ready to use without any setup call.
+
+`train` takes the trainable's symbol (or its full token), never a raw string.
+Reusing `route.symbol` — the same symbol passed to `@trainable(route.symbol)`
+above — pins these evals to that exact method; for an auto-generated identity,
+`defineTrainable("Router.route").symbol` recreates the symbol.
 
 ```ts
 import { training } from "ts-autocode";
@@ -118,7 +126,7 @@ const tests = [
 ];
 
 const run = await training.train({
-  trainable: "Router.route",
+  trainable: route.symbol,
   objective: "Preserve correct billing and fallback routing",
   evaluation: {
     tests,

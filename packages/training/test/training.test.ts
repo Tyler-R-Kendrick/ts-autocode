@@ -54,13 +54,20 @@ describe("trainable identity", () => {
 		applyMethodDecorator(InferredRouter, "route", trainable());
 
 		expect(new InferredRouter().route("billing")).toBe("billing");
-		const [record] = await defaultTraining.records("InferredRouter.route");
+		// The auto-generated symbol is recreatable, so tests can target the trainable.
+		const [record] = await defaultTraining.records(defineTrainable("InferredRouter.route").symbol);
 		expect(record?.trainableId).toBe("InferredRouter.route");
 		expect(record?.succeeded).toBe(true);
 	});
 
 	it("rejects non-symbol decorator identities", () => {
 		expect(() => trainable("Router.route" as never)).toThrow("must be a symbol");
+	});
+
+	it("rejects string identities in training APIs", async () => {
+		await expect(defaultTraining.records("Router.route" as never)).rejects.toThrow(
+			"must be a symbol or TrainableToken",
+		);
 	});
 
 	it("instruments classes in place for capture without the decorator", async () => {
@@ -72,7 +79,7 @@ describe("trainable identity", () => {
 		instrumentTrainable(Plain, "route", "Plain.route");
 
 		expect(new Plain().route("billing")).toBe("billing");
-		const records = await defaultTraining.records("Plain.route");
+		const records = await defaultTraining.records(defineTrainable("Plain.route"));
 		expect(records).toHaveLength(1);
 		expect(records[0]?.trainableId).toBe("Plain.route");
 	});
@@ -92,7 +99,7 @@ describe("trainable method capture", () => {
 
 		expect(new Router().route("billing")).toBe("billing");
 		expect(startActiveSpan).not.toHaveBeenCalled();
-		expect(await training.records("Router.route")).toEqual([]);
+		expect(await training.records(defineTrainable("Router.route"))).toEqual([]);
 	});
 
 	it("lets capture mappers redact values to undefined", async () => {
@@ -103,10 +110,11 @@ describe("trainable method capture", () => {
 		class Router {
 			route(input: string): string { return input; }
 		}
-		applyMethodDecorator(Router, "route", trainable(defineTrainable("Router.redacted").symbol));
+		const redacted = defineTrainable("Router.redacted");
+		applyMethodDecorator(Router, "route", trainable(redacted.symbol));
 
 		expect(new Router().route("secret-input")).toBe("secret-input");
-		const [record] = await training.records("Router.redacted");
+		const [record] = await training.records(redacted.symbol);
 		expect(record?.succeeded).toBe(true);
 		expect(JSON.stringify(record)).not.toContain("secret-input");
 	});
@@ -121,7 +129,7 @@ describe("trainable method capture", () => {
 		applyMethodDecorator(Router, "fail", trainable());
 
 		await expect(new Router().fail()).rejects.toThrow("boom");
-		const [record] = await training.records("Router.fail");
+		const [record] = await training.records(defineTrainable("Router.fail"));
 		expect(record?.succeeded).toBe(false);
 		expect(record?.trace.errorCount).toBe(1);
 	});
@@ -144,7 +152,7 @@ describe("training execution", () => {
 		const training = configureTraining({ engine, concurrency: 2 });
 
 		await training.optimizeAll(["one", "two"].map((objective) => ({
-			trainable: "Router.route",
+			trainable: defineTrainable("Router.route").symbol,
 			objective,
 			target,
 		})));
@@ -172,13 +180,14 @@ describe("training execution", () => {
 		class RuntimeNormalizer {
 			normalize(input: string): string { return input.toUpperCase(); }
 		}
-		applyMethodDecorator(RuntimeNormalizer, "normalize", trainable(defineTrainable("liveNormalize").symbol));
+		const liveNormalize = defineTrainable("liveNormalize");
+		applyMethodDecorator(RuntimeNormalizer, "normalize", trainable(liveNormalize.symbol));
 		const normalize = new RuntimeNormalizer();
 		normalize.normalize("alpha");
 		normalize.normalize("beta");
 
 		const result = await training.evolve({
-			trainable: "liveNormalize",
+			trainable: liveNormalize.symbol,
 			objective: "Preserve behavior observed in live traces",
 			minTraces: 2,
 			evaluation: { workers: 2, outputDir: join(directory, "agentv") },
@@ -245,7 +254,7 @@ describe("training execution", () => {
 		});
 
 		const run = await training.train({
-			trainable: "echo",
+			trainable: defineTrainable("echo").symbol,
 			objective: "Uppercase the input",
 			conformance: false,
 			evaluation: {
@@ -264,11 +273,12 @@ describe("training execution", () => {
 		class Router {
 			route(input: string): string { return input; }
 		}
-		applyMethodDecorator(Router, "route", trainable(defineTrainable("Router.live").symbol));
+		const live = defineTrainable("Router.live");
+		applyMethodDecorator(Router, "route", trainable(live.symbol));
 		new Router().route("one");
 
 		await expect(training.evolve({
-			trainable: "Router.live",
+			trainable: live.symbol,
 			objective: "Improve routing",
 			minTraces: 2,
 		})).rejects.toThrow("requires 2 distinct successful runtime traces; found 1");
