@@ -7,7 +7,7 @@ import {
 	type CandidatePatch,
 	type TrainingEngine,
 } from "../src/index.js";
-import { optimizeCandidate } from "../src/engine.js";
+import { CandidateEngine } from "../src/engine.js";
 import { discoverInSource } from "../src/source.js";
 
 const source = `class Router {
@@ -20,7 +20,7 @@ const token = defineTrainable("Router.route");
 const target = discoverInSource(source, "src/router.ts")[0]!;
 
 describe("provider-neutral engine", () => {
-	it("passes settings and wraps a minimal engine result as a candidate", async () => {
+	it("composes the strategy and wraps a minimal engine result as a candidate", async () => {
 		const engine: TrainingEngine = {
 			id: "test-engine",
 			async optimize(request, context) {
@@ -31,8 +31,7 @@ describe("provider-neutral engine", () => {
 			},
 		};
 
-		const candidate = await optimizeCandidate(
-			engine,
+		const candidate = await new CandidateEngine(engine).propose(
 			{ trainableId: token.id, objective: "uppercase", target, records: [], evaluations: [] },
 			{
 				variables: { MODEL: "test-model" },
@@ -62,8 +61,7 @@ describe("provider-neutral engine", () => {
 			id: "invalid",
 			async optimize() { return { implementation: "return (" }; },
 		};
-		await expect(optimizeCandidate(
-			engine,
+		await expect(new CandidateEngine(engine).propose(
 			{ trainableId: token.id, objective: "break it", target, records: [], evaluations: [] },
 			{ variables: {} },
 		)).rejects.toThrow("invalid TypeScript");

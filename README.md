@@ -240,10 +240,13 @@ box, and `configureTraining(settings)` only overrides its settings. The default
 Ax implementation reads `OPENAI_API_KEY` from the configured secret provider or
 process environment.
 All cross-package wiring lives in this root package: importing `ts-autocode`
-connects `ts-autocode-rewrite` (weaving, guarded promotion) and
-`ts-autocode-harness` (governed rounds) into `ts-autocode-training`'s provider
-ports via `provideTrainingDefaults`. The sibling packages never import each
-other, so any structurally compatible implementation can replace them.
+connects `ts-autocode-rewrite` (interception into runtime capture, the guarded
+promotion applier) and `ts-autocode-harness` (governed rounds) into
+`ts-autocode-training`'s provider slots. The training package itself has no
+knowledge of weaving or rewriting; the `trainable` decorator and load-time
+instrumentation live here, next to that wiring. The sibling packages never
+import each other, so any structurally compatible implementation can replace
+them.
 Provider-specific Ax tuning remains isolated to the optional `ts-autocode/ax`
 adapter and is passed through the provider-neutral `engine` slot.
 

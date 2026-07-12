@@ -1,18 +1,18 @@
 export {
+	captureTrainable,
 	configureTraining,
 	defaultEvolution,
 	defaultObjective,
 	defaultOutputDir,
-	instrumentTrainable,
 	provideTrainingDefaults,
-	trainable,
 	training,
-	wrapTrainable,
 } from "./training.js";
 export type {
 	Activation,
+	AppliedPromotion,
 	CaptureSettings,
 	EvolutionSettings,
+	PromotionApplier,
 	TrainInput,
 	Training,
 	TrainingProviders,
@@ -32,15 +32,7 @@ export type {
 	TrainingRound,
 } from "./loop.js";
 
-export type {
-	MethodWeaver,
-	PromotionResult,
-	PromotionSnapshot,
-	SourcePromoter,
-	WeaveInvocation,
-} from "./ports.js";
-
-export { defineTrainable } from "./token.js";
+export { defineTrainable, trainableTokenFromSymbol } from "./token.js";
 export type { TrainableId, TrainableIdentity, TrainableToken } from "./token.js";
 
 export { defaultTsconfig, discoverInSource, discoverTrainables, inMemoryArtifactRef, trainingMarker } from "./source.js";

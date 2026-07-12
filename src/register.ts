@@ -2,11 +2,12 @@ import { registerHooks } from "node:module";
 import { fileURLToPath } from "node:url";
 
 import { installInstrumentation } from "ts-autocode-rewrite";
-import { instrumentTrainable, provideTrainingDefaults, wrapTrainable } from "ts-autocode-training";
+import { provideTrainingDefaults } from "ts-autocode-training";
 
+import { instrumentTrainable, wrapTrainable } from "./instrumentation.js";
 import { augmentSource } from "./register/hook.js";
-// Importing the package entry wires the Ax engine and executor defaults plus
-// the rewrite weaver, source promoter, and harness loop into training's ports.
+// Importing the package entry wires the Ax engine and executor defaults, the
+// harness loop, the promotion applier, and rewrite capture interception.
 import "./index.js";
 
 installInstrumentation({ method: instrumentTrainable, wrap: wrapTrainable });

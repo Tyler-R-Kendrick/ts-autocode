@@ -40,14 +40,21 @@ activation's `rollback()` restores both. All
 AspectJS decorators are applied programmatically, keeping consumer projects on
 standard TC39 decorators.
 
-`ts-autocode-training` never imports the rewrite package. It defines weaver and
-promoter ports (`MethodWeaver`, `SourcePromoter`) that mirror the rewrite API
-structurally — the same pattern rewrite uses toward training with
-`RewriteTarget` and `RewriteApproval` — and the root `ts-autocode` package
-wires the implementations through `provideTrainingDefaults`, exactly as it
-wires the harness `TrainingLoop`. Body digests are the shared protocol between
-the two packages: both compute sha256 over canonical JSON, and guarded
-application refuses a candidate whose target digest no longer matches.
+`ts-autocode-training` never imports the rewrite package and has no concept of
+weaving, interception, or hot-swapping. It exposes exactly two seams in its own
+vocabulary: `captureTrainable(...)`, the entry any instrumentation mechanism
+calls to route a marked-method call through runtime capture, and the
+`PromotionApplier` provider, which applies a gate-approved candidate and
+returns how to undo it. The root `ts-autocode` package alone connects rewrite
+to both — its `configureRewriteCapture()` points the rewrite interceptor at
+`captureTrainable`, and its `rewritePromotion` applier performs the
+digest-guarded source rewrite and live hot-swap — exactly as it wires the
+harness `TrainingLoop`. The decorator and load-time instrumentation helpers
+(`trainable`, `wrapTrainable`, `instrumentTrainable`) live in the root package
+for the same reason: they are where identities meet weaving. Body digests are
+the shared protocol between training and rewrite: both compute sha256 over
+canonical JSON, and guarded application refuses a candidate whose target
+digest no longer matches.
 
 ## Zero-config runtime patch
 
@@ -63,8 +70,8 @@ precede its instrumentation; traffic after startup is captured. The training
 runtime itself lives in the provider-neutral `ts-autocode-training` package.
 All cross-package wiring happens in the root `ts-autocode` package: it supplies
 Ax as the default engine and executor, the harness as the default training
-loop, and the rewrite package as the weaver and promoter, all via
-`provideTrainingDefaults`. Sibling packages never import each other.
+loop, and the rewrite package as capture interception and the promotion
+applier. Sibling packages never import each other.
 
 Training, optimization, and evolution are one operation: `train()` without
 explicit eval tests converts distinct, successful captured inputs and outputs
@@ -76,8 +83,12 @@ write on its own.
 ## Evaluation and optimization
 
 AgentV's TypeScript `evaluate()` API runs eval cases and binds results to the
-trainable id. `TrainingEngine` is provider-neutral and returns a replacement
-method implementation.
+trainable id. `TrainingEngine` is a provider-neutral strategy that returns a
+replacement method implementation; the runtime composes it into its internal
+`CandidateEngine`, which owns request validation, implementation cleanup,
+TypeScript validation, and candidate identity. Engine overrides are therefore
+always composition — a strategy slotted into the same pipeline — never
+inheritance, and none of that pipeline is exposed to consumers.
 
 Ax is the default engine. It builds an Ax signature from the TypeScript method
 signature, creates examples from runtime captures and AgentV results, and scores
