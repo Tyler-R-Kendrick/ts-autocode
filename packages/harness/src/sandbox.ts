@@ -17,14 +17,18 @@ import { absolutePath } from "./schema.js";
 export interface HarnessSandboxSettings {
 	readonly id: string;
 	readonly workspace: string;
+	/** Sandbox policy handed to MXC for every execute. When set, it replaces
+	 * the default built by `createSandboxPolicy` from the settings below, and
+	 * `readonlyPaths`, `allowedHosts`, and `timeoutMs` are ignored. */
+	readonly policy?: SandboxPolicy;
 	readonly bus: WriteAheadAgentBus;
 	/** The bus actor this sandbox's operations are recorded as. */
 	readonly actor: string;
 	/** Gate consulted before every operation runs; without one, operations are
 	 * still written ahead and recorded but execute ungated. */
 	readonly gate?: ActionGate;
-	/** Paths that must remain outside the writable workspace — for example a
-	 * file-backed bus log the sandboxed agent must not be able to tamper with. */
+	/** Paths that must remain outside every writable sandbox path — for example
+	 * a file-backed bus log the sandboxed agent must not be able to tamper with. */
 	readonly protectedPaths?: readonly string[];
 	/** Absolute paths outside the workspace the sandboxed process may read. */
 	readonly readonlyPaths?: readonly string[];
@@ -46,16 +50,25 @@ export class HarnessSandbox extends BaseSandbox {
 		super();
 		this.id = settings.id;
 		this.#workspace = resolve(settings.workspace);
-		this.#policy = createSandboxPolicy({
+		this.#policy = settings.policy ?? createSandboxPolicy({
 			workspace: this.#workspace,
 			readonlyPaths: settings.readonlyPaths && [...settings.readonlyPaths],
 			allowedHosts: settings.allowedHosts && [...settings.allowedHosts],
 			timeoutMs: settings.timeoutMs,
 		});
+		// Uploads write to the workspace on the host regardless of policy, so it
+		// counts as writable even when a custom policy omits it.
+		const writableRoots = new Set([
+			this.#workspace,
+			...(this.#policy.filesystem?.readwritePaths ?? []).map((path) => resolve(path)),
+		]);
 		for (const path of settings.protectedPaths ?? []) {
-			const fromWorkspace = relative(this.#workspace, absolutePath.parse(path));
-			if (!fromWorkspace.startsWith("..") && !isAbsolute(fromWorkspace)) {
-				throw new TypeError("protected paths must be outside the writable sandbox workspace");
+			const target = absolutePath.parse(path);
+			for (const root of writableRoots) {
+				const fromRoot = relative(root, target);
+				if (!fromRoot.startsWith("..") && !isAbsolute(fromRoot)) {
+					throw new TypeError("protected paths must be outside every writable sandbox path");
+				}
 			}
 		}
 		this.#bus = settings.bus;

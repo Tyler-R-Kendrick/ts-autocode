@@ -25,5 +25,8 @@ export type {
 	TrainingHarness,
 } from "./harness.js";
 
+export { createSandboxPolicy } from "./policy.js";
+export type { SandboxPolicySettings } from "./policy.js";
+
 export { HarnessSandbox } from "./sandbox.js";
 export type { HarnessSandboxSettings } from "./sandbox.js";
