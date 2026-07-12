@@ -1,6 +1,17 @@
 import { WriteAheadAgentBus } from "./bus.js";
-import { dispatchAction, decisionKind, type ActionGate } from "./dispatch.js";
-import { candidateKey, judgeDecision, roundLimit, rubricText, type AgentBusEntry, type JudgeDecision } from "./schema.js";
+import { dispatchAction, recordDecision, type ActionGate, type JudgeDecision } from "./dispatch.js";
+import { candidateKey, roundLimit, rubricText, type AgentBusEntry } from "./schema.js";
+
+// The run's actors — named for the HarnessInput callbacks they run — and the
+// message kinds they write, spelled once here. Bus entries are serialized to
+// storage, so both must stay plain strings rather than symbols.
+const actors = { student: "student", teacher: "teacher", adversary: "adversary" } as const;
+const kinds = {
+	propose: "agent.propose",
+	assess: "agent.assess",
+	challenge: "agent.challenge",
+	reviseRubric: "agent.revise-rubric",
+} as const;
 
 /** Shapes the bus history handed to actors and the judge. The bus itself does
  * no context management: windowing, rolling summaries, or any other
@@ -151,8 +162,8 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 			): Promise<JudgeDecision> => {
 				const decision = judge === undefined
 					? fallback()
-					: judgeDecision.parse(await judge(Object.freeze({ ...request, context: await provide(await bus.read()) })));
-				await bus.append({ actor: "judge", kind: decisionKind, payload: { subject: request.subject, ...payload, decision } });
+					: await judge(Object.freeze({ ...request, context: await provide(await bus.read()) }));
+				await recordDecision(bus, { subject: request.subject, ...payload, decision });
 				return decision;
 			};
 			const result = (outcome: HarnessRun<TCandidate, TAssessment, TChallenge>["outcome"]) =>
@@ -169,14 +180,14 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 					context: await provide(await bus.read()),
 					...(input.signal === undefined ? {} : { signal: input.signal }),
 				});
-				const candidate = await dispatch("student", "agent.propose", { round, task: input.task, rubric, feedback },
+				const candidate = await dispatch(actors.student, kinds.propose, { round, task: input.task, rubric, feedback },
 					() => input.student(turn));
 				input.signal?.throwIfAborted();
 				const candidateId: string = candidateKey.parse(identify(candidate));
 				if (candidateId === previousCandidate) return result("stalled");
 				previousCandidate = candidateId;
 
-				const assessment = await dispatch("teacher", "agent.assess", { round, candidateId },
+				const assessment = await dispatch(actors.teacher, kinds.assess, { round, candidateId },
 					() => input.teacher(candidate, turn));
 				input.signal?.throwIfAborted();
 				const candidateDecision = await decide({ candidateId }, {
@@ -201,10 +212,10 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 					return result("accepted");
 				}
 
-				const challenge = await dispatch("adversary", "agent.challenge", { candidateId }, async () =>
+				const challenge = await dispatch(actors.adversary, kinds.challenge, { candidateId }, async () =>
 					adversary(candidate, {
 						task: input.task,
-						context: await provide(await bus.read("adversary")),
+						context: await provide(await bus.read(actors.adversary)),
 						...(input.signal === undefined ? {} : { signal: input.signal }),
 					}));
 				input.signal?.throwIfAborted();
@@ -224,7 +235,7 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 					return result("accepted");
 				}
 
-				const revision = await dispatch("teacher", "agent.revise-rubric", { round, candidateId }, async () =>
+				const revision = await dispatch(actors.teacher, kinds.reviseRubric, { round, candidateId }, async () =>
 					revise(challenge, {
 						task: input.task,
 						candidate,
