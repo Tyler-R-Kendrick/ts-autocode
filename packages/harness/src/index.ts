@@ -1,11 +1,11 @@
 export { WriteAheadAgentBus } from "./bus.js";
-export type { AgentBusAccess, AgentBusSettings } from "./bus.js";
+export type { AgentBusAccess, AgentBusSettings, AgentWriter } from "./bus.js";
 
-export { AgentActionDeniedError, decisionKind, dispatchAction } from "./dispatch.js";
-export type { ActionGate } from "./dispatch.js";
+export { AgentActionDeniedError, dispatchAction } from "./dispatch.js";
+export type { ActionGate, JudgeDecision } from "./dispatch.js";
 
-export { agentBusEntry, agentMessage, judgeDecision } from "./schema.js";
-export type { AbsolutePath, AgentBusEntry, AgentMessage, JudgeDecision } from "./schema.js";
+export { agentBusEntry, agentMessage } from "./schema.js";
+export type { AbsolutePath, AgentBusEntry, AgentMessage } from "./schema.js";
 
 export { defaultMaxRounds, defineTrainingHarness } from "./harness.js";
 export type {

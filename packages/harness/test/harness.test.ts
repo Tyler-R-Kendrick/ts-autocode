@@ -146,6 +146,18 @@ describe("training harness", () => {
 		expect((await failed.read()).map(({ kind }) => kind)).toEqual(["test.failure", "test.failure.failed"]);
 	});
 
+	it("binds an agent writer so entries need only a kind and payload", async () => {
+		const bus = new WriteAheadAgentBus();
+		const student = bus.agent("student");
+		await student("test.note", { value: 1 });
+		await student("test.done");
+
+		expect((await bus.read("student")).map(({ actor, kind, payload }) => ({ actor, kind, payload }))).toEqual([
+			{ actor: "student", kind: "test.note", payload: { value: 1 } },
+			{ actor: "student", kind: "test.done", payload: undefined },
+		]);
+	});
+
 	it("refuses appends and reads the access hook denies", async () => {
 		const bus = new WriteAheadAgentBus({
 			allow: (access) => access.operation === "append" ? access.actor !== "intruder" : access.actor === undefined,

@@ -33,9 +33,6 @@ export const agentBusEntry = agentMessage.extend({
 });
 export type AgentBusEntry = z.output<typeof agentBusEntry>;
 
-export const judgeDecision = z.enum(["pass", "fail"], { error: "judge must return exactly pass or fail" });
-export type JudgeDecision = z.output<typeof judgeDecision>;
-
 export const absolutePath = z.string()
 	.refine(isAbsolute, "path must be absolute")
 	.transform((path) => resolve(path))

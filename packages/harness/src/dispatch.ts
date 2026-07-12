@@ -1,7 +1,9 @@
 import type { WriteAheadAgentBus } from "./bus.js";
-import { judgeDecision, type AgentBusEntry, type JudgeDecision } from "./schema.js";
+import type { AgentBusEntry } from "./schema.js";
 
-export type { JudgeDecision } from "./schema.js";
+/** The only verdicts a judge may return. Gates and judges are typed against
+ * this union, so their outputs are used as returned — nothing re-parses them. */
+export type JudgeDecision = "pass" | "fail";
 
 /** Decides whether a proposed action may execute. In this harness the gate is
  * implemented by the judge — an ordinary actor whose verdict is recorded on
@@ -21,8 +23,21 @@ export class AgentActionDeniedError extends Error {
 	}
 }
 
-/** The message kind the gate's verdicts are recorded under. */
-export const decisionKind = "agent.decision";
+// The names the write-ahead convention itself writes, spelled once here. Bus
+// entries are serialized to storage, so these must stay plain strings —
+// symbols would not survive the round trip.
+const judgeActor = "judge";
+const decisionKind = "agent.decision";
+const failureOf = (kind: string) => `${kind}.failed`;
+const completionOf = (kind: string) => `${kind}.completed`;
+
+/** Records a verdict on the bus as the judge's own message. */
+export function recordDecision(
+	bus: WriteAheadAgentBus,
+	payload: Readonly<{ subject: string; decision: JudgeDecision; [detail: string]: unknown }>,
+): Promise<AgentBusEntry> {
+	return bus.agent(judgeActor)(decisionKind, payload);
+}
 
 /** The write-ahead convention, layered on top of the plain message bus:
  * record the intent, ask the gate, record the verdict as the judge's own
@@ -36,21 +51,19 @@ export async function dispatchAction<T>(
 	gate: ActionGate | undefined,
 	execute: () => Promise<T> | T,
 ): Promise<T> {
-	const action = await bus.append({ actor, kind, ...(payload === undefined ? {} : { payload }) });
+	const agent = bus.agent(actor);
+	const action = await agent(kind, payload);
 	if (gate) {
 		let decision: JudgeDecision;
 		try {
-			decision = judgeDecision.parse(await gate(action, await bus.read()));
+			decision = await gate(action, await bus.read());
 		} catch (error) {
 			// The gate error is the outcome; a failing failure record must not replace it.
-			await bus.append({
-				actor,
-				kind: `${kind}.failed`,
-				payload: { actionId: action.id, stage: "gate", message: errorMessage(error) },
-			}).catch(() => undefined);
+			await agent(failureOf(kind), { actionId: action.id, stage: "gate", message: errorMessage(error) })
+				.catch(() => undefined);
 			throw error;
 		}
-		await bus.append({ actor: "judge", kind: decisionKind, payload: { subject: "action", actionId: action.id, decision } });
+		await recordDecision(bus, { subject: "action", actionId: action.id, decision });
 		if (decision === "fail") throw new AgentActionDeniedError(action);
 	}
 	let result: T;
@@ -58,13 +71,13 @@ export async function dispatchAction<T>(
 		result = await execute();
 	} catch (error) {
 		// Likewise: the execution error is the outcome, recorded best-effort.
-		await bus.append({ actor, kind: `${kind}.failed`, payload: { actionId: action.id, message: errorMessage(error) } })
+		await agent(failureOf(kind), { actionId: action.id, message: errorMessage(error) })
 			.catch(() => undefined);
 		throw error;
 	}
 	// Recorded after the fact, outside the catch: a failing completion append
 	// surfaces as a bus error, never as a failed action.
-	await bus.append({ actor, kind: `${kind}.completed`, payload: { actionId: action.id, result } });
+	await agent(completionOf(kind), { actionId: action.id, result });
 	return result;
 }
 
