@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import { JsonlBusStore } from "./jsonl-store.js";
+import { createStorage, type Storage } from "unstorage";
+
 import { agentBusEntry, agentMessage, messageId, type AgentBusEntry, type AgentMessage } from "./schema.js";
 
 /** One requested bus operation, offered to the `allow` hook. */
@@ -8,21 +9,15 @@ export type AgentBusAccess =
 	| Readonly<{ operation: "append"; actor: string; kind: string }>
 	| Readonly<{ operation: "read"; actor?: string }>;
 
-/** Ordered storage for bus entries. Implementations may keep entries in
- * memory, on disk, or behind a remote service — the bus does not care. A
- * store belongs to one writing bus at a time: the bus resumes sequence
- * numbering from the store's tail and then owns it, so concurrent writers
- * need a store with its own reservation semantics behind this interface. */
-export interface AgentBusStore {
-	/** Appends one entry, preserving sequence order. */
-	append(entry: AgentBusEntry): Promise<void>;
-	/** Every stored entry, in sequence order. */
-	load(): Promise<readonly AgentBusEntry[]>;
-}
+/** Entries live under this key prefix in the configured storage. */
+const entryPrefix = "entry";
 
 export interface AgentBusSettings {
-	/** Where entries live; a JSONL log on an in-memory filesystem when unset. */
-	readonly store?: AgentBusStore;
+	/** Where entries live: any [unstorage](https://unstorage.unjs.io) instance
+	 * — the driver (memory, fs, redis, http, ...) is the consumer's choice.
+	 * In-memory storage when unset. A bus expects sole write access to its
+	 * `entry:*` keys; share a wider storage by mounting or prefixing it. */
+	readonly storage?: Storage;
 	readonly idFactory?: () => string;
 	readonly now?: () => Date;
 	readonly redact?: (value: unknown) => unknown;
@@ -37,7 +32,7 @@ export interface AgentBusSettings {
  * management: approval, rejection, windowing, and summarizing are all the
  * concern of whoever writes and reads. */
 export class WriteAheadAgentBus {
-	readonly #store: AgentBusStore;
+	readonly #storage: Storage;
 	readonly #idFactory: () => string;
 	readonly #now: () => Date;
 	readonly #redact: (value: unknown) => unknown;
@@ -46,7 +41,7 @@ export class WriteAheadAgentBus {
 	#pending: Promise<void> = Promise.resolve();
 
 	constructor(settings: AgentBusSettings = {}) {
-		this.#store = settings.store ?? JsonlBusStore.inMemory();
+		this.#storage = settings.storage ?? createStorage();
 		this.#idFactory = settings.idFactory ?? randomUUID;
 		this.#now = settings.now ?? (() => new Date());
 		this.#redact = settings.redact ?? ((value) => value);
@@ -62,8 +57,8 @@ export class WriteAheadAgentBus {
 		const id = messageId.parse(this.#idFactory());
 		let appended!: AgentBusEntry;
 		const write = this.#pending.then(async () => {
-			// Sequence numbering resumes from whatever the store already holds.
-			this.#sequence ??= (await this.#store.load()).at(-1)?.sequence ?? 0;
+			// Sequence numbering resumes from whatever the storage already holds.
+			this.#sequence ??= (await this.#load()).at(-1)?.sequence ?? 0;
 			const entry = Object.freeze(agentBusEntry.parse({
 				actor: parsed.actor,
 				kind: parsed.kind,
@@ -72,7 +67,7 @@ export class WriteAheadAgentBus {
 				sequence: this.#sequence + 1,
 				timestamp: this.#now().toISOString(),
 			}));
-			await this.#store.append(entry);
+			await this.#storage.setItem(`${entryPrefix}:${entry.sequence}`, entry);
 			this.#sequence += 1;
 			appended = entry;
 		});
@@ -87,7 +82,15 @@ export class WriteAheadAgentBus {
 			throw new Error(`agent bus refused read${actor === undefined ? "" : ` of ${actor}`}`);
 		}
 		await this.#pending;
-		const entries = await this.#store.load();
-		return Object.freeze(actor === undefined ? [...entries] : entries.filter((entry) => entry.actor === actor));
+		const entries = await this.#load();
+		return Object.freeze(actor === undefined ? entries : entries.filter((entry) => entry.actor === actor));
+	}
+
+	async #load(): Promise<AgentBusEntry[]> {
+		const keys = await this.#storage.getKeys(entryPrefix);
+		const items = await this.#storage.getItems(keys);
+		return items
+			.map(({ value }) => agentBusEntry.parse(value))
+			.sort((first, second) => first.sequence - second.sequence);
 	}
 }

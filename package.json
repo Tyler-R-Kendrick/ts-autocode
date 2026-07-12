@@ -66,6 +66,7 @@
 		"ts-autocode-rewrite": "0.1.0",
 		"ts-autocode-training": "0.1.0",
 		"typescript": "^5.9.3",
+		"unstorage": "^1.17.5",
 		"zod": "^4.4.3"
 	},
 	"overrides": {

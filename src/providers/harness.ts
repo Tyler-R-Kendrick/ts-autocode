@@ -2,28 +2,28 @@ import { resolve } from "node:path";
 
 import {
 	defineTrainingHarness,
-	JsonlBusStore,
 	WriteAheadAgentBus,
 	type ContextProvider,
 	type JudgeDecision,
 	type JudgeRequest,
 } from "ts-autocode-harness";
 import type { CandidatePatch, CandidateReview, TrainingLoop, TrainingLoopInput } from "ts-autocode-training";
+import { createStorage, type Storage } from "unstorage";
+import fsDriver from "unstorage/drivers/fs";
 
 import { windowedContext } from "./context.js";
 
-/** Where the default file-backed bus lands inside the run's output directory. */
-export const defaultActionLogFile = "harness-actions.jsonl";
+/** Where the default filesystem-driver storage mounts inside the run's
+ * output directory. */
+export const defaultActionLogDir = "harness-actions";
 
 /** Every collaborator is injectable; the options only choose defaults. */
 export interface HarnessLoopOptions {
-	/** Builds the message bus for a run. Unset, each run gets a write-ahead bus
-	 * over a `JsonlBusStore` in its output directory on the local filesystem —
-	 * swap in any `AgentBusStore`-backed bus, or the same store over another
-	 * `BusFileSystem` (memfs, a remote filesystem, ...), here. */
-	readonly bus?: (input: TrainingLoopInput) => WriteAheadAgentBus;
-	/** File name for the default file-backed bus; ignored when `bus` is set. */
-	readonly actionLogFile?: string;
+	/** Builds the [unstorage](https://unstorage.unjs.io) instance backing a
+	 * run's write-ahead bus — any driver (memory, fs, redis, http, ...).
+	 * Unset, entries land on the local filesystem under
+	 * `<outputDir>/harness-actions`. */
+	readonly storage?: (input: TrainingLoopInput) => Storage;
 	/** Context management for harness actors; a rolling window when unset. */
 	readonly contextProvider?: ContextProvider;
 	/** Gates every harness action and verdict. Unset, the harness's evidence
@@ -39,15 +39,15 @@ export interface HarnessLoopOptions {
  * the teacher assesses the candidate, the adversary re-reviews an accepted
  * one, and the review's gate failures are the feedback the harness weighs. */
 export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoop {
-	const createBus = options.bus ?? ((input: TrainingLoopInput) =>
-		new WriteAheadAgentBus({ store: new JsonlBusStore(resolve(input.outputDir, options.actionLogFile ?? defaultActionLogFile)) }));
+	const storage = options.storage ?? ((input: TrainingLoopInput) =>
+		createStorage({ driver: fsDriver({ base: resolve(input.outputDir, defaultActionLogDir) }) }));
 	const contextProvider = options.contextProvider ?? windowedContext();
 	return async (input) => {
 		const harness = defineTrainingHarness<CandidatePatch, CandidateReview, string>(
 			input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds },
 		);
 		const result = await harness.run<CandidateReview>({
-			bus: createBus(input),
+			bus: new WriteAheadAgentBus({ storage: storage(input) }),
 			contextProvider,
 			...(options.judge === undefined ? {} : { judge: options.judge }),
 			task: { trainable: input.trainableId, objective: input.objective },
