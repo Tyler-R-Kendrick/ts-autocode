@@ -1,11 +1,7 @@
 import { lstat, mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
-import {
-	spawnSandboxAsync,
-	type SandboxPolicy,
-	type SandboxSpawnOptions,
-} from "@microsoft/mxc-sdk";
+import { spawnSandboxAsync, type SandboxPolicy } from "@microsoft/mxc-sdk";
 import {
 	BaseSandbox,
 	type ExecuteResponse,
@@ -15,13 +11,12 @@ import {
 
 import { WriteAheadAgentBus } from "./bus.js";
 import { dispatchAction, type ActionGate } from "./dispatch.js";
-import { assertHarnessPolicy } from "./policy.js";
+import { createSandboxPolicy } from "./policy.js";
 import { absolutePath } from "./schema.js";
 
-export interface MxcSandboxSettings {
+export interface HarnessSandboxSettings {
 	readonly id: string;
 	readonly workspace: string;
-	readonly policy: SandboxPolicy;
 	readonly bus: WriteAheadAgentBus;
 	/** The bus actor this sandbox's operations are recorded as. */
 	readonly actor: string;
@@ -31,46 +26,47 @@ export interface MxcSandboxSettings {
 	/** Paths that must remain outside the writable workspace — for example a
 	 * file-backed bus log the sandboxed agent must not be able to tamper with. */
 	readonly protectedPaths?: readonly string[];
-	readonly spawn?: Omit<SandboxSpawnOptions, "usePty">;
+	/** Absolute paths outside the workspace the sandboxed process may read. */
+	readonly readonlyPaths?: readonly string[];
+	/** Hosts the sandboxed process may reach. Outbound network is denied
+	 * without them; local network access is always denied. */
+	readonly allowedHosts?: readonly string[];
+	readonly timeoutMs?: number;
 }
 
-export class MxcSandbox extends BaseSandbox {
+export class HarnessSandbox extends BaseSandbox {
 	readonly id: string;
 	readonly #workspace: string;
 	readonly #policy: SandboxPolicy;
 	readonly #bus: WriteAheadAgentBus;
 	readonly #actor: string;
 	readonly #gate: ActionGate | undefined;
-	readonly #spawn: Omit<SandboxSpawnOptions, "usePty">;
 
-	constructor(settings: MxcSandboxSettings) {
+	constructor(settings: HarnessSandboxSettings) {
 		super();
 		this.id = settings.id;
 		this.#workspace = resolve(settings.workspace);
-		assertHarnessPolicy(settings.policy, this.#workspace);
+		this.#policy = createSandboxPolicy({
+			workspace: this.#workspace,
+			readonlyPaths: settings.readonlyPaths && [...settings.readonlyPaths],
+			allowedHosts: settings.allowedHosts && [...settings.allowedHosts],
+			timeoutMs: settings.timeoutMs,
+		});
 		for (const path of settings.protectedPaths ?? []) {
 			const fromWorkspace = relative(this.#workspace, absolutePath.parse(path));
 			if (!fromWorkspace.startsWith("..") && !isAbsolute(fromWorkspace)) {
 				throw new TypeError("protected paths must be outside the writable sandbox workspace");
 			}
 		}
-		this.#policy = settings.policy;
 		this.#bus = settings.bus;
 		this.#actor = settings.actor;
 		this.#gate = settings.gate;
-		this.#spawn = settings.spawn ?? {};
 	}
 
 	async execute(command: string): Promise<ExecuteResponse> {
 		return this.#perform("sandbox.execute", { sandbox: this.id, command }, async () => {
 			await mkdir(this.#workspace, { recursive: true });
-			const result = await spawnSandboxAsync(
-				command,
-				this.#policy,
-				this.#spawn,
-				this.#workspace,
-				this.id,
-			);
+			const result = await spawnSandboxAsync(command, this.#policy, {}, this.#workspace, this.id);
 			return {
 				output: [result.stdout, result.stderr].filter(Boolean).join("\n"),
 				exitCode: result.exitCode,
