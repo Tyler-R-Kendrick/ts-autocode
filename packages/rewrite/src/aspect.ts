@@ -4,8 +4,8 @@ import { Around, Aspect, getWeaver, on, type AroundContext, type JoinPoint } fro
 /** Marks a method for the weaver. Carries the stable id and the configured
  * marker (e.g. `"use training"`) so dispatch can look up that marker's config.
  * Applied programmatically by `annotateRewrite`, never with decorator syntax,
- * so it works under both standard and legacy decorator configurations. */
-export const Rewrite = new AnnotationFactory("ts-autocode").create(
+ * so it does not depend on any compiler decorator configuration. */
+const Rewrite = new AnnotationFactory("ts-autocode").create(
 	AnnotationKind.METHOD,
 	"Rewrite",
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -39,7 +39,7 @@ const configs = new Map<string, RewriteConfig>();
 const swaps = new Map<string, AnyMethod>();
 
 /** Normalizes a `"use <name>"` directive to its canonical single-spaced form. */
-export function normalizeMarker(marker: string): string {
+function normalizeMarker(marker: string): string {
 	const trimmed = marker.trim().replace(/\s+/g, " ");
 	if (!/^use \S/.test(trimmed)) throw new TypeError(`rewrite marker must be a "use <name>" directive: ${marker}`);
 	return trimmed;
@@ -52,18 +52,6 @@ export function normalizeMarker(marker: string): string {
 export function configureRewrite(config: RewriteConfig): void {
 	const marker = normalizeMarker(config.marker);
 	configs.set(marker, Object.freeze({ ...config, marker }));
-}
-
-export function rewriteMarkers(): readonly string[] {
-	return [...configs.keys()];
-}
-
-export function hasRewriteMarker(marker: string): boolean {
-	try {
-		return configs.has(normalizeMarker(marker));
-	} catch {
-		return false;
-	}
 }
 
 /** Hot-swappable advice: replaces the live implementation for a rewrite id.
@@ -124,11 +112,11 @@ let wovenWeaver: unknown;
 
 /** Idempotent per weaver context; `configureTesting(WeaverModule)` swaps the
  * context, after which the next annotate re-enables the aspect. */
-export function enableRewriteWeaving(): void {
+function enableRewriteWeaving(): void {
 	const weaver = getWeaver();
 	if (weaver === wovenWeaver) return;
 	wovenWeaver = weaver;
-	applyLegacyDecorator(Around(on.methods.withAnnotations(Rewrite)), RewriteAspectImpl.prototype, "intercept");
+	decorateMethod(Around(on.methods.withAnnotations(Rewrite)), RewriteAspectImpl.prototype, "intercept");
 	const Enhanced = (Aspect()(RewriteAspectImpl) ?? RewriteAspectImpl) as typeof RewriteAspectImpl;
 	weaver.enable(new Enhanced());
 }
@@ -145,14 +133,14 @@ export function annotateRewrite(
 	id: string,
 	marker = "",
 ): void {
-	const container = owningContainer(owner, methodName);
+	const container = declaringContainer(owner, methodName);
 	if (!container) return;
 	const marked = annotatedMethods.get(container) ?? new Set<string>();
 	if (marked.has(methodName)) return;
 	marked.add(methodName);
 	annotatedMethods.set(container, marked);
 	enableRewriteWeaving();
-	applyLegacyDecorator(Rewrite(id, marker) as LegacyMethodDecorator, container, methodName);
+	decorateMethod(Rewrite(id, marker) as DescriptorDecorator, container, methodName);
 }
 
 /** The prototype (or the constructor itself, for statics) that declares `methodName`. */
@@ -160,23 +148,6 @@ export function declaringContainer(
 	owner: abstract new (...args: never[]) => unknown,
 	methodName: string,
 ): object | undefined {
-	return owningContainer(owner, methodName);
-}
-
-type LegacyMethodDecorator = (
-	target: object,
-	propertyKey: string,
-	descriptor: PropertyDescriptor,
-) => PropertyDescriptor | void;
-
-function applyLegacyDecorator(decorator: LegacyMethodDecorator, target: object, methodName: string): void {
-	const descriptor = Object.getOwnPropertyDescriptor(target, methodName);
-	if (!descriptor) return;
-	const result = decorator(target, methodName, descriptor);
-	if (result) Object.defineProperty(target, methodName, result);
-}
-
-function owningContainer(owner: abstract new (...args: never[]) => unknown, methodName: string): object | undefined {
 	let container: object | null = Object.hasOwn(owner, methodName) ? owner : owner.prototype as object;
 	while (container && container !== Object.prototype) {
 		const method = Object.getOwnPropertyDescriptor(container, methodName)?.value as unknown;
@@ -184,4 +155,19 @@ function owningContainer(owner: abstract new (...args: never[]) => unknown, meth
 		container = Object.getPrototypeOf(container) as object | null;
 	}
 	return undefined;
+}
+
+/** AspectJS annotations decorate through the `(target, propertyKey, descriptor)`
+ * calling convention when applied programmatically. */
+type DescriptorDecorator = (
+	target: object,
+	propertyKey: string,
+	descriptor: PropertyDescriptor,
+) => PropertyDescriptor | void;
+
+function decorateMethod(decorator: DescriptorDecorator, target: object, methodName: string): void {
+	const descriptor = Object.getOwnPropertyDescriptor(target, methodName);
+	if (!descriptor) return;
+	const result = decorator(target, methodName, descriptor);
+	if (result) Object.defineProperty(target, methodName, result);
 }

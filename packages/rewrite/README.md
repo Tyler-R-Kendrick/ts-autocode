@@ -57,8 +57,8 @@ without touching source. These back the shorthand above and are exported for
 tests and custom orchestration — they are not part of the normal consumer path,
 which is: configure a marker, mark methods, promote.
 
-Every AspectJS decorator is applied programmatically, so the package works
-under both standard and legacy decorator configurations.
+Every AspectJS decorator is applied programmatically, so the package does not
+depend on any compiler decorator configuration.
 
 Most applications should depend on [`ts-autocode`](../../README.md), which
 configures the `"use training"` marker and drives promotion (source rewrite plus

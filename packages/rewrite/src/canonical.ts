@@ -8,10 +8,6 @@ export function digest(value: unknown): string {
 	return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
 }
 
-export function isNonEmptyString(value: unknown): value is string {
-	return typeof value === "string" && value.trim().length > 0;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

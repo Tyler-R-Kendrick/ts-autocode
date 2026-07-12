@@ -189,6 +189,7 @@ class TrainingRuntime implements Training {
 	readonly #tracer: Tracer;
 	readonly #pending = new Set<Promise<void>>();
 	readonly #evaluations = new Map<string, BoundEvaluation[]>();
+	readonly #evolutionState = new Map<string, { running: boolean; queued: boolean; attempted: number }>();
 
 	constructor(settings: TrainingSettings) {
 		const concurrency = settings.concurrency ?? Number.POSITIVE_INFINITY;
@@ -225,8 +226,6 @@ class TrainingRuntime implements Training {
 		}
 		return executor;
 	}
-
-	readonly #evolutionState = new Map<string, { running: boolean; queued: boolean; attempted: number }>();
 
 	#maybeEvolve(token: TrainableToken): void {
 		const evolution = this.#settings.evolution ?? defaultProviders.evolution;
@@ -302,13 +301,31 @@ class TrainingRuntime implements Training {
 
 	async train(input: TrainInput): Promise<TrainingRun> {
 		const baseline = await this.evaluate(input.trainable, input.evaluation);
-		const { task: _task, outputDir, ...candidateEvaluation } = input.evaluation;
+		const { task: _task, outputDir = ".agentv", ...candidateEvaluation } = input.evaluation;
 		let evaluations: readonly BoundEvaluation[] = baseline.evaluations;
+		const assess = async (candidate: CandidatePatch, candidateOutputDir: string, signal?: AbortSignal): Promise<CandidateAssessment> => {
+			const verification = await this.evaluateCandidate(candidate, {
+				...candidateEvaluation,
+				...(signal === undefined ? {} : { signal }),
+				outputDir: candidateOutputDir,
+			});
+			const decision = await evaluatePromotionGate({
+				candidate,
+				evaluations: verification.evaluations,
+				// The engine already validated the candidate; `conformance: false` waives the
+				// requirement rather than reporting a failed check to the gate.
+				conformance: true,
+				...(input.minScore === undefined ? {} : { minScore: input.minScore }),
+				...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
+				...(input.policy === undefined ? {} : { policy: input.policy }),
+			});
+			return { verification, decision };
+		};
 		const harness = defineTrainingHarness<CandidatePatch, CandidateAssessment, string>({
 			candidateId: (candidate) => candidate.id,
 			...(input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds }),
 		});
-		const bus = new WriteAheadAgentBus({ file: resolve(outputDir ?? ".agentv", "harness-actions.jsonl") });
+		const bus = new WriteAheadAgentBus({ file: resolve(outputDir, "harness-actions.jsonl") });
 		const result = await harness.run<CandidateAssessment>({
 			bus,
 			task: { trainable: toTrainableToken(input.trainable).id, objective: input.objective },
@@ -329,23 +346,9 @@ class TrainingRuntime implements Training {
 				});
 			},
 			teacher: async (candidate, { round, signal }) => {
-				const verification = await this.evaluateCandidate(candidate, {
-					...candidateEvaluation,
-					...(signal === undefined ? {} : { signal }),
-					outputDir: `${outputDir ?? ".agentv"}/candidate-${round}`,
-				});
-				const decision = await evaluatePromotionGate({
-					candidate,
-					evaluations: verification.evaluations,
-					// The engine already validated the candidate; `conformance: false` waives the
-					// requirement rather than reporting a failed check to the gate.
-					conformance: true,
-					...(input.minScore === undefined ? {} : { minScore: input.minScore }),
-					...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
-					...(input.policy === undefined ? {} : { policy: input.policy }),
-				});
-				evaluations = [...evaluations, ...verification.evaluations];
-				return { assessment: { verification, decision }, feedback: decision.failures };
+				const assessment = await assess(candidate, `${outputDir}/candidate-${round}`, signal);
+				evaluations = [...evaluations, ...assessment.verification.evaluations];
+				return { assessment, feedback: assessment.decision.failures };
 			},
 			judge: (input) => {
 				const request = input as JudgeRequest<CandidatePatch, CandidateAssessment, CandidateAssessment>;
@@ -357,22 +360,7 @@ class TrainingRuntime implements Training {
 				}
 				return "fail";
 			},
-			adversary: async (candidate, { signal }) => {
-				const verification = await this.evaluateCandidate(candidate, {
-					...candidateEvaluation,
-					...(signal === undefined ? {} : { signal }),
-					outputDir: `${outputDir ?? ".agentv"}/adversary-${candidate.id}`,
-				});
-				const decision = await evaluatePromotionGate({
-					candidate,
-					evaluations: verification.evaluations,
-					conformance: true,
-					...(input.minScore === undefined ? {} : { minScore: input.minScore }),
-					...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
-					...(input.policy === undefined ? {} : { policy: input.policy }),
-				});
-				return { verification, decision };
-			},
+			adversary: (candidate, { signal }) => assess(candidate, `${outputDir}/adversary-${candidate.id}`, signal),
 			reviseRubric: (challenge, { rubric }) => ({
 				rubric: `${rubric}\nAdversarial criteria: ${challenge.decision.failures.join("; ")}`,
 				feedback: challenge.decision.failures,
