@@ -10,6 +10,7 @@ import {
 	defineTrainable,
 	trainable,
 	training as defaultTraining,
+	type ImplementationExecutor,
 	type TrainingEngine,
 } from "../src/index.js";
 import { discoverInSource } from "../src/source.js";
@@ -148,6 +149,7 @@ describe("training execution", () => {
 		});
 		const training = configureTraining({
 			engine: { id: "live-test", optimize },
+			executor: functionExecutor,
 			source: { files: [artifact] },
 			tracing: { enabled: false },
 		});
@@ -183,6 +185,7 @@ describe("training execution", () => {
 }\n`);
 		const training = configureTraining({
 			engine: { id: "conformance-test", optimize: async () => ({ implementation: "return input.toUpperCase();" }) },
+			executor: functionExecutor,
 			source: { files: [artifact] },
 			tracing: { enabled: false },
 		});
@@ -217,6 +220,9 @@ describe("training execution", () => {
 		})).rejects.toThrow("requires 2 distinct successful runtime traces; found 1");
 	});
 });
+
+const functionExecutor: ImplementationExecutor = async (target, implementation, args) =>
+	new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args);
 
 function applyMethodDecorator<Class extends abstract new (...args: never[]) => object>(
 	constructor: Class,

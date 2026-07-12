@@ -1,46 +1,51 @@
+import { provideTrainingDefaults } from "ts-autocode-training";
+
+import { executeImplementation } from "./execution.js";
+import { createAxEngine } from "./providers/ax.js";
+
+provideTrainingDefaults({ engine: () => createAxEngine(), executor: executeImplementation });
+
 export {
+	applyCandidate,
 	configureTraining,
+	createMemoryTrainingStore,
+	defineTrainable,
+	discoverTrainables,
+	evaluatePromotionGate,
+	promoteCandidate,
+	revertPromotion,
 	trainable,
 	training,
-} from "./training.js";
-export type {
-	CaptureSettings,
-	CandidateEvalConfig,
-	EvolveInput,
-	EvolveResult,
-	OptimizeInput,
-	TrainInput,
-	Training,
-	TrainingRound,
-	TrainingRun,
-	TrainingSettings,
-	TracingSettings,
-} from "./training.js";
-
-export { defineTrainable } from "./token.js";
-export type { TrainableId, TrainableIdentity, TrainableToken } from "./token.js";
-
-export { discoverTrainables } from "./source.js";
-export type { SourceSettings, TrainableTarget } from "./source.js";
-
-export { applyCandidate } from "./engine.js";
+} from "ts-autocode-training";
 export type {
 	BoundEvaluation,
+	CandidateEvalConfig,
 	CandidatePatch,
+	CaptureSettings,
 	EngineCandidate,
 	EngineContext,
+	EvolveInput,
+	EvolveResult,
+	ImplementationExecutor,
+	OptimizeInput,
 	OptimizeRequest,
-	SecretProvider,
-	TrainingEngine,
-} from "./engine.js";
-
-export { evaluatePromotionGate, promoteCandidate, revertPromotion } from "./promotion.js";
-export type {
 	PromotionDecision,
 	PromotionGateInput,
 	PromotionResult,
 	PromotionSnapshot,
-} from "./promotion.js";
-
-export { createMemoryTrainingStore } from "./records.js";
-export type { TrainingRecord, TrainingStore } from "./records.js";
+	SecretProvider,
+	SourceSettings,
+	TrainInput,
+	TrainableId,
+	TrainableIdentity,
+	TrainableTarget,
+	TrainableToken,
+	Training,
+	TrainingEngine,
+	TrainingRecord,
+	TrainingRound,
+	TrainingRun,
+	TrainingSettings,
+	TrainingStore,
+	TracingSettings,
+} from "ts-autocode-training";

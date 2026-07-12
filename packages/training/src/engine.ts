@@ -50,6 +50,14 @@ export interface TrainingEngine {
 	optimize(request: OptimizeRequest, context: EngineContext): Promise<EngineCandidate>;
 }
 
+/** Runs a proposed implementation against arguments in provider-owned isolation. */
+export type ImplementationExecutor = (
+	target: TrainableTarget,
+	implementation: string,
+	args: readonly unknown[],
+	options?: Readonly<{ timeoutMs?: number; signal?: AbortSignal }>,
+) => Promise<unknown>;
+
 export async function optimizeCandidate(
 	engine: TrainingEngine,
 	request: OptimizeRequest,

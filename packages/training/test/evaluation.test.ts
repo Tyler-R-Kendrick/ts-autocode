@@ -14,6 +14,12 @@ function pipelineTarget(input: string): string {
 	return input;
 }
 
+const functionExecutor = async (
+	target: { readonly parameters: readonly { readonly name: string }[] },
+	implementation: string,
+	args: readonly unknown[],
+) => new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args) as unknown;
+
 describe("AgentV evaluation", () => {
 	it("binds AgentV results to the trainable token", async () => {
 		const token = defineTrainable("Router.route");
@@ -47,7 +53,7 @@ describe("AgentV evaluation", () => {
 				return { implementation: "return input;" };
 			},
 		};
-		const training = configureTraining({ engine });
+		const training = configureTraining({ engine, executor: functionExecutor });
 		await training.evaluate("Router.route", {
 			tests: [{ id: "identity", input: "hello", assert: [{ type: "equals", value: "hello" }] }],
 			task: (input) => input,
@@ -70,7 +76,7 @@ describe("AgentV evaluation", () => {
 			target,
 			implementation: "return input.toUpperCase();",
 		};
-		const evaluated = await configureTraining({}).evaluateCandidate(candidate, {
+		const evaluated = await configureTraining({ executor: functionExecutor }).evaluateCandidate(candidate, {
 			tests: [{ id: "uppercase", input: "hello", assert: [{ type: "equals", value: "HELLO" }] }],
 			outputDir: "test/output/agentv-candidate",
 		});
@@ -92,7 +98,7 @@ describe("AgentV evaluation", () => {
 				return { implementation: round === 1 ? "return input;" : "return input.toUpperCase();" };
 			},
 		};
-		const training = configureTraining({ engine, source: { files: [import.meta.filename] } });
+		const training = configureTraining({ engine, executor: functionExecutor, source: { files: [import.meta.filename] } });
 		const evaluateCandidate = vi.spyOn(training, "evaluateCandidate");
 		const run = await training.train({
 			trainable: "pipelineTarget",

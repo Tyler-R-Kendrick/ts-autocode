@@ -11,11 +11,11 @@ import {
 	optimizeCandidate,
 	type BoundEvaluation,
 	type CandidatePatch,
+	type ImplementationExecutor,
 	type SecretProvider,
 	type TrainingEngine,
 } from "./engine.js";
 import { evaluateTrainable, type TrainableEvalRun } from "./evaluation.js";
-import { executeImplementation } from "./execution.js";
 import {
 	evaluatePromotionGate,
 	promoteCandidate,
@@ -24,7 +24,6 @@ import {
 	type PromotionResult,
 	type PromotionSnapshot,
 } from "./promotion.js";
-import { createAxEngine } from "./providers/ax.js";
 import { createMemoryTrainingStore, type TrainingRecord, type TrainingStore } from "./records.js";
 import {
 	discoverTrainables,
@@ -61,6 +60,7 @@ export interface TracingSettings {
 
 export interface TrainingSettings {
 	readonly engine?: TrainingEngine;
+	readonly executor?: ImplementationExecutor;
 	readonly source?: SourceSettings;
 	readonly store?: TrainingStore;
 	readonly secrets?: SecretProvider;
@@ -149,7 +149,7 @@ export type TrainableDecorator = <This, Args extends unknown[], Result>(
 class TrainingRuntime implements Training {
 	readonly #settings: Required<Pick<TrainingSettings, "capture" | "concurrency" | "idFactory" | "now" | "source" | "tracing">> &
 		Omit<TrainingSettings, "capture" | "concurrency" | "idFactory" | "now" | "source" | "tracing">;
-	readonly #engine: TrainingEngine;
+	#engine: TrainingEngine | undefined;
 	readonly #store: TrainingStore;
 	readonly #tracer: Tracer;
 	readonly #pending = new Set<Promise<void>>();
@@ -170,9 +170,25 @@ class TrainingRuntime implements Training {
 			tracing: settings.tracing ?? {},
 			variables: Object.freeze({ ...settings.variables }),
 		};
-		this.#engine = settings.engine ?? createAxEngine();
 		this.#store = settings.store ?? createMemoryTrainingStore();
 		this.#tracer = this.#settings.tracing.tracer ?? trace.getTracer("ts-autocode");
+	}
+
+	#engineFor(override?: TrainingEngine): TrainingEngine {
+		if (override) return override;
+		this.#engine ??= this.#settings.engine ?? defaultProviders.engine?.();
+		if (!this.#engine) {
+			throw new Error('no training engine is configured; import "ts-autocode" for the Ax default or set TrainingSettings.engine');
+		}
+		return this.#engine;
+	}
+
+	#executorOrThrow(): ImplementationExecutor {
+		const executor = this.#settings.executor ?? defaultProviders.executor;
+		if (!executor) {
+			throw new Error('candidate execution requires an executor; import "ts-autocode" or set TrainingSettings.executor');
+		}
+		return executor;
 	}
 
 	async records(identity?: TrainableIdentity): Promise<readonly TrainingRecord[]> {
@@ -189,12 +205,13 @@ class TrainingRuntime implements Training {
 
 	async evaluateCandidate(candidate: CandidatePatch, config: CandidateEvalConfig): Promise<TrainableEvalRun> {
 		const token = defineTrainable(candidate.trainableId);
+		const execute = this.#executorOrThrow();
 		const { signal, ...evaluation } = config;
 		signal?.throwIfAborted();
 		const evaluated = await evaluateTrainable(token, {
 			...evaluation,
 			task: async (input) => {
-				const output = await executeImplementation(
+				const output = await execute(
 					candidate.target,
 					candidate.implementation,
 					evaluationArgs(input),
@@ -343,7 +360,7 @@ class TrainingRuntime implements Training {
 		const target = input.target ?? findTrainable(token.id, this.#settings.source);
 		const records = await this.records(token);
 		return optimizeCandidate(
-			input.engine ?? this.#engine,
+			this.#engineFor(input.engine),
 			{
 				trainableId: token.id,
 				objective: input.objective,
@@ -515,6 +532,19 @@ let configuredTraining: TrainingRuntime | undefined;
 export function configureTraining(settings: TrainingSettings = {}): Training {
 	configuredTraining = new TrainingRuntime(settings);
 	return configuredTraining;
+}
+
+export interface TrainingProviders {
+	readonly engine?: () => TrainingEngine;
+	readonly executor?: ImplementationExecutor;
+}
+
+let defaultProviders: TrainingProviders = {};
+
+/** Provider packages call this to supply lazy fallbacks (ts-autocode wires Ax)
+ * without this package depending on any provider. Explicit settings win. */
+export function provideTrainingDefaults(providers: TrainingProviders): void {
+	defaultProviders = { ...defaultProviders, ...providers };
 }
 
 /** Default runtime: the "use training" directive is the only required marker.
