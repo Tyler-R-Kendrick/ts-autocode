@@ -51,8 +51,8 @@ gate, guarded rewrite — off the hot path, reporting failures through
 `onError("evolve")`. Calls made during a module's own top-level evaluation
 precede its instrumentation; traffic after startup is captured. The training
 runtime itself lives in the provider-neutral `ts-autocode-training` package;
-`ts-autocode` wires Ax as the default engine and executor via
-`provideTrainingDefaults`.
+`ts-autocode` wires Ax as the default engine and executor and the harness as
+the default training loop via `provideTrainingDefaults`.
 
 `evolve()` is the explicit runtime-to-source bridge. It converts distinct,
 successful captured inputs and outputs into official AgentV eval cases, replays
@@ -77,10 +77,17 @@ Baseline results can train the optimizer but cannot satisfy the promotion gate.
 Live-trace evals use AgentV's worker pool, and optimizer requests receive both
 the original traces and the bound baseline results.
 
-## Agent harness
+## Training loop and the agent harness
 
-`ts-autocode` depends on the standalone `ts-autocode-harness` package. The
-harness supports independently configured student, teacher, judge, and
+`ts-autocode-training` knows nothing about the harness. It defines the
+provider-neutral `TrainingLoop` contract — bounded propose/review rounds over
+its own candidate and promotion types — and ships a minimal sequential loop as
+the default. `ts-autocode` (the root package) specifies the connection: its
+`createHarnessLoop` provider adapts the standalone `ts-autocode-harness`
+package to `TrainingLoop` and registers it through `provideTrainingDefaults`,
+exactly as it wires the Ax engine and executor.
+
+The harness supports independently configured student, teacher, judge, and
 adversary Deep Agents. A write-ahead bus records proposed actions before an
 exact pass/fail judge decision and prevents denied agent or MXC sandbox actions
 from executing. AgentV supplies objective evidence; judge rejection never invents

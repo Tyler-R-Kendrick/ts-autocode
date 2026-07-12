@@ -85,7 +85,7 @@ describe("AgentV evaluation", () => {
 		expect(evaluated.run.summary).toMatchObject({ total: 1, passed: 1, failed: 0 });
 	});
 
-	it("uses the harness for student optimization and teacher feedback", async () => {
+	it("feeds review failures back into the next optimization round", async () => {
 		let round = 0;
 		const signal = new AbortController().signal;
 		const engine: TrainingEngine = {
@@ -108,7 +108,7 @@ describe("AgentV evaluation", () => {
 			evaluation: {
 				tests: [{ id: "uppercase", input: "hello", assert: [{ type: "equals", value: "HELLO" }] }],
 				task: pipelineTarget,
-				outputDir: "test/output/agentv-harness",
+				outputDir: "test/output/agentv-rounds",
 			},
 		});
 

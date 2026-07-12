@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { promoteCandidate, revertPromotion } from "ts-autocode-rewrite";
+
 import {
 	defineTrainable,
 	configureTraining,
 	evaluatePromotionGate,
-	promoteCandidate,
-	revertPromotion,
 	type CandidatePatch,
 } from "../src/index.js";
 import { evaluateTrainable } from "../src/evaluation.js";

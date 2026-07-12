@@ -239,7 +239,7 @@ describe("training execution", () => {
 		expect(await readFile(artifact, "utf8")).toContain('"use training"');
 	});
 
-	it("waives the conformance requirement instead of rejecting every candidate", async () => {
+	it("treats engine validation as source conformance at the promotion gate", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "ts-autocode-conformance-"));
 		const artifact = join(directory, "echo.ts");
 		await writeFile(artifact, `export function echo(input: string): string {
@@ -256,7 +256,6 @@ describe("training execution", () => {
 		const run = await training.train({
 			trainable: defineTrainable("echo").symbol,
 			objective: "Uppercase the input",
-			conformance: false,
 			evaluation: {
 				tests: [{ id: "upper", input: "abc", assert: [{ type: "equals", value: "ABC" }] }],
 				task: (input) => input,

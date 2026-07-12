@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
 
 import { buildTraceFromMessages, getTextContent, type EvalConfig, type EvalTestInput } from "@agentv/core";
 import { OpenInferenceSpanKind, SemanticConventions } from "@arizeai/openinference-semantic-conventions";
 import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "@opentelemetry/api";
-import { defineTrainingHarness, WriteAheadAgentBus, type JudgeRequest } from "ts-autocode-harness";
 import {
 	annotateRewrite,
 	configureRewrite,
@@ -28,6 +26,7 @@ import {
 	type TrainingEngine,
 } from "./engine.js";
 import { evaluateTrainable, type TrainableEvalRun } from "./evaluation.js";
+import { sequentialLoop, type TrainingLoop, type TrainingRound } from "./loop.js";
 import { evaluatePromotionGate, type PromotionDecision } from "./promotion.js";
 import { createMemoryTrainingStore, type TrainingRecord, type TrainingStore } from "./records.js";
 import {
@@ -64,10 +63,7 @@ configureRewrite({
 
 export interface CaptureSettings {
 	readonly enabled?: boolean;
-	readonly input?: boolean;
-	readonly output?: boolean;
 	readonly serialize?: (value: unknown) => string;
-	readonly redact?: (value: unknown, field: "input" | "output") => unknown;
 	readonly mapInput?: (args: readonly unknown[], trainable: TrainableToken) => unknown;
 	readonly mapOutput?: (result: unknown, trainable: TrainableToken) => unknown;
 }
@@ -92,6 +88,7 @@ export interface EvolutionSettings {
 export interface TrainingSettings {
 	readonly engine?: TrainingEngine;
 	readonly executor?: ImplementationExecutor;
+	readonly loop?: TrainingLoop;
 	readonly evolution?: EvolutionSettings;
 	readonly source?: SourceSettings;
 	readonly store?: TrainingStore;
@@ -100,8 +97,6 @@ export interface TrainingSettings {
 	readonly concurrency?: number;
 	readonly capture?: CaptureSettings;
 	readonly tracing?: TracingSettings;
-	readonly idFactory?: () => string;
-	readonly now?: () => Date;
 	readonly onError?: (error: unknown, phase: "capture" | "store" | "evolve") => void;
 }
 
@@ -127,7 +122,6 @@ export interface TrainInput {
 	readonly maxRounds?: number;
 	readonly minScore?: number;
 	readonly minPassRate?: number;
-	readonly conformance?: boolean;
 	readonly policy?: (candidate: CandidatePatch) => boolean | Promise<boolean>;
 }
 
@@ -141,24 +135,12 @@ export interface EvolveResult {
 	readonly promotion: PromotionResult;
 }
 
-export interface TrainingRound {
-	readonly round: number;
-	readonly candidate: CandidatePatch;
-	readonly verification: TrainableEvalRun;
-	readonly decision: PromotionDecision;
-}
-
 export interface TrainingRun {
 	readonly outcome: "ready" | "stalled" | "exhausted";
 	readonly baseline: TrainableEvalRun;
 	readonly rounds: readonly TrainingRound[];
 	readonly final: TrainingRound;
 }
-
-type CandidateAssessment = Readonly<{
-	verification: TrainableEvalRun;
-	decision: PromotionDecision;
-}>;
 
 export interface Training {
 	records(trainable?: TrainableIdentity): Promise<readonly TrainingRecord[]>;
@@ -179,11 +161,12 @@ export type TrainableDecorator = <This, Args extends unknown[], Result>(
 ) => (this: This, ...args: Args) => Result;
 
 class TrainingRuntime implements Training {
-	readonly #settings: Required<Pick<TrainingSettings, "capture" | "concurrency" | "idFactory" | "now" | "source" | "tracing">> &
-		Omit<TrainingSettings, "capture" | "concurrency" | "idFactory" | "now" | "source" | "tracing">;
-	#engine: TrainingEngine | undefined;
+	readonly #settings: TrainingSettings;
+	readonly #concurrency: number;
+	readonly #variables: Readonly<Record<string, string>>;
 	readonly #store: TrainingStore;
 	readonly #tracer: Tracer;
+	#engine: TrainingEngine | undefined;
 	readonly #pending = new Set<Promise<void>>();
 	readonly #evaluations = new Map<string, BoundEvaluation[]>();
 	readonly #evolutionState = new Map<string, { running: boolean; queued: boolean; attempted: number }>();
@@ -193,18 +176,11 @@ class TrainingRuntime implements Training {
 		if (!(concurrency === Number.POSITIVE_INFINITY || (Number.isInteger(concurrency) && concurrency > 0))) {
 			throw new TypeError("concurrency must be a positive integer");
 		}
-		this.#settings = {
-			...settings,
-			capture: settings.capture ?? {},
-			concurrency,
-			idFactory: settings.idFactory ?? randomUUID,
-			now: settings.now ?? (() => new Date()),
-			source: settings.source ?? {},
-			tracing: settings.tracing ?? {},
-			variables: Object.freeze({ ...settings.variables }),
-		};
+		this.#settings = settings;
+		this.#concurrency = concurrency;
+		this.#variables = Object.freeze({ ...settings.variables });
 		this.#store = settings.store ?? createMemoryTrainingStore();
-		this.#tracer = this.#settings.tracing.tracer ?? trace.getTracer("ts-autocode");
+		this.#tracer = settings.tracing?.tracer ?? trace.getTracer("ts-autocode");
 	}
 
 	#engineFor(override?: TrainingEngine): TrainingEngine {
@@ -297,79 +273,55 @@ class TrainingRuntime implements Training {
 	}
 
 	async train(input: TrainInput): Promise<TrainingRun> {
-		const baseline = await this.evaluate(input.trainable, input.evaluation);
+		const token = toTrainableToken(input.trainable);
+		const baseline = await this.evaluate(token, input.evaluation);
 		const { task: _task, outputDir = ".agentv", ...candidateEvaluation } = input.evaluation;
-		let evaluations: readonly BoundEvaluation[] = baseline.evaluations;
-		const assess = async (candidate: CandidatePatch, candidateOutputDir: string, signal?: AbortSignal): Promise<CandidateAssessment> => {
-			const verification = await this.evaluateCandidate(candidate, {
-				...candidateEvaluation,
-				...(signal === undefined ? {} : { signal }),
-				outputDir: candidateOutputDir,
-			});
-			const decision = await evaluatePromotionGate({
-				candidate,
-				evaluations: verification.evaluations,
-				// The engine already validated the candidate; `conformance: false` waives the
-				// requirement rather than reporting a failed check to the gate.
-				conformance: true,
-				...(input.minScore === undefined ? {} : { minScore: input.minScore }),
-				...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
-				...(input.policy === undefined ? {} : { policy: input.policy }),
-			});
-			return { verification, decision };
-		};
-		const harness = defineTrainingHarness<CandidatePatch, CandidateAssessment, string>({
-			candidateId: (candidate) => candidate.id,
-			...(input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds }),
-		});
-		const bus = new WriteAheadAgentBus({ file: resolve(outputDir, "harness-actions.jsonl") });
-		const result = await harness.run<CandidateAssessment>({
-			bus,
-			task: { trainable: toTrainableToken(input.trainable).id, objective: input.objective },
+		const loop = this.#settings.loop ?? defaultProviders.loop ?? sequentialLoop;
+		const result = await loop({
+			trainableId: token.id,
+			objective: input.objective,
 			rubric: promotionRubric(input),
+			outputDir,
+			...(input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds }),
 			...(input.signal === undefined ? {} : { signal: input.signal }),
-			student: async ({ feedback, signal }) => {
+			propose: ({ feedback, signal }) => {
 				const constraints = [
 					...(input.constraints ?? []),
 					...feedback.map((failure) => `Previous candidate rejection: ${failure}`),
 				];
 				return this.optimize({
-					trainable: input.trainable,
+					trainable: token,
 					objective: input.objective,
-					evaluations,
 					...(constraints.length === 0 ? {} : { constraints }),
 					...(input.engine === undefined ? {} : { engine: input.engine }),
 					...(signal === undefined ? {} : { signal }),
 				});
 			},
-			teacher: async (candidate, { round, signal }) => {
-				const assessment = await assess(candidate, `${outputDir}/candidate-${round}`, signal);
-				evaluations = [...evaluations, ...assessment.verification.evaluations];
-				return { assessment, feedback: assessment.decision.failures };
+			review: async (candidate, { label, signal }) => {
+				const verification = await this.evaluateCandidate(candidate, {
+					...candidateEvaluation,
+					...(signal === undefined ? {} : { signal }),
+					outputDir: `${outputDir}/${label}`,
+				});
+				const decision = await evaluatePromotionGate({
+					candidate,
+					evaluations: verification.evaluations,
+					// The engine already validated the candidate source.
+					conformance: true,
+					...(input.minScore === undefined ? {} : { minScore: input.minScore }),
+					...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
+					...(input.policy === undefined ? {} : { policy: input.policy }),
+				});
+				return { verification, decision };
 			},
-			judge: (input) => {
-				const request = input as JudgeRequest<CandidatePatch, CandidateAssessment, CandidateAssessment>;
-				if (request.subject === "action") return "pass";
-				if (request.subject === "candidate") return request.assessment.decision.promote ? "pass" : "fail";
-				if (!request.challenge.decision.promote) {
-					evaluations = [...evaluations, ...request.challenge.verification.evaluations];
-					return "pass";
-				}
-				return "fail";
-			},
-			adversary: (candidate, { signal }) => assess(candidate, `${outputDir}/adversary-${candidate.id}`, signal),
-			reviseRubric: (challenge, { rubric }) => ({
-				rubric: `${rubric}\nAdversarial criteria: ${challenge.decision.failures.join("; ")}`,
-				feedback: challenge.decision.failures,
-			}),
 		});
-		const rounds = result.rounds.map(({ round, candidate, assessment }) =>
-			Object.freeze({ round, candidate, ...assessment }));
+		const final = result.rounds.at(-1);
+		if (!final) throw new Error(`training loop returned no rounds: ${result.outcome}`);
 		return Object.freeze({
-			outcome: result.outcome === "accepted" ? "ready" : result.outcome,
+			outcome: result.outcome,
 			baseline,
-			rounds: Object.freeze(rounds),
-			final: rounds.at(-1) as TrainingRound,
+			rounds: Object.freeze([...result.rounds]),
+			final,
 		});
 	}
 
@@ -426,7 +378,7 @@ class TrainingRuntime implements Training {
 				...(input.constraints === undefined ? {} : { constraints: input.constraints }),
 			},
 			{
-				variables: this.#settings.variables ?? {},
+				variables: this.#variables,
 				...(this.#settings.secrets === undefined ? {} : { secrets: this.#settings.secrets }),
 				...(input.signal === undefined ? {} : { signal: input.signal }),
 			},
@@ -443,7 +395,7 @@ class TrainingRuntime implements Training {
 			if (!target) throw new Error(`trainable source was not found: ${id}`);
 			return { ...input, target };
 		});
-		return mapConcurrent(prepared, this.#settings.concurrency, (input) => this.optimize(input));
+		return mapConcurrent(prepared, this.#concurrency, (input) => this.optimize(input));
 	}
 
 	async promote(candidate: CandidatePatch, decision: PromotionDecision): Promise<PromotionResult> {
@@ -485,12 +437,13 @@ class TrainingRuntime implements Training {
 		token: TrainableToken,
 		name: string,
 	): Result {
-		if (this.#settings.tracing.enabled === false) {
+		const tracing = this.#settings.tracing ?? {};
+		if (tracing.enabled === false) {
 			return this.#execute(thisValue, method, args, token, name);
 		}
 		const attributes: Attributes = {
-			...this.#settings.tracing.attributes,
-			[SemanticConventions.OPENINFERENCE_SPAN_KIND]: this.#settings.tracing.kind ?? OpenInferenceSpanKind.CHAIN,
+			...tracing.attributes,
+			[SemanticConventions.OPENINFERENCE_SPAN_KIND]: tracing.kind ?? OpenInferenceSpanKind.CHAIN,
 			[trainableAttribute]: token.id,
 		};
 		return this.#tracer.startActiveSpan(name, { attributes }, (span) =>
@@ -505,8 +458,8 @@ class TrainingRuntime implements Training {
 		name: string,
 		span?: Span,
 	): Result {
-		const startedAt = this.#settings.now();
-		const runId = this.#settings.idFactory();
+		const startedAt = new Date();
+		const runId = randomUUID();
 		const execution = { args, name, token, runId, startedAt, ...(span === undefined ? {} : { span }) };
 		let result: Result;
 		try {
@@ -541,7 +494,7 @@ class TrainingRuntime implements Training {
 		runId: string;
 		startedAt: Date;
 	}): void {
-		const endedAt = this.#settings.now();
+		const endedAt = new Date();
 		if (span) {
 			if (error === undefined) span.setStatus({ code: SpanStatusCode.OK });
 			else {
@@ -550,23 +503,24 @@ class TrainingRuntime implements Training {
 			}
 			span.end();
 		}
-		if (this.#settings.capture.enabled === false) return;
+		const capture = this.#settings.capture ?? {};
+		if (capture.enabled === false) return;
 		try {
 			const spanContext = span?.spanContext();
-			const input = this.#settings.capture.mapInput ? this.#settings.capture.mapInput(args, token) : args;
+			const input = capture.mapInput ? capture.mapInput(args, token) : args;
 			const output = error === undefined
-				? (this.#settings.capture.mapOutput ? this.#settings.capture.mapOutput(result, token) : result)
+				? (capture.mapOutput ? capture.mapOutput(result, token) : result)
 				: errorMessage(error);
 			const record: TrainingRecord = {
-				id: this.#settings.idFactory(),
+				id: randomUUID(),
 				runId,
 				trainableId: token.id,
 				method: name,
 				succeeded: error === undefined,
 				recordedAt: endedAt.toISOString(),
 				trace: buildTraceFromMessages({
-					input: this.#settings.capture.input === false ? [] : [{ role: "user", content: this.#serialize(input, "input") }],
-					output: this.#settings.capture.output === false ? [] : [{ role: "assistant", content: this.#serialize(output, "output") }],
+					input: [{ role: "user", content: this.#serialize(input) }],
+					output: [{ role: "assistant", content: this.#serialize(output) }],
 					startTime: startedAt.toISOString(),
 					endTime: endedAt.toISOString(),
 					durationMs: Math.max(0, endedAt.getTime() - startedAt.getTime()),
@@ -587,9 +541,8 @@ class TrainingRuntime implements Training {
 		}
 	}
 
-	#serialize(value: unknown, field: "input" | "output"): string {
-		const redacted = this.#settings.capture.redact ? this.#settings.capture.redact(value, field) : value;
-		return (this.#settings.capture.serialize ?? defaultSerialize)(redacted);
+	#serialize(value: unknown): string {
+		return (this.#settings.capture?.serialize ?? defaultSerialize)(value);
 	}
 
 	#enqueue(write: Promise<void>): void {
@@ -610,13 +563,15 @@ export function configureTraining(settings: TrainingSettings = {}): Training {
 export interface TrainingProviders {
 	readonly engine?: () => TrainingEngine;
 	readonly executor?: ImplementationExecutor;
+	readonly loop?: TrainingLoop;
 	readonly evolution?: EvolutionSettings;
 }
 
 let defaultProviders: TrainingProviders = {};
 
-/** Provider packages call this to supply lazy fallbacks (ts-autocode wires Ax)
- * without this package depending on any provider. Explicit settings win. */
+/** Provider packages call this to supply lazy fallbacks (ts-autocode wires the
+ * Ax engine, its sandbox executor, and the governed harness loop) without this
+ * package depending on any provider. Explicit settings win. */
 export function provideTrainingDefaults(providers: TrainingProviders): void {
 	defaultProviders = { ...defaultProviders, ...providers };
 }
@@ -756,7 +711,7 @@ function liveEvalCases(records: readonly TrainingRecord[]): readonly EvalTestInp
 
 function promotionRubric(input: TrainInput): string {
 	return [
-		input.conformance === false ? "Source conformance checks are disabled." : "Candidate must pass source conformance checks.",
+		"Candidate must pass source conformance checks.",
 		`Minimum evaluation score: ${input.minScore ?? "evaluation default"}.`,
 		`Minimum evaluation pass rate: ${input.minPassRate ?? 1}.`,
 		input.policy === undefined ? "No additional promotion policy." : "Candidate must pass the configured promotion policy.",

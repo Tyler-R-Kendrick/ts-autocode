@@ -11,11 +11,13 @@ The normal path keeps the code primitives and agent loop in separate packages:
 
 Ax is the default student optimizer. AgentV evaluation and the promotion gate
 form the teacher. The provider-neutral runtime lives in the independent
-`ts-autocode-training` package (this package re-exports it with Ax wired in as
-the default engine and executor), guarded rewriting and hot-swappable AspectJS
-interception live in `ts-autocode-rewrite`, and iterative coordination is
-delegated to the independent `ts-autocode-harness` package. Its single Flue-style callback loop
-supports configurable student, teacher, judge, and adversary Deep Agents, MXC
+`ts-autocode-training` package; guarded rewriting and hot-swappable AspectJS
+interception live in `ts-autocode-rewrite`; governed agent coordination lives
+in the independent `ts-autocode-harness` package. This package specifies the
+connections: it re-exports the training runtime with Ax registered as the
+default engine and executor and the harness adapted as the default
+`TrainingLoop`. The harness's single Flue-style callback loop supports
+configurable student, teacher, judge, and adversary Deep Agents, MXC
 execution, and a write-ahead approval bus. Consumers can supply callbacks from
 their own agent lifecycle or optimization pipeline without coupling it to this
 code-evolution library.
@@ -194,14 +196,16 @@ secrets do not need to enter optimizer or eval artifacts. `evolve()` refuses to
 write unless the candidate passes candidate-bound AgentV evals and every
 configured promotion policy.
 
+Training rounds run through the provider-neutral `TrainingLoop` contract.
+This package registers `createHarnessLoop()` as the default, so
 `ts-autocode-harness` owns bounded rounds, feedback, cancellation, and stall
-detection. The same callback path accepts arbitrary judge inputs, requires an
+detection: the same callback path accepts arbitrary judge inputs, requires an
 exact pass/fail decision, tests
 approved candidates with an isolated adversary, and makes the teacher revise
 the rubric when the adversary exposes an accepted gap. Baseline results are
-never treated as proof that a rewrite passes. The lower-level `evaluate`,
-`optimize`, `evaluateCandidate`, and promotion primitives remain available for
-custom orchestration.
+never treated as proof that a rewrite passes. Set `TrainingSettings.loop` to
+substitute your own orchestration; the lower-level `evaluate`, `optimize`,
+`evaluateCandidate`, and promotion primitives also remain available.
 
 No Ax program is supplied by the caller. The default engine derives its fields,
 descriptions, executable examples, and return contract from the TypeScript
@@ -213,6 +217,7 @@ proposed bodies in Ax's JavaScript sandbox against captured and AgentV examples.
 Runtime dependencies enter through `TrainingSettings`:
 
 - `engine` replaces the default Ax implementation with any `TrainingEngine`.
+- `loop` replaces the default harness orchestration with any `TrainingLoop`.
 - `secrets` and `variables` are passed to engine factories without entering traces.
 - `store`, `capture`, and `tracing` configure recording globally.
 - `source` overrides TypeScript project discovery when the default `tsconfig.json`

@@ -16,11 +16,20 @@ export type {
 	TrainInput,
 	Training,
 	TrainingProviders,
-	TrainingRound,
 	TrainingRun,
 	TrainingSettings,
 	TracingSettings,
 } from "./training.js";
+
+export type {
+	CandidateReview,
+	ProposalTurn,
+	ReviewContext,
+	TrainingLoop,
+	TrainingLoopInput,
+	TrainingLoopRun,
+	TrainingRound,
+} from "./loop.js";
 
 export { defineTrainable } from "./token.js";
 export type { TrainableId, TrainableIdentity, TrainableToken } from "./token.js";
@@ -40,16 +49,11 @@ export type {
 	TrainingEngine,
 } from "./engine.js";
 
+export type { TrainableEvalRun } from "./evaluation.js";
+
 export { evaluatePromotionGate } from "./promotion.js";
 export type { PromotionDecision, PromotionGateInput } from "./promotion.js";
 
-export {
-	applyCandidate,
-	promoteCandidate,
-	restoreImplementation,
-	revertPromotion,
-	swapImplementation,
-} from "ts-autocode-rewrite";
 export type { PromotionResult, PromotionSnapshot } from "ts-autocode-rewrite";
 
 export { createMemoryTrainingStore } from "./records.js";
