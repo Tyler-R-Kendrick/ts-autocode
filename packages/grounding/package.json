@@ -1,0 +1,44 @@
+{
+	"name": "ts-autocode-grounding",
+	"version": "0.1.0",
+	"description": "Granular grounding decorators (@intent/@returns/@description), ambient trainable-class scanning, and deterministic text helpers for trainable TypeScript codegen.",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/Tyler-R-Kendrick/ts-autocode.git",
+		"directory": "packages/grounding"
+	},
+	"homepage": "https://github.com/Tyler-R-Kendrick/ts-autocode/tree/main/packages/grounding#readme",
+	"bugs": {
+		"url": "https://github.com/Tyler-R-Kendrick/ts-autocode/issues"
+	},
+	"license": "MIT",
+	"type": "module",
+	"sideEffects": false,
+	"files": [
+		"dist"
+	],
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"engines": {
+		"node": ">=20"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"prepublishOnly": "npm run build"
+	},
+	"dependencies": {
+		"typescript": "^5.9.3"
+	},
+	"keywords": [
+		"decorators",
+		"grounding",
+		"codegen",
+		"trainable"
+	]
+}

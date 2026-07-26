@@ -1,0 +1,43 @@
+export {
+	composeOptions,
+	description,
+	granularOptionsFor,
+	inferredIntent,
+	intent,
+	param,
+	PENDING_GROUNDINGS,
+	returns,
+	type FieldDescription,
+	type GroundingOptions,
+	type PendingGrounding,
+	type PendingMap,
+} from "./decorators.js";
+export {
+	COMPONENT_METADATA,
+	componentMetadataOf,
+	createComponentDecorator,
+	finalizeTrainableClass,
+	REGISTERED_METHODS,
+	type ComponentMetadata,
+	type ComponentOptions,
+	type ComponentSymbols,
+	type GroundingRegistry,
+} from "./component.js";
+export {
+	generateDeclaredRegistrations,
+	scanDeclaredTrainables,
+	type DeclaredOperation,
+	type DeclaredParameter,
+	type DeclaredTrainableClass,
+	type RegistrationEmitOptions,
+} from "./scan.js";
+export {
+	camelCase,
+	digest,
+	normalizePath,
+	normalizeText,
+	pascalCase,
+	stableStringify,
+	toStableValue,
+	union,
+} from "./text.js";
