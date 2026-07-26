@@ -1,11 +1,9 @@
 export {
 	composeOptions,
 	description,
-	granularLegacyOptions,
 	granularOptionsFor,
 	inferredIntent,
 	intent,
-	legacyPendingFor,
 	param,
 	PENDING_GROUNDINGS,
 	returns,

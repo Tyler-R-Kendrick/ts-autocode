@@ -1,4 +1,4 @@
-import { composeOptions, legacyPendingFor, PENDING_GROUNDINGS, type PendingGrounding, type PendingMap, type GroundingOptions } from "./decorators.js";
+import { composeOptions, PENDING_GROUNDINGS, type PendingGrounding, type PendingMap, type GroundingOptions } from "./decorators.js";
 
 // Class-level composition: a bare class decorator registers every
 // granular-declared method (or every own method with fully inferred
@@ -34,9 +34,7 @@ export function finalizeTrainableClass(
 	registeredSymbol: symbol = REGISTERED_METHODS,
 ): void {
 	const pending =
-		(metadata?.[PENDING_GROUNDINGS] as PendingMap | undefined) ??
-		legacyPendingFor(cls.prototype) ??
-		new Map<string, PendingGrounding>();
+		(metadata?.[PENDING_GROUNDINGS] as PendingMap | undefined) ?? new Map<string, PendingGrounding>();
 
 	const names =
 		pending.size > 0
