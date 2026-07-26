@@ -37,6 +37,9 @@ export interface TrainableTarget {
 	readonly className?: string;
 	readonly methodName: string;
 	readonly signature: string;
+	/** True when the declaration itself carries the `export` modifier
+	 * (free functions; always false for class methods). */
+	readonly exported: boolean;
 	readonly parameters: readonly TrainableParameter[];
 	readonly returnType: string;
 	readonly async: boolean;
@@ -147,6 +150,7 @@ function targetFor(
 		...(className === undefined ? {} : { className }),
 		methodName,
 		signature,
+		exported: node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false,
 		parameters,
 		returnType,
 		async: node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword) ?? false,

@@ -32,6 +32,10 @@
 		"./register": {
 			"types": "./dist/register.d.ts",
 			"import": "./dist/register.js"
+		},
+		"./grounding": {
+			"types": "./dist/grounding.d.ts",
+			"import": "./dist/grounding.js"
 		}
 	},
 	"homepage": "https://github.com/Tyler-R-Kendrick/ts-autocode#readme",
@@ -39,10 +43,11 @@
 		"url": "https://github.com/Tyler-R-Kendrick/ts-autocode/issues"
 	},
 	"scripts": {
-		"build": "npm run build:harness && npm run build:rewrite && npm run build:training && npm run build:core",
+		"build": "npm run build:grounding && npm run build:harness && npm run build:rewrite && npm run build:training && npm run build:core",
+		"build:grounding": "node -e \"require('node:fs').rmSync('packages/grounding/dist', { recursive: true, force: true })\" && tsc -p packages/grounding/tsconfig.json",
 		"build:core": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json",
 		"build:harness": "node -e \"require('node:fs').rmSync('packages/harness/dist', { recursive: true, force: true })\" && tsc -p packages/harness/tsconfig.json",
-		"typecheck": "npm run build:harness && npm run build:rewrite && npm run build:training && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p packages/harness/tsconfig.test.json && tsc --noEmit -p packages/rewrite/tsconfig.test.json && tsc --noEmit -p packages/training/tsconfig.test.json",
+		"typecheck": "npm run build:grounding && npm run build:harness && npm run build:rewrite && npm run build:training && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p packages/grounding/tsconfig.test.json && tsc --noEmit -p packages/harness/tsconfig.test.json && tsc --noEmit -p packages/rewrite/tsconfig.test.json && tsc --noEmit -p packages/training/tsconfig.test.json",
 		"test": "node test/run.mjs",
 		"check": "npm run typecheck && npm test && npm run build:core",
 		"prepublishOnly": "npm run check",
@@ -63,6 +68,7 @@
 	"dependencies": {
 		"@ax-llm/ax": "^23.0.0",
 		"effect": "^3.21.4",
+		"ts-autocode-grounding": "0.1.0",
 		"ts-autocode-harness": "0.1.0",
 		"ts-autocode-rewrite": "0.1.0",
 		"ts-autocode-training": "0.1.0",
