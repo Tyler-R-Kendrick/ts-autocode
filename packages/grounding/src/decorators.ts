@@ -147,9 +147,9 @@ export function description(text: string, example?: unknown): FieldDescription &
 			[name]: example === undefined ? { description: text } : { description: text, example },
 		};
 	};
-	Object.defineProperty(legacyParamDecorator, "description", { value: text });
+	Object.defineProperty(legacyParamDecorator, "description", { value: text, enumerable: true });
 	if (example !== undefined) {
-		Object.defineProperty(legacyParamDecorator, "example", { value: example });
+		Object.defineProperty(legacyParamDecorator, "example", { value: example, enumerable: true });
 	}
 	return legacyParamDecorator as FieldDescription & ((...args: unknown[]) => void);
 }

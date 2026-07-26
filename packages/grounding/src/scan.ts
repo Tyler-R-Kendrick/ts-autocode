@@ -91,10 +91,21 @@ function scanOperations(
 ): readonly DeclaredOperation[] {
 	const className = node.name?.text ?? "Anonymous";
 	const operations: DeclaredOperation[] = [];
+	const seen = new Set<string>();
 	for (const member of node.members) {
 		if (!ts.isMethodDeclaration(member) || !member.name) continue;
 		const method = memberName(member.name, sourceFile);
 		if (method === "constructor") continue;
+		// Generated registrations become `export const <method> = …` — a
+		// duplicate (ambient overload signatures) or non-identifier name would
+		// silently corrupt that file, so refuse loudly here instead.
+		if (!/^[A-Za-z_$][\w$]*$/.test(method)) {
+			throw new TypeError(`trainable method name must be a plain identifier: ${className}.${method}`);
+		}
+		if (seen.has(method)) {
+			throw new TypeError(`trainable method scans to a duplicate name (overload signatures?): ${className}.${method}`);
+		}
+		seen.add(method);
 		const methodRef = `${className}.${method}`;
 		const declaredIntent = decoratorText(ts.getDecorators(member), "intent", sourceFile);
 		const declaredReturns = decoratorText(ts.getDecorators(member), "returns", sourceFile);

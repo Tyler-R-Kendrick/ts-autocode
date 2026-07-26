@@ -84,6 +84,29 @@ describe("scanDeclaredTrainables", () => {
 		]);
 	});
 
+	it("throws on duplicate operation names from ambient overload signatures", () => {
+		expect(() =>
+			scanDeclaredTrainables(`
+				@trainable
+				export declare class Over {
+					bar(a: string): string;
+					bar(a: number): number;
+				}
+			`),
+		).toThrow(/duplicate name.*Over\.bar/);
+	});
+
+	it("throws on non-identifier method names", () => {
+		expect(() =>
+			scanDeclaredTrainables(`
+				@trainable
+				export declare class Odd {
+					["not-an-identifier"](): void;
+				}
+			`),
+		).toThrow(/plain identifier/);
+	});
+
 	it("throws on non-string input", () => {
 		expect(() => scanDeclaredTrainables(undefined as unknown as string)).toThrow(TypeError);
 	});

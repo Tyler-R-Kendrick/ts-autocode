@@ -43,6 +43,13 @@ describe("granular grounding decorators", () => {
 		});
 	});
 
+	it("description() doubles as an enumerable FieldDescription", async () => {
+		const { description } = await import("../src/index.js");
+		const field = description("An x", 42);
+		expect({ ...field }).toEqual({ description: "An x", example: 42 });
+		expect(Object.keys(description("just text"))).toEqual(["description"]);
+	});
+
 	it("granularOptionsFor reads the pending grounding for a method", () => {
 		const metadata: Record<PropertyKey, unknown> = {};
 		intent("Route things")(() => 1, stage3Method(metadata, "route"));
