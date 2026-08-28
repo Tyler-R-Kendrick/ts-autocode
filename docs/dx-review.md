@@ -38,13 +38,23 @@ before introducing it.
 `train`, and `flush` — no `define`. Every generated registration file failed to typecheck.
 The scan test asserted only the emitted *string*, so nothing caught it.
 
-### A3. `"sideEffects": false` is false, and can silently break the package
+### A3. `"sideEffects": false` was a false declaration
 
 All five manifests declared it, yet `src/index.ts` performs top-level
 `provideTrainingDefaults(...)` and `configureRewriteCapture()`, `src/register.ts` is
-entirely side effects, and `installInstrumentation` writes to a `globalThis` symbol. A
-bundler honoring the hint may legally drop the wiring, leaving the user with
-`no training engine is configured; import "ts-autocode"` — after importing `ts-autocode`.
+entirely side effects, and `installInstrumentation` writes to a `globalThis` symbol.
+The field is a promise to bundlers that dropping an unused module changes nothing,
+and that promise was untrue.
+
+**Scope, honestly:** this is a correctness fix, not a demonstrated failure. The
+hazard it licenses — a bundler eliding the module, leaving a consumer with
+`no training engine is configured; import "ts-autocode"` after importing
+`ts-autocode` — depends on the bundler and on how the package is consumed.
+Bundling a trivial consumer with `esbuild --tree-shaking=true` produced
+byte-identical output with the flag either way, so esbuild does not act on it in
+that configuration. Declaring the truth is still right: the field exists so that
+tools *can* rely on it, and asserting something false about your own package is a
+latent bug whether or not today's toolchain collects on it.
 
 ### A4. `TrainInput.fanOut` was silently ignored under the default configuration
 
@@ -344,6 +354,9 @@ remains. The singleton gap was real; that file was not evidence of it.
   no-breakage promise is enforced rather than asserted.
 - `examples/optimize.ts` runs on every check against a stub engine, so the
   example cannot rot without CI noticing.
-- A tree-shaking bundle test asserts the Ax engine survives, catching A3.
+- A manifest test pins which modules are declared side-effectful, so A3 cannot
+  silently revert. (A tree-shaking bundle test was tried and dropped: esbuild
+  produces identical output either way, so it would pass regardless and prove
+  nothing.)
 - Targeted regression tests cover `fanOut`, the rubric thresholds, the evolve kill switch,
   and the `onError("evolve")` sad path.
