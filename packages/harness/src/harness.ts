@@ -144,7 +144,12 @@ export interface HarnessSettings<TCandidate> {
 }
 
 /** How many student rounds a harness runs when `maxRounds` is unset. */
-export const defaultMaxRounds = 3;
+export const defaultHarnessRounds = 3;
+
+/** @deprecated Renamed to {@link defaultHarnessRounds}; the old name collided
+ * with `ts-autocode-training`'s loop default, which kept both out of the root
+ * package's exports. */
+export const defaultMaxRounds = defaultHarnessRounds;
 
 export interface TrainingHarness<TCandidate, TAssessment, TFeedback> {
 	run<TChallenge>(input: HarnessInput<TCandidate, TAssessment, TFeedback, TChallenge>): Promise<HarnessRun<TCandidate, TAssessment, TChallenge>>;
@@ -153,7 +158,7 @@ export interface TrainingHarness<TCandidate, TAssessment, TFeedback> {
 export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 	settings: HarnessSettings<TCandidate> = {},
 ): TrainingHarness<TCandidate, TAssessment, TFeedback> {
-	const maxRounds = roundLimit.parse(settings.maxRounds ?? defaultMaxRounds);
+	const maxRounds = roundLimit.parse(settings.maxRounds ?? defaultHarnessRounds);
 	const identify = settings.candidateId ?? stringifyCandidate;
 
 	return Object.freeze({

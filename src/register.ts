@@ -12,12 +12,27 @@ import "./index.js";
 
 installInstrumentation({ method: instrumentTrainable, wrap: wrapTrainable });
 
-/** Environment switch for zero-config evolution; anything in `evolveOptOuts` disables it. */
+/** Environment switch for zero-config evolution. Loading this module is itself
+ * the opt-in, so an unset variable leaves evolution on; the variable exists to
+ * turn it back off without changing the command line. */
 export const evolveVariable = "TS_AUTOCODE_EVOLVE";
-const evolveOptOuts = ["0", "false", "off"];
+const evolveOff = ["0", "false", "off", "no", "disabled"];
+const evolveOn = ["1", "true", "on", "yes", "enabled"];
 
-const evolveFlag = (process.env[evolveVariable] ?? "").trim().toLowerCase();
-if (!evolveOptOuts.includes(evolveFlag)) {
+/** Reads the kill switch, failing closed: an unrecognized value throws rather
+ * than being guessed at. Evolution rewrites the user's source files, so a
+ * misspelled `TS_AUTOCODE_EVOLVE=nope` must never be read as consent. */
+export function evolutionEnabled(value: string | undefined): boolean {
+	const flag = (value ?? "").trim().toLowerCase();
+	if (flag === "") return true;
+	if (evolveOff.includes(flag)) return false;
+	if (evolveOn.includes(flag)) return true;
+	throw new Error(
+		`${evolveVariable} must be one of ${[...evolveOn, ...evolveOff].join(", ")}; received ${JSON.stringify(value)}`,
+	);
+}
+
+if (evolutionEnabled(process.env[evolveVariable])) {
 	provideTrainingDefaults({ evolution: { enabled: true } });
 }
 

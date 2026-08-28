@@ -27,6 +27,8 @@ hook weaves each marked method, and committing a rewrite drives the swap:
 ```ts
 import { configureRewrite } from "ts-autocode-rewrite";
 
+declare function log(id: string, args: readonly unknown[]): void;
+
 // A consumer registers its marker once.
 configureRewrite({
   marker: "use audit",

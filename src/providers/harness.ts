@@ -43,6 +43,17 @@ export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoo
 		createStorage({ driver: fsDriver({ base: resolve(input.outputDir, defaultActionLogDir) }) }));
 	const contextProvider = options.contextProvider ?? windowedContext();
 	return async (input) => {
+		// The governed harness explores exactly one candidate per round: its
+		// judge -> adversary -> rubric-revision sequence is serial by
+		// construction, and a standing challenge must tighten the rubric before
+		// the next proposal. Rather than accept `fanOut` and quietly ignore it,
+		// say so -- use `sequentialLoop`/`trainingRounds` for concurrent slots.
+		if (input.fanOut !== undefined && input.fanOut > 1) {
+			throw new Error(
+				`the governed harness loop reviews one candidate per round and cannot honor fanOut ${input.fanOut}; `
+				+ "omit fanOut or set TrainingSettings.loop to sequentialLoop, which supports it",
+			);
+		}
 		const harness = defineTrainingHarness<CandidatePatch, CandidateReview, string>(
 			input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds },
 		);
@@ -53,7 +64,6 @@ export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoo
 			task: { trainable: input.trainableId, objective: input.objective },
 			rubric: input.rubric,
 			...maybeSignal(input.signal),
-			// The governed harness explores one candidate per round; fan-out stays 1.
 			student: ({ round, feedback, signal }) =>
 				input.propose({ round, slot: 1, feedback, ...maybeSignal(signal) }),
 			teacher: async (candidate, { round, signal }) => {

@@ -11,7 +11,10 @@
 	"description": "Train and safely rewrite decorated or directive-marked TypeScript functions.",
 	"license": "MIT",
 	"type": "module",
-	"sideEffects": false,
+	"sideEffects": [
+		"./dist/index.js",
+		"./dist/register.js"
+	],
 	"workspaces": [
 		"packages/*"
 	],

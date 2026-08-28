@@ -1,5 +1,6 @@
 export {
 	composeOptions,
+	defineGrounding,
 	description,
 	granularOptionsFor,
 	inferredIntent,
@@ -11,6 +12,7 @@ export {
 	type GroundingOptions,
 	type PendingGrounding,
 	type PendingMap,
+	type ShapeDescriptor,
 } from "./decorators.js";
 export {
 	COMPONENT_METADATA,

@@ -112,7 +112,24 @@ above — pins these evals to that exact method; for an auto-generated identity,
 `defineTrainable("Router.route").symbol` recreates the symbol.
 
 ```ts
-import { training } from "ts-autocode";
+import { defineTrainable, training, type CandidatePatch } from "ts-autocode";
+
+// The same identity the marked method carries; see the section above.
+const route = defineTrainable("Router.route");
+
+// Whatever your deployment rules are — anything returning a boolean works.
+const deploymentPolicy = {
+  allows: (candidate: CandidatePatch) => candidate.implementation.length < 4_000,
+};
+
+class Router {
+  route(input: string): string {
+    "use training";
+    return input.includes("invoice") ? "billing" : "fallback";
+  }
+}
+
+const router = new Router();
 
 const tests = [
   {
@@ -166,9 +183,12 @@ Once a trainable accumulates `evolution.minTraces` successful traces (default
 3), it is trained against those traces, verified candidate-bound, gated, and —
 only when the gate passes — its source body is rewritten. Failures surface
 through `TrainingSettings.onError` with the `"evolve"` phase and never block or
-alter application calls. Set `TS_AUTOCODE_EVOLVE=off` (or configure
-`evolution: { enabled: false }`) to capture without rewriting, and use
-`evolution.onEvolved` to observe applied rewrites.
+alter application calls. Loading the hook is itself the opt-in, so evolution is on unless you turn it
+off: set `TS_AUTOCODE_EVOLVE` to `0`, `false`, `off`, `no`, or `disabled` (or
+configure `evolution: { enabled: false }`) to capture without rewriting, and use
+`evolution.onEvolved` to observe applied rewrites. Because the feature rewrites
+your source, the switch fails closed — an unrecognized value throws rather than
+being read as consent.
 
 ## Train from live traces
 
@@ -179,6 +199,10 @@ replacement, verifies the candidate against the same cases, and applies the
 promotion gate. Activating the run then updates the marked TypeScript body.
 
 ```ts
+import { defineTrainable, training } from "ts-autocode";
+
+const route = defineTrainable("Router.route");
+
 const run = await training.train({
   trainable: route,
   objective: "Preserve routing behavior observed in production",
@@ -190,7 +214,7 @@ const run = await training.train({
 });
 
 const activation = await run.activate();
-console.log(activation.promotion.snapshot.candidateId);
+console.log(activation.run.final.candidate.id);
 ```
 
 Only successful traces with both captured input and output become eval cases.
@@ -216,8 +240,12 @@ The built-in loop is an observable round sequence (`trainingRounds()`
 pushes each reviewed round to a subscriber; `sequentialLoop` collects the
 subscription into one run). `TrainInput.fanOut` caps how many candidates a
 round proposes and reviews concurrently — the best gated candidate wins the
-round — and `TrainInput.gates` appends custom promotion rules to the standard
-gate set; the configured `policy` runs as one such rule.
+round. Fan-out belongs to `sequentialLoop`: the default governed harness loop
+reviews exactly one candidate per round, because its judge, adversary and
+rubric-revision sequence is serial, so it **rejects** a `fanOut` above 1 rather
+than accepting one it would ignore. `TrainInput.gates` appends custom promotion
+rules to the standard `defaultPromotionGates` set; the configured `policy` runs
+as one such rule.
 
 No Ax program is supplied by the caller. The default engine derives its fields,
 descriptions, executable examples, and return contract from the TypeScript
@@ -241,6 +269,8 @@ Runtime dependencies enter through `TrainingSettings`:
   a 30-second cap per attempt:
 
   ```ts
+  import { configureTraining } from "ts-autocode";
+
   configureTraining({
     resilience: {
       propose: { timeoutMs: 30_000, retry: { attempts: 3 } },
@@ -248,6 +278,10 @@ Runtime dependencies enter through `TrainingSettings`:
   });
   ```
 
+- `execution` bounds each candidate run inside the executor: `timeoutMs` caps a
+  single execution (default 5 seconds). This is distinct from
+  `resilience.evaluate.timeoutMs`, which bounds the whole attempt and may retry
+  it.
 - `source` overrides TypeScript project discovery when the default `tsconfig.json`
   is not the desired project.
 - `outputDir` relocates run artifacts and eval output (default `.agentv`,
@@ -283,6 +317,17 @@ adapter and is passed through the provider-neutral `engine` slot.
 Custom engines return only the new method implementation:
 
 ```ts
+import type { TrainingEngine } from "ts-autocode";
+
+// Your own optimizer call — whatever produces a replacement method body.
+declare function rewrite(request: {
+  signature: string;
+  implementation: string;
+  objective: string;
+  evaluations: unknown;
+  secrets: unknown;
+}): Promise<string>;
+
 const engine: TrainingEngine = {
   id: "acme/optimizer",
   async optimize(request, context) {

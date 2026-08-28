@@ -17,7 +17,13 @@ import {
 import { withPolicy, type ResilienceSettings } from "./resilience.js";
 import { evaluateTrainable, type TrainableEvalRun } from "./evaluation.js";
 import { sequentialLoop, type TrainingLoop, type TrainingRound } from "./loop.js";
-import { evaluatePromotionGate, type PromotionDecision, type PromotionGate } from "./promotion.js";
+import {
+	defaultMinPassRate,
+	defaultMinScore,
+	evaluatePromotionGate,
+	type PromotionDecision,
+	type PromotionGate,
+} from "./promotion.js";
 import { MemoryTrainingStore, type TrainingRecord, type TrainingStore } from "./records.js";
 import {
 	findTrainable,
@@ -70,9 +76,18 @@ export const defaultObjective = "Preserve behavior demonstrated by the evaluatio
  * nor `TrainingSettings.outputDir` names a directory. */
 export const defaultOutputDir = ".agentv";
 
+/** How proposed candidate bodies are run during verification. Distinct from
+ * `resilience.evaluate`, which bounds the whole attempt and may retry it: this
+ * is the executor's own per-run limit. */
+export interface ExecutionSettings {
+	readonly timeoutMs?: number;
+}
+
 export interface TrainingSettings {
 	readonly engine?: TrainingEngine;
 	readonly executor?: ImplementationExecutor;
+	/** Options handed to the executor on every candidate run. */
+	readonly execution?: ExecutionSettings;
 	readonly loop?: TrainingLoop;
 	readonly evolution?: EvolutionSettings;
 	/** Default directory for run artifacts and eval output; a run's
@@ -248,6 +263,7 @@ class TrainingRuntime implements Training {
 	async #evaluateCandidate(candidate: CandidatePatch, config: CandidateEvalConfig): Promise<TrainableEvalRun> {
 		const token = defineTrainable(candidate.trainableId);
 		const execute = this.#executorOrThrow();
+		const timeoutMs = this.#settings.execution?.timeoutMs;
 		const { signal, ...evaluation } = config;
 		signal?.throwIfAborted();
 		const evaluated = await evaluateTrainable(token, {
@@ -260,7 +276,10 @@ class TrainingRuntime implements Training {
 						candidate.target,
 						candidate.implementation,
 						evaluationArgs(input),
-						attemptSignal === undefined ? {} : { signal: attemptSignal },
+						{
+							...(timeoutMs === undefined ? {} : { timeoutMs }),
+							...(attemptSignal === undefined ? {} : { signal: attemptSignal }),
+						},
 					),
 					signal,
 				);
@@ -627,8 +646,10 @@ function liveEvalCases(records: readonly TrainingRecord[]): readonly EvalTestInp
 function promotionRubric(input: TrainInput): string {
 	return [
 		"Candidate must pass source conformance checks.",
-		`Minimum evaluation score: ${input.minScore ?? "evaluation default"}.`,
-		`Minimum evaluation pass rate: ${input.minPassRate ?? 1}.`,
+		// The judge reads this verbatim, so it must carry the resolved numbers a
+		// candidate is actually held to -- never a placeholder.
+		`Minimum evaluation score: ${input.minScore ?? defaultMinScore}.`,
+		`Minimum evaluation pass rate: ${input.minPassRate ?? defaultMinPassRate}.`,
 		input.policy === undefined ? "No additional promotion policy." : "Candidate must pass the configured promotion policy.",
 	].join(" ");
 }

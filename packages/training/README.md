@@ -19,7 +19,10 @@ governed `ts-autocode-harness` loop as the default orchestrator, and
 `ts-autocode-rewrite` as capture interception and the promotion applier.
 
 ```ts
-import { configureTraining, provideTrainingDefaults } from "ts-autocode-training";
+import { provideTrainingDefaults, type ImplementationExecutor, type TrainingEngine } from "ts-autocode-training";
+
+declare const myEngine: TrainingEngine;
+declare const myRunner: { run: ImplementationExecutor };
 
 provideTrainingDefaults({
   engine: () => myEngine,
