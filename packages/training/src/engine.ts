@@ -34,9 +34,33 @@ export interface OptimizeRequest {
 	readonly constraints?: readonly string[];
 }
 
+/** Which model an engine should use. Provider-neutral on purpose: this package
+ * knows nothing about any provider and simply carries the descriptor to the
+ * configured engine, exactly as it carries `variables` and `secrets`. The
+ * default Ax engine interprets `provider` as an Ax provider name.
+ *
+ * Choosing a model previously meant constructing a whole replacement engine,
+ * which is a lot of ceremony for the first thing most users want to change. */
+export interface ModelSelection {
+	/** Provider id, e.g. `"openai"`, `"anthropic"`, `"google-gemini"`. */
+	readonly provider?: string;
+	/** Model id, e.g. `"gpt-4o-mini"`. Unset uses the provider's own default. */
+	readonly name?: string;
+	/** API key. Falls back to the secret provider, then the environment. */
+	readonly apiKey?: string;
+	/** An optional stronger model for the optimizer's teacher role. */
+	readonly teacher?: Readonly<{
+		readonly provider?: string;
+		readonly name?: string;
+		readonly apiKey?: string;
+	}>;
+}
+
 export interface EngineContext {
 	readonly variables: Readonly<Record<string, string>>;
 	readonly secrets?: SecretProvider;
+	/** The configured {@link ModelSelection}, when one was given. */
+	readonly model?: ModelSelection;
 	readonly signal?: AbortSignal;
 }
 

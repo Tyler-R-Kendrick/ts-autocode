@@ -21,6 +21,7 @@ import {
 	type BoundEvaluation,
 	type CandidatePatch,
 	type ImplementationExecutor,
+	type ModelSelection,
 	type SecretProvider,
 	type TrainingEngine,
 } from "./engine.js";
@@ -113,6 +114,9 @@ export interface TrainingSettings {
 	readonly source?: SourceSettings;
 	readonly store?: TrainingStore;
 	readonly secrets?: SecretProvider;
+	/** Which model the configured engine should use. The default Ax engine
+	 * reads it, so choosing a provider does not mean replacing the engine. */
+	readonly model?: ModelSelection;
 	readonly variables?: Readonly<Record<string, string>>;
 	readonly capture?: CaptureSettings;
 	readonly tracing?: TracingSettings;
@@ -506,6 +510,7 @@ class TrainingRuntime implements Training {
 				{
 					variables: this.#variables,
 					...(this.#settings.secrets === undefined ? {} : { secrets: this.#settings.secrets }),
+					...(this.#settings.model === undefined ? {} : { model: this.#settings.model }),
 					...(signal === undefined ? {} : { signal }),
 				},
 			),

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { defineTrainable, type BoundEvaluation } from "../src/index.js";
-import { createAxEngine } from "../src/providers/ax.js";
+import { apiKeyNamesFor, createAxEngine } from "../src/providers/ax.js";
 import { discoverInSource } from "ts-autocode-training";
 
 const mocks = vi.hoisted(() => ({
@@ -85,5 +85,76 @@ describe("default Ax engine", () => {
 			{ variables: {} },
 		);
 		expect(mocks.ai).toHaveBeenCalledWith({ name: "openai", apiKey: "test-key" });
+	});
+});
+
+/** The same optimize request the suite above uses, as a helper the model
+ * selection tests can reuse. */
+function request() {
+	return { trainableId: token.id, objective: "improve", target, records: [], evaluations };
+}
+
+describe("model selection", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mocks.ax.mockReturnValue({
+			applyOptimization: mocks.applyOptimization,
+			forward: mocks.forward,
+		});
+		mocks.optimize.mockResolvedValue({ optimizedProgram: {} });
+		mocks.forward.mockResolvedValue({ optimizedMethodImplementation: "return input;" });
+	});
+
+	afterEach(() => vi.unstubAllEnvs());
+
+	// Choosing a model used to require constructing a whole replacement engine
+	// via the barely-documented ts-autocode/ax subpath. It is now a setting.
+	it("builds the service from a provider-neutral selection", async () => {
+		vi.stubEnv("ANTHROPIC_API_KEY", "anthropic-key");
+		const engine = createAxEngine();
+		await engine.optimize(request(), {
+			variables: {},
+			model: { provider: "anthropic", name: "claude-sonnet-4-5" },
+		}).catch(() => undefined);
+		expect(mocks.ai).toHaveBeenCalledWith({
+			name: "anthropic",
+			apiKey: "anthropic-key",
+			config: { model: "claude-sonnet-4-5" },
+		});
+	});
+
+	it("prefers an explicit apiKey over the environment", async () => {
+		vi.stubEnv("OPENAI_API_KEY", "from-env");
+		const engine = createAxEngine();
+		await engine.optimize(request(), {
+			variables: {},
+			model: { apiKey: "from-settings" },
+		}).catch(() => undefined);
+		expect(mocks.ai).toHaveBeenCalledWith({ name: "openai", apiKey: "from-settings" });
+	});
+
+	it("resolves a teacher model when one is selected", async () => {
+		vi.stubEnv("OPENAI_API_KEY", "student-key");
+		vi.stubEnv("ANTHROPIC_API_KEY", "teacher-key");
+		const engine = createAxEngine();
+		await engine.optimize(request(), {
+			variables: {},
+			model: { teacher: { provider: "anthropic" } },
+		}).catch(() => undefined);
+		expect(mocks.ai).toHaveBeenCalledWith({ name: "anthropic", apiKey: "teacher-key" });
+	});
+
+	it("names the provider's own key when it is missing", async () => {
+		vi.stubEnv("ANTHROPIC_API_KEY", "");
+		const engine = createAxEngine();
+		await expect(engine.optimize(request(), {
+			variables: {},
+			model: { provider: "anthropic" },
+		})).rejects.toThrow("ANTHROPIC_API_KEY");
+	});
+
+	it("knows the conventional key name for an unlisted provider", () => {
+		expect(apiKeyNamesFor("anthropic")).toEqual(["ANTHROPIC_API_KEY"]);
+		expect(apiKeyNamesFor("some-new-provider")).toEqual(["SOME_NEW_PROVIDER_API_KEY"]);
 	});
 });

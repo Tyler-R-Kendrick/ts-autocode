@@ -258,6 +258,7 @@ Runtime dependencies enter through `TrainingSettings`:
 
 - `engine` replaces the default Ax implementation with any `TrainingEngine`.
 - `loop` replaces the default harness orchestration with any `TrainingLoop`.
+- `model` selects the provider and model the engine uses; see below.
 - `secrets` and `variables` are passed to engine factories without entering traces.
 - `store`, `capture`, and `tracing` configure recording globally.
 - `resilience` attaches named timeout/retry policies to runtime operations —
@@ -335,6 +336,53 @@ defaults still apply, so it gets the Ax engine and governed loop from
 import { createTrainingRuntime } from "ts-autocode";
 
 const tenant = createTrainingRuntime({ outputDir: ".agentv/tenant-a" });
+```
+
+### Choosing a model
+
+`model` selects the provider and model the configured engine uses. Choosing one
+does not mean replacing the engine:
+
+```ts
+import { configureTraining } from "ts-autocode";
+
+configureTraining({
+  model: {
+    provider: "anthropic",
+    name: "claude-sonnet-4-5",
+    // A stronger model for the optimizer's teacher role, if you want one.
+    teacher: { provider: "anthropic", name: "claude-opus-4-1" },
+  },
+});
+```
+
+The descriptor is provider-neutral — `ts-autocode-training` carries it to
+whatever engine is configured, exactly as it carries `secrets` and `variables`
+— and the default Ax engine interprets `provider` as an Ax provider name
+(`openai`, `anthropic`, `google-gemini`, `azure-openai`, `cohere`, `mistral`,
+`deepseek`, `reka`, `grok`, ...).
+
+Credentials resolve in order: an explicit `model.apiKey`, then the configured
+secret provider, then the environment variable conventional for that provider
+(`ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, and so on). With nothing configured the
+default is OpenAI reading `OPENAI_API_KEY`.
+
+For Ax-specific tuning beyond model choice — a prepared `AxAIService`, or
+optimizer options — the `ts-autocode/ax` adapter builds an engine you pass
+through the provider-neutral `engine` slot:
+
+```ts
+import { configureTraining } from "ts-autocode";
+import { createAxEngine } from "ts-autocode/ax";
+import { ai } from "@ax-llm/ax";
+
+configureTraining({
+  engine: createAxEngine({
+    studentAI: ai({ name: "openai", apiKey: process.env.OPENAI_API_KEY ?? "" }),
+    optimize: { verbose: true },
+    executionTimeoutMs: 10_000,
+  }),
+});
 ```
 
 Configuration is optional: the exported `training` runtime works out of the

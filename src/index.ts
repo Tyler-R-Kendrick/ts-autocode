@@ -99,6 +99,7 @@ export type {
 	ExecutionSettings,
 	ImplementationExecutor,
 	Marker,
+	ModelSelection,
 	OptimizeRequest,
 	PromotionApplier,
 	PromotionDecision,

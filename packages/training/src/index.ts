@@ -84,6 +84,7 @@ export type {
 	EngineCandidate,
 	EngineContext,
 	ImplementationExecutor,
+	ModelSelection,
 	OptimizeRequest,
 	SecretProvider,
 	TrainingEngine,

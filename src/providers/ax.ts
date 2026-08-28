@@ -12,6 +12,7 @@ import {
 	EngineProposalError,
 	MissingSecretError,
 	type EngineContext,
+	type ModelSelection,
 	type OptimizeRequest,
 	type TrainingEngine,
 } from "ts-autocode-training";
@@ -28,6 +29,27 @@ const defaultAIProvider = "openai";
 // Secret-provider name first, then environment fallbacks, in order.
 const apiKeySecret = "OPENAI_API_KEY";
 const apiKeyVariables = ["OPENAI_API_KEY", "OPENAI_APIKEY"] as const;
+
+/** Where each Ax provider's key is looked up, so `TrainingSettings.model` can
+ * name a provider without also having to name its environment variable. */
+const providerKeyNames: Readonly<Record<string, readonly string[]>> = Object.freeze({
+	"openai": apiKeyVariables,
+	"openai-responses": apiKeyVariables,
+	"azure-openai": ["AZURE_OPENAI_API_KEY"],
+	"anthropic": ["ANTHROPIC_API_KEY"],
+	"google-gemini": ["GOOGLE_API_KEY", "GEMINI_API_KEY"],
+	"cohere": ["COHERE_API_KEY"],
+	"mistral": ["MISTRAL_API_KEY"],
+	"deepseek": ["DEEPSEEK_API_KEY"],
+	"reka": ["REKA_API_KEY"],
+	"grok": ["GROK_API_KEY", "XAI_API_KEY"],
+});
+
+/** Key names to try for a provider, falling back to its conventional
+ * `<PROVIDER>_API_KEY` so an Ax provider we have not listed still works. */
+export function apiKeyNamesFor(provider: string): readonly string[] {
+	return providerKeyNames[provider] ?? [`${provider.replace(/\W+/g, "_").toUpperCase()}_API_KEY`];
+}
 
 const field = {
 	args: "trainingArgumentsJson",
@@ -55,7 +77,7 @@ export function createAxEngine(options: AxEngineOptions = {}): TrainingEngine {
 		id: options.id ?? defaultEngineId,
 		async optimize(request: OptimizeRequest, context: EngineContext) {
 			const studentAI = await service(options.studentAI, context);
-			const teacherAI = options.teacherAI === undefined ? undefined : await service(options.teacherAI, context);
+			const teacherAI = await teacherService(options, context);
 			const examples = trainingExamples(request);
 			if (examples.length === 0) {
 				throw new EngineProposalError(`Ax requires captured calls or AgentV evaluations for ${request.trainableId}`);
@@ -188,17 +210,41 @@ async function scoreImplementation(
 }
 
 async function service(value: Service | undefined, context: EngineContext): Promise<AxAIService> {
-	if (value === undefined) return defaultAI(context);
+	if (value === undefined) return defaultAI(context, context.model);
 	return typeof value === "function" ? value(context) : value;
 }
 
-async function defaultAI(context: EngineContext): Promise<AxAIService> {
-	const apiKey = await context.secrets?.get(apiKeySecret, context.signal) ??
-		apiKeyVariables.map((name) => process.env[name]).find(Boolean);
+/** An explicit `teacherAI` wins; otherwise `model.teacher` selects one. */
+async function teacherService(options: AxEngineOptions, context: EngineContext): Promise<AxAIService | undefined> {
+	if (options.teacherAI !== undefined) return service(options.teacherAI, context);
+	const teacher = context.model?.teacher;
+	return teacher === undefined ? undefined : defaultAI(context, teacher);
+}
+
+/** Builds an Ax service from a provider-neutral {@link ModelSelection}: its
+ * `apiKey` wins, then the secret provider, then the environment names known for
+ * that provider -- so naming a provider is enough. */
+async function defaultAI(
+	context: EngineContext,
+	selection: ModelSelection | ModelSelection["teacher"],
+): Promise<AxAIService> {
+	const provider = selection?.provider ?? defaultAIProvider;
+	const names = apiKeyNamesFor(provider);
+	const secretName = names[0] ?? apiKeySecret;
+	const apiKey = selection?.apiKey
+		?? await context.secrets?.get(secretName, context.signal)
+		?? names.map((name) => process.env[name]).find(Boolean);
 	if (!apiKey) {
-		throw new MissingSecretError(apiKeySecret, `default optimizer requires ${apiKeySecret} or a custom TrainingSettings.engine`);
+		throw new MissingSecretError(secretName, `default optimizer requires ${secretName} or a custom TrainingSettings.engine`);
 	}
-	return ai({ name: defaultAIProvider, apiKey });
+	// Ax types `name` as a closed union. A configured provider string is
+	// validated by Ax itself, which reports an unknown provider better than a
+	// hand-maintained list here could.
+	return ai({
+		name: provider,
+		apiKey,
+		...(selection?.name === undefined ? {} : { config: { model: selection.name } }),
+	} as Parameters<typeof ai>[0]);
 }
 
 function fieldType(type: string): NonNullable<AxField["type"]> {
