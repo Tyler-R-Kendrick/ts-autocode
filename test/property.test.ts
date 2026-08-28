@@ -111,10 +111,26 @@ describe("digest canonicalization", () => {
 
 describe("optional and defined", () => {
 	it("optional includes a key exactly when the value is defined", () => {
+		// `Object.hasOwn`, not `in`: `in` walks the prototype chain, so any key
+		// named after an Object.prototype member ("toString", "constructor")
+		// reads as present whether or not it was added. fast-check found that
+		// mistake in this assertion within a few hundred runs.
 		fc.assert(fc.property(fc.string({ minLength: 1 }), fc.option(fc.jsonValue(), { nil: undefined }), (key, value) => {
 			const spread = { ...optional(key, value) } as Record<string, unknown>;
-			expect(key in spread).toBe(value !== undefined);
+			expect(Object.hasOwn(spread, key)).toBe(value !== undefined);
 		}), { numRuns: runs });
+	});
+
+	it("optional is safe for keys that shadow Object.prototype", () => {
+		for (const key of ["__proto__", "constructor", "toString", "hasOwnProperty", "valueOf"]) {
+			const present = { ...optional(key, 1) } as Record<string, unknown>;
+			expect(Object.hasOwn(present, key)).toBe(true);
+			expect(present[key]).toBe(1);
+			// A computed `__proto__` defines an own property rather than setting
+			// the prototype, so the object stays a plain object.
+			expect(Object.getPrototypeOf({ ...optional("__proto__", { polluted: true }) })).toBe(Object.prototype);
+			expect(Object.hasOwn({ ...optional(key, undefined) } as object, key)).toBe(false);
+		}
 	});
 
 	it("defined keeps exactly the defined entries", () => {

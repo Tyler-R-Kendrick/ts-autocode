@@ -17,13 +17,14 @@ describe("optional", () => {
 	it("omits the key entirely when the value is undefined", () => {
 		const spread = { ...optional("signal", undefined) };
 		expect(Object.keys(spread)).toEqual([]);
-		expect("signal" in spread).toBe(false);
+		// `Object.hasOwn`, not `in`: `in` walks the prototype chain.
+		expect(Object.hasOwn(spread, "signal")).toBe(false);
 	});
 
 	it("keeps falsy-but-defined values, which is the whole point", () => {
 		for (const value of [0, "", false, Number.NaN, null] as const) {
 			const spread = { ...optional("v", value) };
-			expect("v" in spread).toBe(true);
+			expect(Object.hasOwn(spread, "v")).toBe(true);
 			expect((spread as { v: unknown }).v).toBe(value === value ? value : (spread as { v: number }).v);
 		}
 		expect(Number.isNaN(({ ...optional("v", Number.NaN) } as { v: number }).v)).toBe(true);
@@ -68,5 +69,41 @@ describe("defined", () => {
 		const base = Object.create({ inherited: "no" }) as Record<string, unknown>;
 		base["own"] = "yes";
 		expect({ ...defined(base) }).toEqual({ own: "yes" });
+	});
+});
+
+describe("keys that shadow Object.prototype", () => {
+	// `defined` built its result with `result[key] = value`, which goes through
+	// the `__proto__` setter: a `__proto__` key was silently dropped, and with
+	// an object value it replaced the result's prototype instead of adding a
+	// key. Found by a property test over arbitrary dictionaries.
+	const dangerous = ["__proto__", "constructor", "prototype", "toString", "hasOwnProperty", "valueOf"];
+
+	it.each(dangerous)("defined keeps a %s key as an own property", (key) => {
+		const result = defined(JSON.parse(`{"${key}": 1}`) as Record<string, unknown>);
+		expect(Object.hasOwn(result, key)).toBe(true);
+		expect((result as Record<string, unknown>)[key]).toBe(1);
+	});
+
+	it.each(dangerous)("optional keeps a %s key as an own property", (key) => {
+		const result = { ...optional(key, 1) };
+		expect(Object.hasOwn(result, key)).toBe(true);
+	});
+
+	it("never lets a __proto__ value replace the result's prototype", () => {
+		const result = defined(JSON.parse('{"__proto__": {"isAdmin": true}}') as Record<string, unknown>);
+		expect(Object.getPrototypeOf(result)).toBe(Object.prototype);
+		expect((result as Record<string, unknown>)["isAdmin"]).toBeUndefined();
+		expect(Object.getPrototypeOf({ ...optional("__proto__", { isAdmin: true }) })).toBe(Object.prototype);
+	});
+
+	it("does not pollute Object.prototype itself", () => {
+		defined(JSON.parse('{"__proto__": {"polluted": true}}') as Record<string, unknown>);
+		expect(({} as Record<string, unknown>)["polluted"]).toBeUndefined();
+	});
+
+	it("still drops an undefined value under a dangerous key", () => {
+		const result = defined({ ["__proto__"]: undefined } as Record<string, unknown>);
+		expect(Object.getOwnPropertyNames(result)).toEqual([]);
 	});
 });
