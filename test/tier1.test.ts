@@ -19,7 +19,7 @@ describe("sideEffects declaration", () => {
 	// leave a consumer with "no training engine is configured" after importing
 	// the package that configures it.
 	it("names the modules whose imports actually wire the runtime", () => {
-		expect(manifest.sideEffects).toEqual(["./dist/index.js", "./dist/register.js"]);
+		expect(manifest.sideEffects).toEqual(["./dist/cli-main.js", "./dist/index.js", "./dist/register.js"]);
 	});
 });
 

@@ -12,6 +12,7 @@
 	"license": "MIT",
 	"type": "module",
 	"sideEffects": [
+		"./dist/cli-main.js",
 		"./dist/index.js",
 		"./dist/register.js"
 	],
@@ -21,6 +22,9 @@
 	"files": [
 		"dist"
 	],
+	"bin": {
+		"ts-autocode": "./dist/cli-main.js"
+	},
 	"main": "./dist/index.js",
 	"types": "./dist/index.d.ts",
 	"exports": {

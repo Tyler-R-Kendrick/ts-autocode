@@ -30,6 +30,31 @@ npm install ts-autocode
 
 Node.js 20 or newer is required.
 
+## Command line
+
+```bash
+npx ts-autocode discover
+```
+
+`discover` lists every method the project marks and prints the exact identity
+to bind evals to — the one place this otherwise type-safe design falls back to
+a string, where a typo yields a different symbol with no error:
+
+```text
+Router.route  src/router.ts
+              route(input: string): string
+
+1 trainable.
+
+Bind evals to one with its symbol:
+  const target = defineTrainable("Router.route");
+  await training.train({ trainable: target.symbol, /* ... */ });
+```
+
+`ts-autocode status` reports how many traces each trainable has captured, which
+is what background evolution counts against `evolution.minTraces`. Both accept
+`--cwd`, `--project`, `--file` (repeatable), `--output-dir`, and `--json`.
+
 ## Use the directive
 
 Place the literal directive first in a function or method body. No import,
@@ -518,6 +543,7 @@ event carrying an `error`, with the phase it always did.
 | `ts-autocode/ax` | Tuning the default Ax engine. |
 | `ts-autocode/grounding` | Grounding decorators and ambient-class scanning. |
 | `ts-autocode/register` | The zero-config runtime patch (`node --import`). |
+| `npx ts-autocode` | `discover` and `status` from the command line. |
 
 Everything on `/internal` is still exported from the root, so no existing
 import breaks; the subpath exists so that what an application imports is only
