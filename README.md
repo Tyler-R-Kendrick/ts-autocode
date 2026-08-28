@@ -297,6 +297,46 @@ AgentV's `workers` option parallelizes live-trace and candidate evals. Independe
 trainables can be trained concurrently by the application, while the configured
 engine and store remain injectable.
 
+Round and promotion options are grouped on `TrainInput`:
+
+```ts
+import { training, type TrainInput } from "ts-autocode";
+
+declare const base: TrainInput;
+
+await training.train({
+  ...base,
+  rounds: { max: 5, fanOut: 1 },
+  promotion: {
+    minScore: 0.9,
+    minPassRate: 1,
+    gates: [({ candidate }) => candidate.implementation.includes("eval(") ? "no eval" : undefined],
+  },
+});
+```
+
+The flat `maxRounds`, `fanOut`, `minScore`, `minPassRate`, `gates`, and `policy`
+still work and are deprecated. A `policy` was always a gate that returns a
+failure when it refuses, so one `gates` list now expresses both.
+
+### Scoping a runtime
+
+`configureTraining(settings)` configures one process-wide runtime, which the
+exported `training` const delegates to, and **replaces** the current settings.
+Pass `{ merge: true }` to layer onto what is already configured, and
+`resetTraining()` to restore a fresh-import state — useful between tests.
+
+For a runtime that registers nothing globally — a test, or a host serving
+several tenants side by side — use `createTrainingRuntime(settings)`. Provider
+defaults still apply, so it gets the Ax engine and governed loop from
+`import "ts-autocode"` exactly as the shared runtime does.
+
+```ts
+import { createTrainingRuntime } from "ts-autocode";
+
+const tenant = createTrainingRuntime({ outputDir: ".agentv/tenant-a" });
+```
+
 Configuration is optional: the exported `training` runtime works out of the
 box, and `configureTraining(settings)` only overrides its settings. The default
 Ax implementation reads `OPENAI_API_KEY` from the configured secret provider or
@@ -420,6 +460,20 @@ configureTraining({
 
 `onError` still works and is a projection of the same stream: it receives every
 event carrying an `error`, with the phase it always did.
+
+## Import surface
+
+| Import | For |
+|---|---|
+| `ts-autocode` | Everything an application needs: the directive, `@trainable`, `training`, settings, errors. |
+| `ts-autocode/internal` | Author-level seams: building an engine, loop, executor, store, or instrumentation mechanism. |
+| `ts-autocode/ax` | Tuning the default Ax engine. |
+| `ts-autocode/grounding` | Grounding decorators and ambient-class scanning. |
+| `ts-autocode/register` | The zero-config runtime patch (`node --import`). |
+
+Everything on `/internal` is still exported from the root, so no existing
+import breaks; the subpath exists so that what an application imports is only
+what an application needs.
 
 ## Official telemetry types
 

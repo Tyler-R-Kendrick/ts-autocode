@@ -67,6 +67,13 @@ export interface TracingSettings {
 /** Background code evolution driven by captured traffic; disabled unless enabled here
  * or via `ts-autocode/register`. Rewrites still pass the full gate before applying. */
 export interface EvolutionSettings {
+	/** Turn background evolution on. Unlike `capture.enabled` and
+	 * `tracing.enabled`, which are opt-*out* recording switches, this is
+	 * opt-*in*: it rewrites your source files. The name says so. */
+	readonly auto?: boolean;
+	/** @deprecated Renamed to {@link EvolutionSettings.auto}. `enabled` read as
+	 * an opt-out switch like its two siblings while being the only opt-in one.
+	 * Still honored; `auto` wins when both are set. */
 	readonly enabled?: boolean;
 	readonly minTraces?: number;
 	readonly objective?: string;
@@ -136,6 +143,26 @@ export type TrainingEvent =
 	| Readonly<{ type: "evolution.skipped"; phase: "evolve"; trainable: TrainableToken; traces: number; required: number }>
 	| Readonly<{ type: "evolution.failed"; phase: "evolve"; trainable: TrainableToken; error: unknown }>;
 
+/** How many rounds a run explores, and how wide each one is. */
+export interface RoundSettings {
+	readonly max?: number;
+	/** Maximum candidates proposed and reviewed concurrently per round. The
+	 * default governed harness loop reviews one per round and refuses more;
+	 * `sequentialLoop` supports it. */
+	readonly fanOut?: number;
+}
+
+/** What a candidate must clear to be promoted. `policy` was always a
+ * {@link PromotionGate} in disguise -- the gate evaluator wrapped it into one --
+ * so a single `gates` list now expresses both. */
+export interface PromotionSettings {
+	readonly minScore?: number;
+	readonly minPassRate?: number;
+	/** Extra gates run after the standard {@link defaultPromotionGates} set.
+	 * Extension adds rules; it cannot waive the standard invariants. */
+	readonly gates?: readonly PromotionGate[];
+}
+
 export interface TrainInput {
 	readonly trainable: TrainableIdentity;
 	/** Optimization goal; defaults to preserving the evaluated behavior. */
@@ -149,15 +176,43 @@ export interface TrainInput {
 	readonly constraints?: readonly string[];
 	readonly engine?: TrainingEngine;
 	readonly signal?: AbortSignal;
+	/** Round budget and width. */
+	readonly rounds?: RoundSettings;
+	/** Promotion thresholds and extra gates. */
+	readonly promotion?: PromotionSettings;
+	/** @deprecated Use `rounds.max`. */
 	readonly maxRounds?: number;
-	/** Maximum candidates proposed and reviewed concurrently per round; loops
-	 * that do not support fan-out may ignore it. */
+	/** @deprecated Use `rounds.fanOut`. */
 	readonly fanOut?: number;
+	/** @deprecated Use `promotion.minScore`. */
 	readonly minScore?: number;
+	/** @deprecated Use `promotion.minPassRate`. */
 	readonly minPassRate?: number;
+	/** @deprecated Use `promotion.gates`; a policy is a gate that returns a
+	 * failure when it refuses. Still honored, and still runs before the extra
+	 * gates. */
 	readonly policy?: (candidate: CandidatePatch) => boolean | Promise<boolean>;
-	/** Extra promotion gates run after the standard set for every review. */
+	/** @deprecated Use `promotion.gates`. */
 	readonly gates?: readonly PromotionGate[];
+}
+
+/** Collapses the grouped and flat forms of one input into the values the
+ * runtime uses. The grouped form wins; both are accepted for one release. */
+function resolved(input: TrainInput): {
+	readonly maxRounds: number | undefined;
+	readonly fanOut: number | undefined;
+	readonly minScore: number | undefined;
+	readonly minPassRate: number | undefined;
+	readonly gates: readonly PromotionGate[] | undefined;
+} {
+	const gates = [...(input.promotion?.gates ?? []), ...(input.gates ?? [])];
+	return {
+		maxRounds: input.rounds?.max ?? input.maxRounds,
+		fanOut: input.rounds?.fanOut ?? input.fanOut,
+		minScore: input.promotion?.minScore ?? input.minScore,
+		minPassRate: input.promotion?.minPassRate ?? input.minPassRate,
+		gates: gates.length === 0 ? undefined : gates,
+	};
 }
 
 /** Whether a run's final candidate can be applied, and if not, why. `outcome`
@@ -252,7 +307,8 @@ class TrainingRuntime implements Training {
 
 	#maybeEvolve(token: TrainableToken): void {
 		const evolution = this.#settings.evolution ?? defaultProviders.evolution;
-		if (evolution?.enabled !== true) return;
+		if (evolution === undefined) return;
+		if ((evolution.auto ?? evolution.enabled) !== true) return;
 		const state = this.#evolutionState.get(token.id) ?? { running: false, queued: false, attempted: 0 };
 		this.#evolutionState.set(token.id, state);
 		if (state.running) {
@@ -350,13 +406,14 @@ class TrainingRuntime implements Training {
 		const { task: _task, outputDir = this.#settings.outputDir ?? defaultOutputDir, ...candidateEvaluation } = evaluation;
 		const baseline = await this.evaluate(token, { ...evaluation, outputDir });
 		const loop = this.#settings.loop ?? defaultProviders.loop ?? sequentialLoop;
+		const options = resolved(input);
 		const result = await loop({
 			trainableId: token.id,
 			objective,
 			rubric: promotionRubric(input),
 			outputDir,
-			...(input.maxRounds === undefined ? {} : { maxRounds: input.maxRounds }),
-			...(input.fanOut === undefined ? {} : { fanOut: input.fanOut }),
+			...(options.maxRounds === undefined ? {} : { maxRounds: options.maxRounds }),
+			...(options.fanOut === undefined ? {} : { fanOut: options.fanOut }),
 			...(input.signal === undefined ? {} : { signal: input.signal }),
 			propose: ({ feedback, signal }) => this.#propose(token, {
 				objective,
@@ -378,10 +435,10 @@ class TrainingRuntime implements Training {
 					evaluations: verification.evaluations,
 					// The engine already validated the candidate source.
 					conformance: true,
-					...(input.minScore === undefined ? {} : { minScore: input.minScore }),
-					...(input.minPassRate === undefined ? {} : { minPassRate: input.minPassRate }),
+					...(options.minScore === undefined ? {} : { minScore: options.minScore }),
+					...(options.minPassRate === undefined ? {} : { minPassRate: options.minPassRate }),
 					...(input.policy === undefined ? {} : { policy: input.policy }),
-					...(input.gates === undefined ? {} : { gates: input.gates }),
+					...(options.gates === undefined ? {} : { gates: options.gates }),
 				});
 				return { verification, decision };
 			},
@@ -619,10 +676,43 @@ class TrainingRuntime implements Training {
 }
 
 let configuredTraining: TrainingRuntime | undefined;
+let configuredSettings: TrainingSettings = {};
 
-export function configureTraining(settings: TrainingSettings = {}): Training {
-	configuredTraining = new TrainingRuntime(settings);
+export interface ConfigureOptions {
+	/** Merge into the current settings instead of replacing them. Off by
+	 * default: `configureTraining` has always replaced, and silently carrying
+	 * settings between unrelated calls is worse than the surprise it fixes. */
+	readonly merge?: boolean;
+}
+
+/** Configure the process-wide runtime that the exported `training` const
+ * delegates to. Replaces the current settings unless `merge` is set; pass
+ * `{ merge: true }` to layer onto whatever is already configured.
+ *
+ * For an isolated runtime that touches no global state — a test, or a host
+ * serving several tenants — use {@link createTrainingRuntime}. */
+export function configureTraining(settings: TrainingSettings = {}, options: ConfigureOptions = {}): Training {
+	configuredSettings = options.merge ? { ...configuredSettings, ...settings } : settings;
+	configuredTraining = new TrainingRuntime(configuredSettings);
 	return configuredTraining;
+}
+
+/** Build a runtime that owns its own settings, store and evolution state, and
+ * registers nothing globally. The exported `training` const is unaffected, so
+ * several of these can run side by side. Provider defaults registered with
+ * {@link provideTrainingDefaults} still apply, so `import "ts-autocode"` gives
+ * this the Ax engine and the governed loop exactly as it gives them to the
+ * shared runtime. */
+export function createTrainingRuntime(settings: TrainingSettings = {}): Training {
+	return new TrainingRuntime(settings);
+}
+
+/** Discard the process-wide runtime and its settings, restoring the state of a
+ * fresh import. Intended for tests: without it, one test's `configureTraining`
+ * call is visible to every later one. */
+export function resetTraining(): void {
+	configuredTraining = undefined;
+	configuredSettings = {};
 }
 
 export interface TrainingProviders {
@@ -716,12 +806,13 @@ function liveEvalCases(records: readonly TrainingRecord[]): readonly EvalTestInp
 }
 
 function promotionRubric(input: TrainInput): string {
+	const options = resolved(input);
 	return [
 		"Candidate must pass source conformance checks.",
 		// The judge reads this verbatim, so it must carry the resolved numbers a
 		// candidate is actually held to -- never a placeholder.
-		`Minimum evaluation score: ${input.minScore ?? defaultMinScore}.`,
-		`Minimum evaluation pass rate: ${input.minPassRate ?? defaultMinPassRate}.`,
+		`Minimum evaluation score: ${options.minScore ?? defaultMinScore}.`,
+		`Minimum evaluation pass rate: ${options.minPassRate ?? defaultMinPassRate}.`,
 		input.policy === undefined ? "No additional promotion policy." : "Candidate must pass the configured promotion policy.",
 	].join(" ");
 }

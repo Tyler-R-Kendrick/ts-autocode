@@ -29,8 +29,12 @@ describe("trainable identity", () => {
 		}
 
 		expect(new Router().route("billing")).toBe("BILLING");
+		// No wrapper a consumer must call to mark a trainable: the directive is
+		// the marker. `createTrainingRuntime` is a runtime factory, not one of
+		// these, and is deliberately named apart from them.
 		expect("useTraining" in publicApi).toBe(false);
 		expect("createTraining" in publicApi).toBe(false);
+		expect("markTrainable" in publicApi).toBe(false);
 		expect("default" in publicApi).toBe(false);
 		// Weaving and decorators live with the instrumentation wiring, not here.
 		expect("trainable" in publicApi).toBe(false);

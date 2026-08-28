@@ -52,9 +52,19 @@ export function normalizePath(path: string): string {
 	return path.replace(/\\/g, "/");
 }
 
-export function digest(value: string): string {
+/** sha256 over line-ending-normalized *text*.
+ *
+ * Deliberately not the same function as `ts-autocode-rewrite`'s `digest`, which
+ * canonicalizes an arbitrary value as key-sorted JSON. Both emit a `sha256:`
+ * prefix, so substituting one for the other silently changes every hash. The
+ * name now says which one this is. */
+export function textDigest(value: string): string {
 	return `sha256:${createHash("sha256").update(normalizeText(value), "utf8").digest("hex")}`;
 }
+
+/** @deprecated Renamed to {@link textDigest}. `digest` collided by name with
+ * `ts-autocode-rewrite`'s value digest while computing something different. */
+export const digest = textDigest;
 
 export function pascalCase(value: string): string {
 	return value

@@ -36,6 +36,7 @@ export {
 	CandidateSyntaxError,
 	captureTrainable,
 	configureTraining,
+	createTrainingRuntime,
 	defaultEvolution,
 	defaultFanOut,
 	defaultMaxRounds,
@@ -68,6 +69,7 @@ export {
 	PromotionApplierNotConfiguredError,
 	PromotionRejectedError,
 	provideTrainingDefaults,
+	resetTraining,
 	sequentialLoop,
 	SourceDiscoveryError,
 	trainableTokenFromSymbol,
@@ -86,6 +88,7 @@ export type {
 	ActivationReadiness,
 	AppliedPromotion,
 	BoundEvaluation,
+	ConfigureOptions,
 	CandidatePatch,
 	CandidateReview,
 	CaptureSettings,
@@ -102,6 +105,7 @@ export type {
 	PromotionGate,
 	PromotionGateContext,
 	PromotionGateInput,
+	PromotionSettings,
 	ProposalTurn,
 	ResiliencePolicy,
 	ResilienceSettings,
@@ -109,6 +113,7 @@ export type {
 	ReviewContext,
 	RoundObserver,
 	RoundSequence,
+	RoundSettings,
 	SecretProvider,
 	SourceSettings,
 	TrainInput,
@@ -168,6 +173,7 @@ export type {
 
 // `HarnessLoopOptions` is typed in terms of these, so configuring the default
 // loop must not require taking a second, undocumented dependency.
+export { defaultHarnessRounds } from "ts-autocode-harness";
 export type {
 	ContextProvider,
 	JudgeDecision,

@@ -1,3 +1,11 @@
+// The SCREAMING_SNAKE names below are unique in this workspace; camelCase
+// aliases match the rest of it. Both are exported for one release.
+export {
+	componentMetadata,
+	pendingGroundings,
+	registeredMethods,
+} from "./aliases.js";
+
 export {
 	composeOptions,
 	defineGrounding,
@@ -36,6 +44,7 @@ export {
 export {
 	camelCase,
 	digest,
+	textDigest,
 	normalizePath,
 	normalizeText,
 	pascalCase,

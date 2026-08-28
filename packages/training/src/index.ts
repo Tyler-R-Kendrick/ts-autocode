@@ -1,6 +1,8 @@
 export {
 	captureTrainable,
 	configureTraining,
+	createTrainingRuntime,
+	resetTraining,
 	defaultEvolution,
 	defaultObjective,
 	defaultOutputDir,
@@ -11,6 +13,9 @@ export type {
 	Activation,
 	ActivationReadiness,
 	AppliedPromotion,
+	ConfigureOptions,
+	PromotionSettings,
+	RoundSettings,
 	CaptureSettings,
 	ErrorPhase,
 	EvolutionSettings,
