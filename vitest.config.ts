@@ -20,5 +20,23 @@ export default defineConfig({
 	},
 	test: {
 		include: ["test/**/*.test.ts", "packages/grounding/test/**/*.test.ts", "packages/harness/test/**/*.test.ts", "packages/rewrite/test/**/*.test.ts", "packages/training/test/**/*.test.ts"],
+		coverage: {
+			provider: "v8",
+			include: ["src/**/*.ts", "packages/*/src/**/*.ts"],
+			// `cli-main.ts` is a four-line bin wrapper around `run()`, which is
+			// tested directly; `register.ts` installs a module load hook at
+			// import time, so importing it to measure it would install one.
+			// Both are covered by behavior elsewhere, not by line counting.
+			exclude: ["src/cli-main.ts", "src/register.ts"],
+			reporter: ["text", "json-summary", "lcov"],
+			reportsDirectory: "test/output/coverage",
+			// Ratchets: raise these as suites land, never lower them to get green.
+			thresholds: {
+				statements: 90,
+				branches: 78,
+				functions: 93,
+				lines: 93,
+			},
+		},
 	},
 });
