@@ -7,7 +7,14 @@ import {
 	type JudgeDecision,
 	type JudgeRequest,
 } from "ts-autocode-harness";
-import { LoopCapabilityError, type CandidatePatch, type CandidateReview, type TrainingLoop, type TrainingLoopInput } from "ts-autocode-training";
+import {
+	LoopCapabilityError,
+	optional,
+	type CandidatePatch,
+	type CandidateReview,
+	type TrainingLoop,
+	type TrainingLoopInput,
+} from "ts-autocode-training";
 import { createStorage, type Storage } from "unstorage";
 import fsDriver from "unstorage/drivers/fs";
 
@@ -63,16 +70,16 @@ export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoo
 			...(options.judge === undefined ? {} : { judge: options.judge }),
 			task: { trainable: input.trainableId, objective: input.objective },
 			rubric: input.rubric,
-			...maybeSignal(input.signal),
+			...optional("signal", input.signal),
 			student: ({ round, feedback, signal }) =>
-				input.propose({ round, slot: 1, feedback, ...maybeSignal(signal) }),
+				input.propose({ round, slot: 1, feedback, ...optional("signal", signal) }),
 			teacher: async (candidate, { round, signal }) => {
-				const review = await input.review(candidate, { label: `candidate-${round}`, ...maybeSignal(signal) });
+				const review = await input.review(candidate, { label: `candidate-${round}`, ...optional("signal", signal) });
 				return { assessment: review, feedback: review.decision.failures };
 			},
 			adversary: {
 				challenge: async (candidate, { signal }) => {
-					const challenge = await input.review(candidate, { label: `adversary-${candidate.id}`, ...maybeSignal(signal) });
+					const challenge = await input.review(candidate, { label: `adversary-${candidate.id}`, ...optional("signal", signal) });
 					return { challenge, feedback: challenge.decision.failures };
 				},
 			},
@@ -84,8 +91,3 @@ export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoo
 	};
 }
 
-/** Spreads an abort signal only when one exists, so optional-property types
- * never receive an explicit `undefined`. */
-function maybeSignal(signal: AbortSignal | undefined): { signal: AbortSignal } | Record<never, never> {
-	return signal === undefined ? {} : { signal };
-}

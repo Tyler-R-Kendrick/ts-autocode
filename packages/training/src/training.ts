@@ -6,6 +6,7 @@ import { OpenInferenceSpanKind, SemanticConventions } from "@arizeai/openinferen
 import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "@opentelemetry/api";
 
 import { attempt, errorMessage } from "./attempt.js";
+import { optional } from "./optional.js";
 import {
 	EngineNotConfiguredError,
 	ExecutorNotConfiguredError,
@@ -99,6 +100,15 @@ export const defaultOutputDir = ".agentv";
  * is the executor's own per-run limit. */
 export interface ExecutionSettings {
 	readonly timeoutMs?: number;
+	/** How an eval case's string input becomes the trainable's argument list.
+	 *
+	 * AgentV evaluation is string-in, string-out, so by default an input is
+	 * `JSON.parse`d and a resulting array is spread as arguments. That guess is
+	 * lossy: a function legitimately taking the single string `"[1,2]"`
+	 * receives two numbers instead. Set this when your trainable's arguments
+	 * are not what the guess produces — `(input) => [input]` passes the raw
+	 * string through unchanged. */
+	readonly decodeArgs?: (input: string) => readonly unknown[];
 }
 
 export interface TrainingSettings {
@@ -334,8 +344,8 @@ class TrainingRuntime implements Training {
 			const run = await this.train({
 				trainable: token,
 				minTraces,
-				...(evolution.objective === undefined ? {} : { objective: evolution.objective }),
-				...(evolution.evaluation === undefined ? {} : { evaluation: evolution.evaluation }),
+				...optional("objective", evolution.objective),
+				...optional("evaluation", evolution.evaluation),
 			});
 			if (run.outcome !== "ready") {
 				throw TrainingIncompleteError.noPromotableCandidate(run.outcome);
@@ -372,6 +382,7 @@ class TrainingRuntime implements Training {
 		const token = defineTrainable(candidate.trainableId);
 		const execute = this.#executorOrThrow();
 		const timeoutMs = this.#settings.execution?.timeoutMs;
+		const decodeArgs = this.#settings.execution?.decodeArgs ?? evaluationArgs;
 		const { signal, ...evaluation } = config;
 		signal?.throwIfAborted();
 		const evaluated = await evaluateTrainable(token, {
@@ -383,10 +394,10 @@ class TrainingRuntime implements Training {
 					(attemptSignal) => execute(
 						candidate.target,
 						candidate.implementation,
-						evaluationArgs(input),
+						decodeArgs(input),
 						{
-							...(timeoutMs === undefined ? {} : { timeoutMs }),
-							...(attemptSignal === undefined ? {} : { signal: attemptSignal }),
+							...optional("timeoutMs", timeoutMs),
+							...optional("signal", attemptSignal),
 						},
 					),
 					signal,
@@ -416,22 +427,22 @@ class TrainingRuntime implements Training {
 			objective,
 			rubric: promotionRubric(input),
 			outputDir,
-			...(options.maxRounds === undefined ? {} : { maxRounds: options.maxRounds }),
-			...(options.fanOut === undefined ? {} : { fanOut: options.fanOut }),
-			...(input.signal === undefined ? {} : { signal: input.signal }),
+			...optional("maxRounds", options.maxRounds),
+			...optional("fanOut", options.fanOut),
+			...optional("signal", input.signal),
 			propose: ({ feedback, signal }) => this.#propose(token, {
 				objective,
 				constraints: [
 					...(input.constraints ?? []),
 					...feedback.map((failure) => `Previous candidate rejection: ${failure}`),
 				],
-				...(input.engine === undefined ? {} : { engine: input.engine }),
-				...(signal === undefined ? {} : { signal }),
+				...optional("engine", input.engine),
+				...optional("signal", signal),
 			}),
 			review: async (candidate, { label, signal }) => {
 				const verification = await this.#evaluateCandidate(candidate, {
 					...candidateEvaluation,
-					...(signal === undefined ? {} : { signal }),
+					...optional("signal", signal),
 					outputDir: `${outputDir}/${label}`,
 				});
 				const decision = await evaluatePromotionGate({
@@ -439,10 +450,10 @@ class TrainingRuntime implements Training {
 					evaluations: verification.evaluations,
 					// The engine already validated the candidate source.
 					conformance: true,
-					...(options.minScore === undefined ? {} : { minScore: options.minScore }),
-					...(options.minPassRate === undefined ? {} : { minPassRate: options.minPassRate }),
-					...(input.policy === undefined ? {} : { policy: input.policy }),
-					...(options.gates === undefined ? {} : { gates: options.gates }),
+					...optional("minScore", options.minScore),
+					...optional("minPassRate", options.minPassRate),
+					...optional("policy", input.policy),
+					...optional("gates", options.gates),
 				});
 				return { verification, decision };
 			},
@@ -509,9 +520,9 @@ class TrainingRuntime implements Training {
 				},
 				{
 					variables: this.#variables,
-					...(this.#settings.secrets === undefined ? {} : { secrets: this.#settings.secrets }),
-					...(this.#settings.model === undefined ? {} : { model: this.#settings.model }),
-					...(signal === undefined ? {} : { signal }),
+					...optional("secrets", this.#settings.secrets),
+					...optional("model", this.#settings.model),
+					...optional("signal", signal),
 				},
 			),
 			input.signal,
@@ -566,7 +577,7 @@ class TrainingRuntime implements Training {
 	): Result {
 		const startedAt = new Date();
 		const runId = randomUUID();
-		const execution = { args, name, token, runId, startedAt, ...(span === undefined ? {} : { span }) };
+		const execution = { args, name, token, runId, startedAt, ...optional("span", span) };
 		let result: Result;
 		try {
 			result = method.apply(thisValue, args);
@@ -784,7 +795,11 @@ function defaultSerialize(value: unknown): string {
 	return attempt(() => JSON.stringify(value) ?? String(value), () => String(value));
 }
 
-function evaluationArgs(input: string): readonly unknown[] {
+/** The default {@link ExecutionSettings.decodeArgs}: parse the eval input as
+ * JSON and spread an array as the argument list, falling back to the raw string.
+ * Ambiguous by nature — a trainable taking the literal string `"[1,2]"` gets
+ * two numbers — which is why it is replaceable. */
+export function evaluationArgs(input: string): readonly unknown[] {
 	return attempt(() => {
 		const parsed = JSON.parse(input) as unknown;
 		return Array.isArray(parsed) ? parsed : [parsed];

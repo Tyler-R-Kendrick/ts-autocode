@@ -78,7 +78,6 @@
 	},
 	"dependencies": {
 		"@ax-llm/ax": "^23.0.0",
-		"effect": "^3.21.4",
 		"ts-autocode-grounding": "0.1.0",
 		"ts-autocode-harness": "0.1.0",
 		"ts-autocode-rewrite": "0.1.0",

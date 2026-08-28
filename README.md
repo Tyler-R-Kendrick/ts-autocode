@@ -304,10 +304,11 @@ Runtime dependencies enter through `TrainingSettings`:
   });
   ```
 
-- `execution` bounds each candidate run inside the executor: `timeoutMs` caps a
-  single execution (default 5 seconds). This is distinct from
+- `execution` shapes each candidate run inside the executor. `timeoutMs` caps a
+  single execution (default 5 seconds) — distinct from
   `resilience.evaluate.timeoutMs`, which bounds the whole attempt and may retry
-  it.
+  it. `decodeArgs` turns an eval case's string input into the trainable's
+  argument list; see below.
 - `source` overrides TypeScript project discovery when the default `tsconfig.json`
   is not the desired project.
 - `outputDir` relocates run artifacts and eval output (default `.agentv`,
@@ -459,6 +460,42 @@ const engine: TrainingEngine = {
 
 The core validates identity, source digests, and the final candidate regardless
 of engine.
+
+## Evaluation arguments
+
+AgentV evaluation is string-in, string-out. By default an eval input is
+`JSON.parse`d and a resulting array is spread as the trainable's arguments,
+which is a guess: a function taking the single string `"[1,2]"` receives two
+numbers instead. Replace it when your arguments are not what the guess
+produces:
+
+```ts
+import { configureTraining } from "ts-autocode";
+
+configureTraining({
+  // Pass the raw eval input through as one string argument.
+  execution: { decodeArgs: (input) => [input] },
+});
+```
+
+## Extending the library
+
+Implementing a custom `TrainingLoop` means returning a `CandidateReview`
+containing a `TrainableEvalRun`. Builders construct both, so extending the
+library never requires a cast:
+
+```ts
+import { createCandidateReview, type CandidatePatch, type TrainingLoop } from "ts-autocode";
+
+const loop: TrainingLoop = async (input) => {
+  const candidate: CandidatePatch = await input.propose({ round: 1, slot: 1, feedback: [] });
+  const review = createCandidateReview({ candidate, failures: ["not tried yet"] });
+  return { outcome: "exhausted", rounds: [{ round: 1, candidate, ...review }] };
+};
+```
+
+`createEvalRun` and `createPromotionDecision` build the parts individually when
+you have real evidence to carry.
 
 ## Errors
 

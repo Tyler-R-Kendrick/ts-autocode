@@ -6,6 +6,7 @@ export {
 	defaultEvolution,
 	defaultObjective,
 	defaultOutputDir,
+	evaluationArgs,
 	provideTrainingDefaults,
 	training,
 } from "./training.js";
@@ -91,6 +92,11 @@ export type {
 } from "./engine.js";
 
 export type { TrainableEvalRun } from "./evaluation.js";
+
+export { createCandidateReview, createEvalRun, createPromotionDecision } from "./builders.js";
+export type { DecisionInput, EvalRunInput, ReviewInput } from "./builders.js";
+
+export { defined, optional } from "./optional.js";
 
 export { defaultMinPassRate, defaultMinScore, defaultPromotionGates, evaluatePromotionGate } from "./promotion.js";
 export type { PromotionDecision, PromotionGate, PromotionGateContext, PromotionGateInput } from "./promotion.js";

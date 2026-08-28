@@ -14,6 +14,7 @@ import {
 	defineTrainingHarness,
 	dispatchAction,
 	HarnessSandbox,
+	inferringHarness,
 	WriteAheadAgentBus,
 	type AgentBusEntry,
 } from "../src/index.js";
@@ -317,3 +318,38 @@ async function loopCallbacks(decisions: readonly ("pass" | "fail")[]) {
 		}),
 	};
 }
+
+describe("inferringHarness", () => {
+	// defineTrainingHarness takes three type parameters but `settings` mentions
+	// only TCandidate, so a bare call inferred `unknown, unknown, unknown` and
+	// every documented call site wrote all three out. TChallenge was already
+	// scoped to `run` and inferred; these two now behave the same way.
+	it("infers assessment and feedback from the roles", async () => {
+		const result = await inferringHarness<{ id: string }>().run({
+			task: "task",
+			rubric: "rubric",
+			student: ({ round }) => ({ id: `candidate-${round}` }),
+			teacher: (candidate) => ({
+				assessment: { score: candidate.id === "candidate-1" ? 0 : 1 },
+				feedback: candidate.id === "candidate-1" ? ["needs work"] : [],
+			}),
+		});
+
+		expect(result.outcome).toBe("accepted");
+		expect(result.final.candidate.id).toBe("candidate-2");
+		// Inferred, not asserted: `assessment` is {score: number} here, so this
+		// arithmetic typechecks without a cast or an explicit type argument.
+		expect(result.final.assessment.score + 1).toBe(2);
+	});
+
+	it("still honors settings", async () => {
+		const result = await inferringHarness<string>({ maxRounds: 1 }).run({
+			task: "task",
+			rubric: "rubric",
+			student: ({ round }) => `candidate-${round}`,
+			teacher: () => ({ assessment: "no", feedback: ["always rejected"] }),
+		});
+		expect(result.outcome).toBe("exhausted");
+		expect(result.rounds).toHaveLength(1);
+	});
+});

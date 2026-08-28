@@ -19,6 +19,7 @@ import * as internal from "../src/internal.js";
 import { defaultMaxRounds as harnessMaxRounds } from "ts-autocode-harness";
 import { digest as groundingDigest, textDigest } from "ts-autocode-grounding";
 import { digest as rewriteDigest } from "ts-autocode-rewrite";
+import { defined, optional } from "ts-autocode-training";
 
 // The Tier 3 reshaping is additive: every legacy spelling must keep working.
 // This file is the enforcement of that promise, not a restatement of it.
@@ -191,5 +192,20 @@ describe("ts-autocode/internal", () => {
 		const root = await import("../src/index.js");
 		expect(root.captureTrainable).toBe(internal.captureTrainable);
 		expect(root.commitRewrite).toBe(internal.commitRewrite);
+	});
+});
+
+describe("optional-spread helper", () => {
+	it("spreads a defined value and drops an undefined one", () => {
+		expect({ ...optional("signal", "abc") }).toEqual({ signal: "abc" });
+		expect({ ...optional("signal", undefined) }).toEqual({});
+		// Crucially it omits the key rather than setting it to undefined, which
+		// is what exactOptionalPropertyTypes forbids.
+		expect("signal" in { ...optional("signal", undefined) }).toBe(false);
+	});
+
+	it("drops undefined entries from a group", () => {
+		expect({ ...defined({ a: 1, b: undefined, c: "x" }) }).toEqual({ a: 1, c: "x" });
+		expect(Object.keys({ ...defined({ a: undefined }) })).toEqual([]);
 	});
 });

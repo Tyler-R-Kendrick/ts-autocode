@@ -11,6 +11,7 @@ import {
 import {
 	EngineProposalError,
 	MissingSecretError,
+	optional,
 	type EngineContext,
 	type ModelSelection,
 	type OptimizeRequest,
@@ -87,12 +88,12 @@ export function createAxEngine(options: AxEngineOptions = {}): TrainingEngine {
 				scoreImplementation(request, prediction as RewriteOutput, example, options.executionTimeoutMs, context.signal), {
 				...options.optimize,
 				studentAI,
-				...(teacherAI === undefined ? {} : { teacherAI }),
+				...optional("teacherAI", teacherAI),
 			});
 			if (!result.optimizedProgram) throw new EngineProposalError(`Ax did not optimize ${request.trainableId}`);
 			program.applyOptimization(result.optimizedProgram);
 			const output = await program.forward(studentAI, publicInput(examples[0] as Record<string, AxFieldValue>), {
-				...(context.signal === undefined ? {} : { abortSignal: context.signal }),
+				...optional("abortSignal", context.signal),
 			}) as RewriteOutput;
 			return {
 				implementation: output[field.output],
@@ -203,7 +204,7 @@ async function scoreImplementation(
 	return attemptAsync(async () => {
 		const actual = await executeImplementation(request.target, prediction[field.output], args, {
 			timeoutMs: timeout,
-			...(signal === undefined ? {} : { signal }),
+			...optional("signal", signal),
 		});
 		return outputText(actual) === String(exampleValue[field.expected] ?? "") ? 1 : 0;
 	}, () => 0);
