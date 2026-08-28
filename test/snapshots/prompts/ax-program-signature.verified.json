@@ -1,0 +1,50 @@
+{
+  "description": "Rewrite only the TypeScript body of route(input: string, retries = 2, tags?: string[]): string.\nPreserve routing\nDo not call the network.\nReturn the method body without braces or markdown fences.",
+  "inputs": [
+    {
+      "description": "input: string",
+      "name": "methodArgumentInput",
+      "type": {
+        "name": "string"
+      }
+    },
+    {
+      "description": "retries = 2",
+      "isOptional": true,
+      "name": "methodArgumentRetries",
+      "type": {
+        "name": "number"
+      }
+    },
+    {
+      "description": "tags?: string[]",
+      "isOptional": true,
+      "name": "methodArgumentTags",
+      "type": {
+        "isArray": true,
+        "name": "string"
+      }
+    },
+    {
+      "name": "trainingObjective",
+      "type": {
+        "name": "string"
+      }
+    },
+    {
+      "name": "currentMethodImplementation",
+      "type": {
+        "name": "code"
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "description": "A complete replacement body for route(input: string, retries = 2, tags?: string[]): string",
+      "name": "optimizedMethodImplementation",
+      "type": {
+        "name": "code"
+      }
+    }
+  ]
+}

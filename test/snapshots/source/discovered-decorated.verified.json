@@ -1,0 +1,31 @@
+[
+  {
+    "artifactRef": "service.ts",
+    "async": false,
+    "bodyDigest": "sha256:<digest>",
+    "bodyEnd": 210,
+    "bodyStart": 192,
+    "className": "Service",
+    "exported": false,
+    "id": "acme.route",
+    "implementation": "return input;",
+    "indentation": "\t",
+    "methodName": "handle",
+    "parameters": [
+      {
+        "declaration": "input: string",
+        "name": "input",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "declaration": "retries = 2",
+        "name": "retries",
+        "optional": true,
+        "type": "number"
+      }
+    ],
+    "returnType": "string",
+    "signature": "handle(input: string, retries = 2): string"
+  }
+]

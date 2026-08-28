@@ -1,0 +1,12 @@
+{
+  "candidateId": "cand-1",
+  "failures": [
+    "conformance failed",
+    "candidate-specific AgentV evaluations are required",
+    "mean AgentV score 0 is below 0.8",
+    "AgentV pass rate 0 is below 1"
+  ],
+  "meanScore": 0,
+  "passRate": 0,
+  "promote": false
+}

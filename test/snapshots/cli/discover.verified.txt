@@ -1,0 +1,12 @@
+Router.route   router.ts
+               route(input: string): string
+Router.enrich  router.ts
+               enrich(id: string, deep?: boolean): Promise<string>
+normalize      router.ts
+               normalize(input: string): string
+
+3 trainables.
+
+Bind evals to one with its symbol:
+  const target = defineTrainable("Router.route");
+  await training.train({ trainable: target.symbol, /* ... */ });

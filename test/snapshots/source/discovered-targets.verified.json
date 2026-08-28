@@ -1,0 +1,76 @@
+[
+  {
+    "artifactRef": "router.ts",
+    "async": false,
+    "bodyDigest": "sha256:<digest>",
+    "bodyEnd": 127,
+    "bodyStart": 64,
+    "className": "Router",
+    "exported": false,
+    "id": "Router.route",
+    "implementation": "return input.includes(\"invoice\") ? \"billing\" : \"fallback\";",
+    "indentation": "\t",
+    "methodName": "route",
+    "parameters": [
+      {
+        "declaration": "input: string",
+        "name": "input",
+        "optional": false,
+        "type": "string"
+      }
+    ],
+    "returnType": "string",
+    "signature": "route(input: string): string"
+  },
+  {
+    "artifactRef": "router.ts",
+    "async": true,
+    "bodyDigest": "sha256:<digest>",
+    "bodyEnd": 236,
+    "bodyStart": 208,
+    "className": "Router",
+    "exported": false,
+    "id": "Router.enrich",
+    "implementation": "return `${id}:${deep}`;",
+    "indentation": "\t",
+    "methodName": "enrich",
+    "parameters": [
+      {
+        "declaration": "id: string",
+        "name": "id",
+        "optional": false,
+        "type": "string"
+      },
+      {
+        "declaration": "deep?: boolean",
+        "name": "deep",
+        "optional": true,
+        "type": "boolean"
+      }
+    ],
+    "returnType": "Promise<string>",
+    "signature": "enrich(id: string, deep?: boolean): Promise<string>"
+  },
+  {
+    "artifactRef": "router.ts",
+    "async": false,
+    "bodyDigest": "sha256:<digest>",
+    "bodyEnd": 331,
+    "bodyStart": 308,
+    "exported": true,
+    "id": "normalize",
+    "implementation": "return input.trim();",
+    "indentation": "",
+    "methodName": "normalize",
+    "parameters": [
+      {
+        "declaration": "input: string",
+        "name": "input",
+        "optional": false,
+        "type": "string"
+      }
+    ],
+    "returnType": "string",
+    "signature": "normalize(input: string): string"
+  }
+]
