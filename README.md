@@ -203,6 +203,11 @@ guarded source rewrite all apply automatically:
 node --import ts-autocode/register ./dist/server.js
 ```
 
+> This entry point installs a synchronous module load hook via
+> `module.registerHooks`, which needs **Node 22.15 or newer**. The rest of
+> `ts-autocode` works on Node 20; on an older runtime this entry says so and
+> points at the `@trainable()` decorator, which needs no load hook.
+
 The register hook instruments every `"use training"` function at module load.
 Once a trainable accumulates `evolution.minTraces` successful traces (default
 3), it is trained against those traces, verified candidate-bound, gated, and —

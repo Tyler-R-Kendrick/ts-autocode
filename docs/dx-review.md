@@ -94,6 +94,25 @@ that edits the user's source files, fail-open is the wrong default.
 *executor* — `executeImplementation`, registered with no options — fell back to a hardcoded
 5s with no configuration path through `TrainingSettings` at all.
 
+### A9. `ts-autocode/register` crashed on the minimum supported Node
+
+Found by CI, not by reading: the documentation-and-example work added the first
+test that imports `src/register.ts`, and it threw
+`TypeError: registerHooks is not a function` on Node 20.20.2.
+
+`module.registerHooks` is the synchronous in-thread loader API, added in Node
+22.15. `engines` declares `node >= 20`, and the README's headline zero-config
+command is `node --import ts-autocode/register ./dist/server.js` — so the
+flagship feature was broken on the minimum version the package claims to
+support, and failed with an internal `TypeError` rather than anything a user
+could act on.
+
+Nothing had imported that module in a test. `test/register.test.ts` exercises
+only `src/register/hook.js`, the pure `augmentSource` function, so the
+side-effecting entry was never loaded under test on any Node version. This is
+the clearest single argument for the documentation and example tests added
+here: the bug was not subtle, it was simply never executed.
+
 ## B. Missing capabilities
 
 ### B1. No supported way to choose a model or provider

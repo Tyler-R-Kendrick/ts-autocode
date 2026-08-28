@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { createHarnessLoop } from "../src/providers/harness.js";
-import { evolutionEnabled, evolveVariable } from "../src/register.js";
+import nodeModule from "node:module";
+
+import { evolutionEnabled, evolveVariable } from "../src/evolve.js";
+import { canRegisterLoadHook, registerLoadHook } from "../src/load-hook.js";
 import { defaultMinPassRate, defaultMinScore } from "ts-autocode-training";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -107,5 +110,42 @@ describe("harness loop fan-out", () => {
 			review: async () => { throw new Error("must not review"); },
 		});
 		await expect(run).rejects.toThrow("proposed");
+	});
+});
+
+describe("ts-autocode/register on older Node", () => {
+	// CI on Node 20.20.2 surfaced `TypeError: registerHooks is not a function`
+	// from src/register.ts. `module.registerHooks` is the synchronous in-thread
+	// loader API and Node 20 does not have it, so the documented zero-config
+	// entry point -- `node --import ts-autocode/register` -- crashed on the
+	// minimum version `engines` declares. Nothing imported that module in a
+	// test before, which is why it went unnoticed.
+	it("installs the hook when the runtime provides it", () => {
+		expect(canRegisterLoadHook()).toBe(typeof nodeModule.registerHooks === "function");
+		if (!canRegisterLoadHook()) return;
+		const installed: unknown[] = [];
+		const original = nodeModule.registerHooks;
+		try {
+			(nodeModule as { registerHooks?: unknown }).registerHooks = (hooks: unknown) => installed.push(hooks);
+			registerLoadHook({ load: (url, context, nextLoad) => nextLoad(url, context) });
+			expect(installed).toHaveLength(1);
+		} finally {
+			(nodeModule as { registerHooks?: unknown }).registerHooks = original;
+		}
+	});
+
+	it("explains the requirement instead of surfacing a TypeError", () => {
+		const original = nodeModule.registerHooks;
+		try {
+			delete (nodeModule as { registerHooks?: unknown }).registerHooks;
+			expect(canRegisterLoadHook()).toBe(false);
+			expect(() => registerLoadHook({ load: (url, context, nextLoad) => nextLoad(url, context) }))
+				.toThrow(/needs module\.registerHooks/);
+			// The message must say what still works and what to do, not just fail.
+			expect(() => registerLoadHook({ load: (url, context, nextLoad) => nextLoad(url, context) }))
+				.toThrow(/@trainable\(\) decorator/);
+		} finally {
+			(nodeModule as { registerHooks?: unknown }).registerHooks = original;
+		}
 	});
 });
