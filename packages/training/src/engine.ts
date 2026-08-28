@@ -3,6 +3,12 @@ import ts from "typescript";
 import { z } from "zod";
 
 import { digest } from "./digest.js";
+import {
+	CandidateSyntaxError,
+	EngineContractError,
+	InvalidSettingsError,
+	parseSetting,
+} from "./errors.js";
 
 import type { TrainingRecord } from "./records.js";
 import type { TrainableTarget } from "./source.js";
@@ -82,7 +88,7 @@ export class CandidateEngine {
 	readonly #strategy: TrainingEngine;
 
 	constructor(strategy: TrainingEngine) {
-		engineId.parse(strategy.id);
+		parseSetting(engineId, strategy.id);
 		this.#strategy = strategy;
 	}
 
@@ -90,7 +96,7 @@ export class CandidateEngine {
 		this.#validateRequest(request);
 		const proposed = await this.#strategy.optimize(structuredClone(request), context);
 		const implementation = this.#cleanImplementation(proposed.implementation);
-		if (!implementation) throw new Error("engine returned an empty implementation");
+		if (!implementation) throw new EngineContractError("engine returned an empty implementation");
 		this.#validateImplementation(request.target, implementation);
 		const candidate = {
 			id: digest({ trainableId: request.trainableId, engineId: this.#strategy.id, target: request.target, implementation }),
@@ -104,18 +110,18 @@ export class CandidateEngine {
 	}
 
 	#validateRequest(request: OptimizeRequest): void {
-		if (!request.objective.trim()) throw new TypeError("optimization objective must be a non-empty string");
-		if (request.target.id !== request.trainableId) throw new Error("trainable target must match the request id");
+		if (!request.objective.trim()) throw new InvalidSettingsError("optimization objective must be a non-empty string");
+		if (request.target.id !== request.trainableId) throw new EngineContractError("trainable target must match the request id");
 		if (request.records.some((record) => record.trainableId !== request.trainableId)) {
-			throw new Error("training records must match the request id");
+			throw new EngineContractError("training records must match the request id");
 		}
 		if (request.evaluations.some((evaluation) => evaluation.trainableId !== request.trainableId)) {
-			throw new Error("evaluations must match the request id");
+			throw new EngineContractError("evaluations must match the request id");
 		}
 	}
 
 	#cleanImplementation(value: string): string {
-		return proposedImplementation.parse(value)
+		return parseSetting(proposedImplementation, value)
 			.trim().replace(/^```(?:typescript|ts|javascript|js)?\s*/i, "").replace(/\s*```$/, "").trim();
 	}
 
@@ -125,7 +131,7 @@ export class CandidateEngine {
 			reportDiagnostics: true,
 		}).diagnostics ?? [];
 		if (diagnostics.some((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)) {
-			throw new SyntaxError(`engine returned invalid TypeScript for ${target.id}`);
+			throw new CandidateSyntaxError(target.id);
 		}
 	}
 }

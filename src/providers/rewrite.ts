@@ -7,7 +7,7 @@ import {
 	revertRewrite,
 	swapImplementation,
 } from "ts-autocode-rewrite";
-import { captureTrainable, trainingMarker, type PromotionApplier } from "ts-autocode-training";
+import { captureTrainable, PromotionRejectedError, trainingMarker, type PromotionApplier } from "ts-autocode-training";
 
 /** The sibling packages never import each other; this package owns the wiring.
  * Every method the rewrite engine weaves under the training marker routes
@@ -36,7 +36,7 @@ export function configureRewriteCapture(): void {
  * method would change its calling convention. */
 export const rewritePromotion: PromotionApplier = async (candidate, decision, executor) => {
 	if (!decision.promote || decision.candidateId !== candidate.id) {
-		throw new Error(`candidate has not passed the promotion gate: ${candidate.id}`);
+		throw new PromotionRejectedError(candidate.id, decision);
 	}
 	const artifactRef = candidate.target.artifactRef;
 	const source = await readFile(artifactRef, "utf8");

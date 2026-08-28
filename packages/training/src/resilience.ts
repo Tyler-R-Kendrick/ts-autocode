@@ -1,5 +1,7 @@
 import { Cause, Data, Duration, Effect, Exit, Option, Schedule } from "effect";
 
+import { OperationInterruptedError } from "./errors.js";
+
 /** A per-attempt timeout imposed by a {@link ResiliencePolicy}. Retryable by
  * default, so a policy with both `timeoutMs` and `retry` re-attempts timed-out
  * operations. */
@@ -111,5 +113,5 @@ async function unwrapExit<T>(exit: Promise<Exit.Exit<T, unknown>>, operation: st
 	const defect = Cause.dieOption(settled.cause);
 	if (Option.isSome(defect)) throw defect.value;
 	signal?.throwIfAborted();
-	throw new Error(`${operation} was interrupted`);
+	throw new OperationInterruptedError(operation);
 }

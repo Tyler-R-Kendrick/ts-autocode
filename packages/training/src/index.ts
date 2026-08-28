@@ -9,6 +9,7 @@ export {
 } from "./training.js";
 export type {
 	Activation,
+	ActivationReadiness,
 	AppliedPromotion,
 	CaptureSettings,
 	ErrorPhase,
@@ -17,11 +18,37 @@ export type {
 	PromotionApplier,
 	TrainInput,
 	Training,
+	TrainingEvent,
 	TrainingProviders,
 	TrainingRun,
 	TrainingSettings,
 	TracingSettings,
 } from "./training.js";
+
+export {
+	CandidateSyntaxError,
+	EngineContractError,
+	EngineNotConfiguredError,
+	EngineProposalError,
+	ExecutorNotConfiguredError,
+	InsufficientTracesError,
+	InvalidSettingsError,
+	InvalidTrainableIdentityError,
+	isTsAutocodeError,
+	LoopCapabilityError,
+	MissingSecretError,
+	OperationInterruptedError,
+	parseSetting,
+	PromotionApplierNotConfiguredError,
+	PromotionRejectedError,
+	SourceDiscoveryError,
+	TraceNotFoundError,
+	TrainingIncompleteError,
+	TsAutocodeError,
+	TsAutocodeSyntaxError,
+	TsAutocodeTypeError,
+} from "./errors.js";
+export type { TsAutocodeErrorCode } from "./errors.js";
 
 export { defaultRetry, OperationTimeoutError, withPolicy } from "./resilience.js";
 export type { ResiliencePolicy, ResilienceSettings, RetryOptions } from "./resilience.js";

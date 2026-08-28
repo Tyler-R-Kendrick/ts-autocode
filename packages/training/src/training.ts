@@ -7,6 +7,16 @@ import { SpanStatusCode, trace, type Attributes, type Span, type Tracer } from "
 
 import { attempt, errorMessage } from "./attempt.js";
 import {
+	EngineNotConfiguredError,
+	ExecutorNotConfiguredError,
+	InsufficientTracesError,
+	parseSetting,
+	PromotionApplierNotConfiguredError,
+	PromotionRejectedError,
+	TraceNotFoundError,
+	TrainingIncompleteError,
+} from "./errors.js";
+import {
 	CandidateEngine,
 	type BoundEvaluation,
 	type CandidatePatch,
@@ -102,12 +112,29 @@ export interface TrainingSettings {
 	/** Timeout/retry policies for named runtime operations; operations without
 	 * a policy behave exactly as before. */
 	readonly resilience?: ResilienceSettings;
+	/** Every background event, including the failures `onError` reports. There
+	 * was previously no way to observe an evolution starting or being skipped. */
+	readonly onEvent?: (event: TrainingEvent) => void;
+	/** @deprecated Use {@link TrainingSettings.onEvent}, which reports the same
+	 * failures alongside evolution lifecycle events. Still supported: it is
+	 * called for every event carrying an `error`. */
 	readonly onError?: (error: unknown, phase: ErrorPhase) => void;
 }
 
 /** Where a background failure was routed from: trace capture, store writes,
  * or background evolution. These never fail the traced call itself. */
 export type ErrorPhase = "capture" | "store" | "evolve";
+
+/** Everything the runtime reports about work it does in the background. The
+ * failure arms carry the same `(error, phase)` pair `onError` received, so the
+ * older callback is a projection of this one rather than a parallel channel. */
+export type TrainingEvent =
+	| Readonly<{ type: "capture.failed"; phase: "capture"; trainable?: TrainableToken; error: unknown }>
+	| Readonly<{ type: "store.failed"; phase: "store"; error: unknown }>
+	| Readonly<{ type: "evolution.started"; phase: "evolve"; trainable: TrainableToken; traces: number }>
+	| Readonly<{ type: "evolution.applied"; phase: "evolve"; trainable: TrainableToken; activation: Activation }>
+	| Readonly<{ type: "evolution.skipped"; phase: "evolve"; trainable: TrainableToken; traces: number; required: number }>
+	| Readonly<{ type: "evolution.failed"; phase: "evolve"; trainable: TrainableToken; error: unknown }>;
 
 export interface TrainInput {
 	readonly trainable: TrainableIdentity;
@@ -133,13 +160,25 @@ export interface TrainInput {
 	readonly gates?: readonly PromotionGate[];
 }
 
+/** Whether a run's final candidate can be applied, and if not, why. `outcome`
+ * already distinguishes `"stalled"` from `"exhausted"`, so a caller should not
+ * have to provoke an exception to learn which happened. */
+export type ActivationReadiness =
+	| Readonly<{ ready: true }>
+	| Readonly<{ ready: false; outcome: TrainingRun["outcome"]; failures: readonly string[] }>;
+
 export interface TrainingRun {
 	readonly outcome: "ready" | "stalled" | "exhausted";
 	readonly baseline: TrainableEvalRun;
 	readonly rounds: readonly TrainingRound[];
 	readonly final: TrainingRound;
+	/** Whether {@link TrainingRun.activate} would succeed, without throwing.
+	 * Prefer this over a speculative `try`/`catch` around `activate()`. */
+	canActivate(): ActivationReadiness;
 	/** Apply the final candidate through the wired promotion applier. Throws
-	 * unless the candidate passed the promotion gate. */
+	 * {@link PromotionRejectedError} unless the candidate passed the promotion
+	 * gate; {@link TrainingRun.canActivate} reports the same thing without
+	 * throwing. */
 	activate(): Promise<Activation>;
 }
 
@@ -196,7 +235,7 @@ class TrainingRuntime implements Training {
 		if (!this.#engine) {
 			const strategy = this.#settings.engine ?? defaultProviders.engine?.();
 			if (!strategy) {
-				throw new Error('no training engine is configured; import "ts-autocode" for the Ax default or set TrainingSettings.engine');
+				throw new EngineNotConfiguredError();
 			}
 			this.#engine = new CandidateEngine(strategy);
 		}
@@ -206,7 +245,7 @@ class TrainingRuntime implements Training {
 	#executorOrThrow(): ImplementationExecutor {
 		const executor = this.#settings.executor ?? defaultProviders.executor;
 		if (!executor) {
-			throw new Error('candidate execution requires an executor; import "ts-autocode" or set TrainingSettings.executor');
+			throw new ExecutorNotConfiguredError();
 		}
 		return executor;
 	}
@@ -225,8 +264,13 @@ class TrainingRuntime implements Training {
 			await this.flush();
 			const minTraces = Math.max(1, evolution.minTraces ?? defaultEvolution.minTraces);
 			const successes = (await this.#store.list(token.id)).filter((record) => record.succeeded).length;
-			if (successes < state.attempted + minTraces) return;
+			const required = state.attempted + minTraces;
+			if (successes < required) {
+				this.#emit({ type: "evolution.skipped", phase: "evolve", trainable: token, traces: successes, required });
+				return;
+			}
 			state.attempted = successes;
+			this.#emit({ type: "evolution.started", phase: "evolve", trainable: token, traces: successes });
 			const run = await this.train({
 				trainable: token,
 				minTraces,
@@ -234,11 +278,15 @@ class TrainingRuntime implements Training {
 				...(evolution.evaluation === undefined ? {} : { evaluation: evolution.evaluation }),
 			});
 			if (run.outcome !== "ready") {
-				throw new Error(`background training did not produce a promotable candidate: ${run.outcome}`);
+				throw TrainingIncompleteError.noPromotableCandidate(run.outcome);
 			}
-			evolution.onEvolved?.(await run.activate());
+			const activation = await run.activate();
+			this.#emit({ type: "evolution.applied", phase: "evolve", trainable: token, activation });
+			evolution.onEvolved?.(activation);
 		})()
-			.catch(this.#report("evolve"))
+			.catch((error: unknown) => {
+				this.#emit({ type: "evolution.failed", phase: "evolve", trainable: token, error });
+			})
 			.finally(() => {
 				state.running = false;
 				if (state.queued) {
@@ -339,12 +387,13 @@ class TrainingRuntime implements Training {
 			},
 		});
 		const final = result.rounds.at(-1);
-		if (!final) throw new Error(`training loop returned no rounds: ${result.outcome}`);
+		if (!final) throw TrainingIncompleteError.noRounds(result.outcome);
 		const run: TrainingRun = Object.freeze({
 			outcome: result.outcome,
 			baseline,
 			rounds: Object.freeze([...result.rounds]),
 			final,
+			canActivate: () => activationReadiness(run),
 			activate: () => this.#activate(run),
 		});
 		return run;
@@ -353,10 +402,10 @@ class TrainingRuntime implements Training {
 	/** Training from live traffic is the same operation as training from explicit
 	 * tests: distinct successful captured traces become equality eval cases. */
 	async #replayEvaluation(token: TrainableToken, input: TrainInput): Promise<EvalConfig> {
-		const minTraces = traceMinimum.parse(input.minTraces ?? 1);
+		const minTraces = parseSetting(traceMinimum, input.minTraces ?? 1);
 		const tests = liveEvalCases(await this.records(token));
 		if (tests.length < minTraces) {
-			throw new Error(`training from captured traffic requires ${minTraces} distinct successful runtime trace${minTraces === 1 ? "" : "s"}; found ${tests.length}`);
+			throw new InsufficientTracesError(minTraces, tests.length);
 		}
 		const expected = new Map(tests.map((test) => [String(test.input), test.expectedOutput ?? ""]));
 		return {
@@ -364,7 +413,7 @@ class TrainingRuntime implements Training {
 			tests,
 			task: (value) => {
 				const output = expected.get(value);
-				if (output === undefined) throw new Error(`live trace was not found for eval input: ${value}`);
+				if (output === undefined) throw new TraceNotFoundError(value);
 				return output;
 			},
 		};
@@ -410,11 +459,11 @@ class TrainingRuntime implements Training {
 	async #activate(run: TrainingRun): Promise<Activation> {
 		const { candidate, decision } = run.final;
 		if (!decision.promote) {
-			throw new Error(`candidate has not passed the promotion gate: ${candidate.id}`);
+			throw new PromotionRejectedError(candidate.id, decision);
 		}
 		const promote = defaultProviders.promote;
 		if (!promote) {
-			throw new Error('activation requires a promotion applier; import "ts-autocode" for the default or set TrainingProviders.promote');
+			throw new PromotionApplierNotConfiguredError();
 		}
 		const executor = this.#settings.executor ?? defaultProviders.executor;
 		const applied = await promote(candidate, decision, executor);
@@ -535,9 +584,24 @@ class TrainingRuntime implements Training {
 	}
 
 	/** The boundary sink for background failures: every capture, store, and
-	 * evolution error funnels through here into `TrainingSettings.onError`. */
+	 * evolution error funnels through here into the settings callbacks. */
 	#report(phase: ErrorPhase): (error: unknown) => void {
-		return (error) => this.#settings.onError?.(error, phase);
+		return (error) => {
+			if (phase === "capture") this.#emit({ type: "capture.failed", phase, error });
+			else if (phase === "store") this.#emit({ type: "store.failed", phase, error });
+			else this.#settings.onError?.(error, phase);
+		};
+	}
+
+	/** The single sink for background events. `onError` is a projection of it:
+	 * every arm carrying an `error` is forwarded to the older callback with the
+	 * phase it always received, so both can be configured at once without a
+	 * failure being reported twice to the same handler. */
+	#emit(event: TrainingEvent): void {
+		attempt(() => this.#settings.onEvent?.(event), () => undefined);
+		if ("error" in event) {
+			attempt(() => this.#settings.onError?.(event.error, event.phase), () => undefined);
+		}
 	}
 
 	#serialize(value: unknown): string {
@@ -606,6 +670,14 @@ export function captureTrainable<This, Args extends unknown[], Result>(
 
 function runtime(): TrainingRuntime {
 	return configuredTraining ??= new TrainingRuntime({});
+}
+
+/** Why a run's final candidate may not be applied. Mirrors exactly what
+ * `activate()` enforces, so the two can never disagree. */
+function activationReadiness(run: TrainingRun): ActivationReadiness {
+	const { decision } = run.final;
+	if (decision.promote) return Object.freeze({ ready: true as const });
+	return Object.freeze({ ready: false as const, outcome: run.outcome, failures: decision.failures });
 }
 
 function isPromise<T>(value: T): value is T & Promise<Awaited<T>> {

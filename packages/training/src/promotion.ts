@@ -2,6 +2,7 @@ import type { EvaluationResult } from "@agentv/core";
 import { z } from "zod";
 
 import type { BoundEvaluation, CandidatePatch } from "./engine.js";
+import { parseSetting } from "./errors.js";
 
 const unitInterval = (name: string) =>
 	z.number().finite(`${name} must be between 0 and 1`).min(0, `${name} must be between 0 and 1`).max(1, `${name} must be between 0 and 1`);
@@ -84,8 +85,8 @@ export const defaultPromotionGates: readonly PromotionGate[] = [
 /** Runs the standard gates, the configured policy, and any extension gates
  * over one shared context; the collected failures decide promotion. */
 export async function evaluatePromotionGate(input: PromotionGateInput): Promise<PromotionDecision> {
-	const minScore = minScoreThreshold.parse(input.minScore ?? defaultMinScore);
-	const minPassRate = minPassRateThreshold.parse(input.minPassRate ?? defaultMinPassRate);
+	const minScore = parseSetting(minScoreThreshold, input.minScore ?? defaultMinScore);
+	const minPassRate = parseSetting(minPassRateThreshold, input.minPassRate ?? defaultMinPassRate);
 	const results = input.evaluations
 		.filter((evaluation) => evaluation.trainableId === input.candidate.trainableId && evaluation.candidateId === input.candidate.id)
 		.map((evaluation) => evaluation.result);

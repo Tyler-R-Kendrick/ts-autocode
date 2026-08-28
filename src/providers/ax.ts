@@ -8,7 +8,13 @@ import {
 	type AxOptimizeOptions,
 } from "@ax-llm/ax";
 
-import type { EngineContext, OptimizeRequest, TrainingEngine } from "ts-autocode-training";
+import {
+	EngineProposalError,
+	MissingSecretError,
+	type EngineContext,
+	type OptimizeRequest,
+	type TrainingEngine,
+} from "ts-autocode-training";
 
 import { attempt, attemptAsync } from "../attempt.js";
 import { defaultExecutionTimeoutMs, executeImplementation } from "../execution.js";
@@ -52,7 +58,7 @@ export function createAxEngine(options: AxEngineOptions = {}): TrainingEngine {
 			const teacherAI = options.teacherAI === undefined ? undefined : await service(options.teacherAI, context);
 			const examples = trainingExamples(request);
 			if (examples.length === 0) {
-				throw new Error(`Ax requires captured calls or AgentV evaluations for ${request.trainableId}`);
+				throw new EngineProposalError(`Ax requires captured calls or AgentV evaluations for ${request.trainableId}`);
 			}
 			const program = ax(programSignature(request));
 			const result = await optimizeWithAx(program, examples, ({ prediction, example }) =>
@@ -61,7 +67,7 @@ export function createAxEngine(options: AxEngineOptions = {}): TrainingEngine {
 				studentAI,
 				...(teacherAI === undefined ? {} : { teacherAI }),
 			});
-			if (!result.optimizedProgram) throw new Error(`Ax did not optimize ${request.trainableId}`);
+			if (!result.optimizedProgram) throw new EngineProposalError(`Ax did not optimize ${request.trainableId}`);
 			program.applyOptimization(result.optimizedProgram);
 			const output = await program.forward(studentAI, publicInput(examples[0] as Record<string, AxFieldValue>), {
 				...(context.signal === undefined ? {} : { abortSignal: context.signal }),
@@ -190,7 +196,7 @@ async function defaultAI(context: EngineContext): Promise<AxAIService> {
 	const apiKey = await context.secrets?.get(apiKeySecret, context.signal) ??
 		apiKeyVariables.map((name) => process.env[name]).find(Boolean);
 	if (!apiKey) {
-		throw new Error(`default optimizer requires ${apiKeySecret} or a custom TrainingSettings.engine`);
+		throw new MissingSecretError(apiKeySecret, `default optimizer requires ${apiKeySecret} or a custom TrainingSettings.engine`);
 	}
 	return ai({ name: defaultAIProvider, apiKey });
 }

@@ -347,6 +347,80 @@ const engine: TrainingEngine = {
 The core validates identity, source digests, and the final candidate regardless
 of engine.
 
+## Errors
+
+Every failure this library raises is a `TsAutocodeError` carrying a `code` you
+can switch on, so telling "not enough traces" from "no engine configured" from
+"the gate refused" no longer means matching on message text. Errors that have
+always been `TypeError`s or `SyntaxError`s still are, and every message string
+is unchanged, so existing `catch` blocks keep working.
+
+```ts
+import {
+  InsufficientTracesError,
+  isTsAutocodeError,
+  PromotionRejectedError,
+  training,
+} from "ts-autocode";
+
+declare const input: Parameters<typeof training.train>[0];
+
+try {
+  const run = await training.train(input);
+  await run.activate();
+} catch (error) {
+  if (error instanceof InsufficientTracesError) {
+    console.log(`need ${error.required} traces, have ${error.found}`);
+  } else if (error instanceof PromotionRejectedError) {
+    console.log(error.failures);
+  } else if (isTsAutocodeError(error)) {
+    console.log(error.code);
+  } else {
+    throw error;
+  }
+}
+```
+
+`activate()` throwing is the ergonomic path, not the only one:
+`run.canActivate()` reports the same decision without an exception, which is
+what you want when `"stalled"` and `"exhausted"` are ordinary outcomes rather
+than surprises.
+
+```ts
+import { training } from "ts-autocode";
+
+declare const input: Parameters<typeof training.train>[0];
+
+const run = await training.train(input);
+const readiness = run.canActivate();
+if (readiness.ready) await run.activate();
+else console.log(readiness.outcome, readiness.failures);
+```
+
+## Background events
+
+`TrainingSettings.onEvent` reports everything the runtime does off the call
+path — capture and store failures, and the full evolution lifecycle:
+
+```ts
+import { configureTraining } from "ts-autocode";
+
+configureTraining({
+  onEvent: (event) => {
+    switch (event.type) {
+      case "evolution.started": return console.log("training", event.trainable.id);
+      case "evolution.applied": return console.log("rewrote", event.trainable.id);
+      case "evolution.skipped": return console.log(`${event.traces}/${event.required} traces`);
+      case "evolution.failed": return console.error(event.error);
+      default: return undefined;
+    }
+  },
+});
+```
+
+`onError` still works and is a projection of the same stream: it receives every
+event carrying an `error`, with the phase it always did.
+
 ## Official telemetry types
 
 - AgentV `Trace` and `EvaluationResult` come from `@agentv/core`.

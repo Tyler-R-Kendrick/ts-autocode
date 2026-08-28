@@ -7,7 +7,7 @@ import {
 	type JudgeDecision,
 	type JudgeRequest,
 } from "ts-autocode-harness";
-import type { CandidatePatch, CandidateReview, TrainingLoop, TrainingLoopInput } from "ts-autocode-training";
+import { LoopCapabilityError, type CandidatePatch, type CandidateReview, type TrainingLoop, type TrainingLoopInput } from "ts-autocode-training";
 import { createStorage, type Storage } from "unstorage";
 import fsDriver from "unstorage/drivers/fs";
 
@@ -49,7 +49,7 @@ export function createHarnessLoop(options: HarnessLoopOptions = {}): TrainingLoo
 		// the next proposal. Rather than accept `fanOut` and quietly ignore it,
 		// say so -- use `sequentialLoop`/`trainingRounds` for concurrent slots.
 		if (input.fanOut !== undefined && input.fanOut > 1) {
-			throw new Error(
+			throw new LoopCapabilityError(
 				`the governed harness loop reviews one candidate per round and cannot honor fanOut ${input.fanOut}; `
 				+ "omit fanOut or set TrainingSettings.loop to sequentialLoop, which supports it",
 			);
