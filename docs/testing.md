@@ -16,6 +16,7 @@ land, never lower them to get a build green.
 | Fuzz | `test/fuzz.test.ts` | A parser crashing, hanging, or corrupting source it did not write |
 | Contract | `test/contract.test.ts` | A provider implementation that satisfies the types but not the contract |
 | Chaos | `test/chaos.test.ts` | A dependency failing, hanging, or racing — and the damage that leaves behind |
+| Behavior | `test/behavior.test.ts` | A documented promise that stopped being true even though every unit still passes |
 | Characterization | `test/characterization*.test.ts` | A change to anything this library *generates* — rewritten source, emitted instrumentation, prompts, CLI output, the export surface |
 
 ## Running
