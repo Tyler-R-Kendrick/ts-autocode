@@ -17,6 +17,7 @@ land, never lower them to get a build green.
 | Contract | `test/contract.test.ts` | A provider implementation that satisfies the types but not the contract |
 | Chaos | `test/chaos.test.ts` | A dependency failing, hanging, or racing — and the damage that leaves behind |
 | Behavior | `test/behavior.test.ts` | A documented promise that stopped being true even though every unit still passes |
+| Mutation | `stryker.config.json` | A test that runs the code without actually pinning its decisions |
 | Characterization | `test/characterization*.test.ts` | A change to anything this library *generates* — rewritten source, emitted instrumentation, prompts, CLI output, the export surface |
 
 ## Running

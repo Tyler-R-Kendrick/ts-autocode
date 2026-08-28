@@ -33,7 +33,7 @@ export default defineConfig({
 			// Ratchets: raise these as suites land, never lower them to get green.
 			thresholds: {
 				statements: 91,
-				branches: 80,
+				branches: 81,
 				functions: 93,
 				lines: 93,
 			},

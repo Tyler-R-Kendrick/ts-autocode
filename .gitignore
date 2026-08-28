@@ -2,6 +2,8 @@ node_modules/
 dist/
 coverage/
 test/output/
+.stryker-tmp/
+reports/
 *.tsbuildinfo
 .env
 .agentv/
