@@ -207,8 +207,8 @@ The register hook instruments every `"use training"` function at module load.
 Once a trainable accumulates `evolution.minTraces` successful traces (default
 3), it is trained against those traces, verified candidate-bound, gated, and —
 only when the gate passes — its source body is rewritten. Failures surface
-through `TrainingSettings.onError` with the `"evolve"` phase and never block or
-alter application calls. Loading the hook is itself the opt-in, so evolution is on unless you turn it
+through `TrainingSettings.onEvent` (and the deprecated `onError` with the
+`"evolve"` phase) and never block or alter application calls. Loading the hook is itself the opt-in, so evolution is on unless you turn it
 off: set `TS_AUTOCODE_EVOLVE` to `0`, `false`, `off`, `no`, or `disabled` (or
 configure `evolution: { enabled: false }`) to capture without rewriting, and use
 `evolution.onEvolved` to observe applied rewrites. Because the feature rewrites
@@ -263,14 +263,14 @@ promotion primitives also remain available.
 
 The built-in loop is an observable round sequence (`trainingRounds()`
 pushes each reviewed round to a subscriber; `sequentialLoop` collects the
-subscription into one run). `TrainInput.fanOut` caps how many candidates a
+subscription into one run). `TrainInput.rounds.fanOut` caps how many candidates a
 round proposes and reviews concurrently — the best gated candidate wins the
 round. Fan-out belongs to `sequentialLoop`: the default governed harness loop
 reviews exactly one candidate per round, because its judge, adversary and
 rubric-revision sequence is serial, so it **rejects** a `fanOut` above 1 rather
-than accepting one it would ignore. `TrainInput.gates` appends custom promotion
-rules to the standard `defaultPromotionGates` set; the configured `policy` runs
-as one such rule.
+than accepting one it would ignore. `TrainInput.promotion.gates` appends custom
+promotion rules to the standard `defaultPromotionGates` set; the deprecated
+`policy` runs as one such rule.
 
 No Ax program is supplied by the caller. The default engine derives its fields,
 descriptions, executable examples, and return contract from the TypeScript

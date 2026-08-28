@@ -305,13 +305,45 @@ enforced rather than asserted.
 23. A documented evaluation-argument contract with an explicit escape hatch.
 24. `effect` dropped from the root and from `attempt.ts`.
 
+## What shipped, and two deviations
+
+All five tiers landed. Two things were done differently from the plan above,
+both to avoid trading a stated problem for a worse one:
+
+**`configureTraining` still replaces by default.** The plan said to make it
+merge. Merging silently would carry settings between unrelated calls — one
+caller's engine surviving into another's configuration — which is a subtler and
+harder-to-debug surprise than the one it fixes. Instead `createTrainingRuntime`
+gives genuine isolation (the real gap), `resetTraining()` restores a clean
+state, and `{ merge: true }` opts into layering. The replacing default is
+documented rather than changed.
+
+**`evolution.enabled` polarity was not flipped.** The plan called for uniform
+`enabled` semantics across `capture`, `tracing`, and `evolution`. But the
+asymmetry is justified: the first two are opt-out recording switches, while
+evolution rewrites the user's source files and must be opt-in. Defaulting it on
+for consistency would be a serious behavioral change. The field is renamed
+`auto`, so the name matches the semantics, and `enabled` still works.
+
+One review claim was also wrong and is corrected here: `packages/training/test/
+wiring.ts` was described as a workaround for the runtime singleton. It is not —
+it wires a `PromotionApplier` provider, which is legitimate test setup and
+remains. The singleton gap was real; that file was not evidence of it.
+
 ## How these are kept fixed
 
-- A **surface test** asserts every symbol exported by `ts-autocode-training` and
-  `ts-autocode-rewrite` is reachable from `ts-autocode`, so A5 cannot recur.
+- A **surface test** asserts every runtime value exported by
+  `ts-autocode-training` and `ts-autocode-rewrite` is reachable from
+  `ts-autocode`, so A5 cannot recur. It has already caught two regressions
+  during this work.
 - **Documentation is typechecked**: TypeScript blocks are extracted from the READMEs and
   compiled in CI. This is what would have caught A1.
-- Grounding's generated output is typechecked rather than string-matched, catching A2.
+- Grounding's generated output is typechecked rather than string-matched,
+  catching A2. Verified to fail on the original bug rather than pass vacuously.
+- `test/deprecated.test.ts` exercises every legacy spelling, so the
+  no-breakage promise is enforced rather than asserted.
+- `examples/optimize.ts` runs on every check against a stub engine, so the
+  example cannot rot without CI noticing.
 - A tree-shaking bundle test asserts the Ax engine survives, catching A3.
 - Targeted regression tests cover `fanOut`, the rubric thresholds, the evolve kill switch,
   and the `onError("evolve")` sad path.

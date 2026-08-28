@@ -28,7 +28,8 @@ npm install ts-autocode-harness
 
 ## Run the loop
 
-The minimal loop is two callbacks:
+The minimal loop is two callbacks. `inferringHarness()` types itself from them;
+`defineTrainingHarness<Candidate, Assessment, Feedback>()` is the explicit form:
 
 ```ts
 import { defineTrainingHarness, type StudentTurn, type TeacherResult } from "ts-autocode-harness";

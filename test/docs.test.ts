@@ -18,6 +18,8 @@ const docs = [
 	"packages/training/README.md",
 	"packages/harness/README.md",
 	"packages/rewrite/README.md",
+	"packages/grounding/README.md",
+	"docs/architecture.md",
 ];
 
 interface Snippet {

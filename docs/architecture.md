@@ -64,8 +64,11 @@ directive, wiring each discovered class method or function declaration into the
 same capture path as the decorator. It also enables background evolution by
 default: after `evolution.minTraces` successful captures, the runtime runs the
 same train-and-promote pipeline — replay evals, candidate verification,
-promotion gate, guarded rewrite — off the hot path, reporting failures through
-`onError("evolve")`. Calls made during a module's own top-level evaluation
+promotion gate, guarded rewrite — off the hot path, reporting its progress and
+failures through `TrainingSettings.onEvent` (and, for the failures,
+`onError("evolve")`). Because it rewrites source files, its environment kill
+switch fails closed: an unrecognized `TS_AUTOCODE_EVOLVE` value throws rather
+than being read as consent. Calls made during a module's own top-level evaluation
 precede its instrumentation; traffic after startup is captured. The training
 runtime itself lives in the provider-neutral `ts-autocode-training` package.
 All cross-package wiring happens in the root `ts-autocode` package: it supplies
@@ -95,7 +98,11 @@ signature, creates examples from runtime captures and AgentV results, and scores
 candidate implementations by running them in Ax's sandbox. Applications can
 replace it through the provider-neutral `engine` setting without changing
 capture, evaluation, or promotion. Provider-specific options do not appear in
-the root configuration contract.
+the root configuration contract — but choosing a provider and model is not a
+provider-specific option: `TrainingSettings.model` is a neutral
+`ModelSelection` descriptor that the training runtime carries to whatever
+engine is configured, exactly as it carries `secrets` and `variables`, so
+switching models never means replacing the engine.
 
 Candidate bodies are evaluated separately through AgentV before promotion.
 Baseline results can train the optimizer but cannot satisfy the promotion gate.
@@ -110,8 +117,8 @@ its own candidate and promotion types — and ships the default loop as an
 observable round sequence: `trainingRounds()` pushes each reviewed round to a
 subscriber as it settles, unsubscribing aborts in-flight work, and
 `sequentialLoop` is simply the subscription collected into one run. Rounds run
-in order, but within a round `fanOut` caps how many candidate propose→review
-pipelines run concurrently; duplicate proposals are skipped, a round that
+in order, but within a round `rounds.fanOut` caps how many candidate
+propose→review pipelines run concurrently; duplicate proposals are skipped, a round that
 reviews nothing new stalls the run, and when several candidates pass the gate
 the highest-scoring one is emitted last as the winner. `ts-autocode` (the root
 package) specifies the connection: its `createHarnessLoop` provider adapts the
@@ -153,7 +160,30 @@ each `PromotionGate` is a pure function over one shared `PromotionGateContext`
 (candidate, candidate-bound results, thresholds, aggregates) returning the
 failures it sees. The standard rules — conformance, evaluation binding,
 execution errors, score and pass-rate thresholds — always run;
-`PromotionGateInput.gates` (or `TrainInput.gates`) appends extension rules,
-and the configured `policy` participates as one more gate. An activation's
+`PromotionGateInput.gates` (or `TrainInput.promotion.gates`) appends extension
+rules, and the deprecated `policy` participates as one more gate — it always
+was one, which is why a single list now expresses both. An activation's
 rollback stores only the previous and promoted method body and refuses to
 overwrite subsequent edits.
+
+## Consumer surface
+
+The root package exports what an application needs; `ts-autocode/internal`
+carries the author-level seams — `captureTrainable`, `provideTrainingDefaults`,
+and the rewrite primitives — for building an engine, loop, executor, store, or
+instrumentation mechanism. Everything on the subpath is still exported from the
+root, so the split is organizational rather than a break.
+
+Extension points are constructible: a custom `TrainingLoop` returns a
+`CandidateReview` containing a `TrainableEvalRun`, and `createCandidateReview`,
+`createEvalRun`, and `createPromotionDecision` build those without a cast.
+
+Every failure the library raises carries a `code` and is recognized by
+`isTsAutocodeError`. Errors that have always been `TypeError`s or
+`SyntaxError`s still are — family membership is decided by a brand rather than
+the prototype chain — and every message string is unchanged.
+
+`ts-autocode discover` lists the trainables a project marks along with the exact
+identity to pass to `defineTrainable`. That identity is the one place this
+design falls back to an unchecked string, so printing real ids is what keeps the
+marker approach usable.
