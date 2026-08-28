@@ -73,6 +73,7 @@ rewritePromotion
 sequentialLoop
 swapImplementation
 swappedImplementation
+toTrainableToken
 trainable
 trainableTokenFromSymbol
 training

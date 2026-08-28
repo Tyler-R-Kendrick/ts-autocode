@@ -49,6 +49,7 @@ parseSetting
 provideTrainingDefaults
 resetTraining
 sequentialLoop
+toTrainableToken
 trainableTokenFromSymbol
 training
 trainingMarker

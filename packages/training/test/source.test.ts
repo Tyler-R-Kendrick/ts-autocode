@@ -114,3 +114,31 @@ describe("parameter types inferred from literal defaults", () => {
 		expect(declare("value")[0]?.type).toBe("unknown");
 	});
 });
+
+describe("offsets on source TypeScript could not fully parse", () => {
+	// Error recovery synthesizes a body for an unterminated block whose `end`
+	// can sit past EOF, so a truncated file produced a target claiming offsets
+	// outside its own source. Found by fuzzing generated-then-damaged modules.
+	const truncated = 'class Router {\n\troute(input: string): string {\n\t\t"use training";\n\t\t// } a brace in a comm';
+
+	it("never reports offsets outside the source", () => {
+		for (const target of discoverInSource(truncated, "truncated.ts")) {
+			expect(target.bodyStart).toBeGreaterThanOrEqual(0);
+			expect(target.bodyEnd).toBeLessThanOrEqual(truncated.length);
+			expect(target.bodyStart).toBeLessThanOrEqual(target.bodyEnd);
+		}
+	});
+
+	it("keeps the digest consistent with the clamped slice", () => {
+		for (const target of discoverInSource(truncated, "truncated.ts")) {
+			const raw = truncated.slice(target.bodyStart, target.bodyEnd);
+			expect(raw.trim()).toBe(target.implementation);
+		}
+	});
+
+	it("leaves offsets untouched for source that parses", () => {
+		const valid = 'class Router {\n\troute(input: string): string {\n\t\t"use training";\n\t\treturn input;\n\t}\n}\n';
+		const target = discoverInSource(valid, "valid.ts")[0]!;
+		expect(valid.slice(target.bodyStart, target.bodyEnd).trim()).toBe("return input;");
+	});
+});

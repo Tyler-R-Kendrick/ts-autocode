@@ -78,6 +78,7 @@ export {
 	resetTraining,
 	sequentialLoop,
 	SourceDiscoveryError,
+	toTrainableToken,
 	trainableTokenFromSymbol,
 	training,
 	TraceNotFoundError,

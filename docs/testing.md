@@ -12,6 +12,8 @@ land, never lower them to get a build green.
 | Surface | `test/surface.test.ts` | Re-export drift between the root package and its siblings |
 | Protocol | `test/digest-protocol.test.ts` | Two packages that must agree without importing each other |
 | Compatibility | `test/deprecated.test.ts` | A deprecated spelling that silently stopped working |
+| Property | `test/property.test.ts` | A law that holds for chosen examples but not in general |
+| Fuzz | `test/fuzz.test.ts` | A parser crashing, hanging, or corrupting source it did not write |
 | Characterization | `test/characterization*.test.ts` | A change to anything this library *generates* — rewritten source, emitted instrumentation, prompts, CLI output, the export surface |
 
 ## Running
@@ -52,7 +54,25 @@ Snapshots are excluded from `tsconfig.test.json`: they are generated artifacts,
 and the emitted instrumentation deliberately references names from the module it
 is appended to, so it does not typecheck standalone.
 
-## Conventions
+## Property and fuzz tests
+
+`fast-check` states the law and hunts for a counterexample, rather than sampling
+a few inputs by hand. Failures print a shrunk counterexample and a seed, so a
+regression is reproducible rather than "it failed once on CI".
+
+Properties target the pure, total functions where examples can only sample:
+identity round-trips, digest canonicalization, gate aggregation, and the spread
+helpers. Fuzzing targets the parsers, because every one of them runs against
+code this library did not write — `augmentSource` sees every module a user
+loads.
+
+**A fuzz corpus must reach the code.** An early version used random punctuation;
+instrumenting it showed **1 input in 3000** produced a discovered target, so
+every property about offsets and rewriting was passing vacuously.
+`test/support/sources.ts` now generates structurally plausible marked modules
+and then damages them, and `test/fuzz.test.ts` asserts the corpus still reaches
+real work — so the suite cannot quietly decay back into theatre.
+
 
 - **A test names the defect it prevents.** Where a test exists because
   something was once wrong, the comment says what was wrong. That is what makes
