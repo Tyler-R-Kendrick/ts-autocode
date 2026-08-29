@@ -12,6 +12,7 @@ import {
 	captureTrainable,
 	configureTraining,
 	defineTrainable,
+	directExecutor,
 	MemoryTrainingStore,
 	training as defaultTraining,
 	type Activation,
@@ -325,8 +326,7 @@ describe("training resilience policies", () => {
 	});
 });
 
-const functionExecutor: ImplementationExecutor = async (target, implementation, args) =>
-	new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args);
+const functionExecutor: ImplementationExecutor = directExecutor;
 
 describe("capture on an isolated runtime", () => {
 	// `captureTrainable` routes to the process-wide runtime, so a runtime built

@@ -51,6 +51,7 @@ import {
 const trainableAttribute = "ts_autocode.trainable.id";
 const tracerName = "ts-autocode";
 const traceMinimum = z.number().int().positive("minTraces must be a positive integer");
+const executionTimeout = z.number().positive("execution.timeoutMs must be a positive number of milliseconds").finite("execution.timeoutMs must be a positive number of milliseconds");
 
 export interface CaptureSettings {
 	readonly enabled?: boolean;
@@ -122,7 +123,7 @@ export interface TrainingSettings {
 	 * did not exist, so an applier could only ever be registered process-wide.
 	 * That left {@link createTrainingRuntime} sharing one applier between
 	 * runtimes -- the component that writes generated code into a source file. */
-	readonly promote?: PromotionApplier;
+	readonly promote?: Promoter;
 	readonly evolution?: EvolutionSettings;
 	/** Default directory for run artifacts and eval output; a run's
 	 * `EvalConfig.outputDir` still overrides it. */
@@ -273,11 +274,16 @@ export interface AppliedPromotion {
  * wired provider supports it, the running process. How is the provider's
  * concern; training only requires that the application be undoable. The
  * resolved executor is passed along for providers that run candidates live. */
-export type PromotionApplier = (
+export type Promoter = (
 	candidate: CandidatePatch,
 	decision: PromotionDecision,
 	executor?: ImplementationExecutor,
 ) => Promise<AppliedPromotion>;
+
+/** @deprecated Renamed to {@link Promoter} — the agent noun its four sibling
+ * seams already use (engine, executor, loop, store). Structurally identical;
+ * existing implementations need no change. */
+export type PromotionApplier = Promoter;
 
 type CandidateEvalConfig = Omit<EvalConfig, "task"> & { readonly signal?: AbortSignal };
 
@@ -401,7 +407,9 @@ class TrainingRuntime implements Training {
 	async #evaluateCandidate(candidate: CandidatePatch, config: CandidateEvalConfig): Promise<TrainableEvalRun> {
 		const token = defineTrainable(candidate.trainableId);
 		const execute = this.#executorOrThrow();
-		const timeoutMs = this.#settings.execution?.timeoutMs;
+		const timeoutMs = this.#settings.execution?.timeoutMs === undefined
+			? undefined
+			: parseSetting(executionTimeout, this.#settings.execution.timeoutMs);
 		const decodeArgs = this.#settings.execution?.decodeArgs ?? evaluationArgs;
 		const { signal, ...evaluation } = config;
 		signal?.throwIfAborted();
@@ -766,7 +774,7 @@ export interface TrainingProviders {
 	readonly executor?: ImplementationExecutor;
 	readonly loop?: TrainingLoop;
 	readonly evolution?: EvolutionSettings;
-	readonly promote?: PromotionApplier;
+	readonly promote?: Promoter;
 }
 
 let defaultProviders: TrainingProviders = {};

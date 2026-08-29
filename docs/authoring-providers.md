@@ -5,8 +5,20 @@ them are the interface. Five seams are injected, and any structurally compatible
 implementation works: the runtime never imports a provider, and providers never
 import each other.
 
-This guide is for writing one. Every snippet here is compiled by
-`test/docs.test.ts`, so it cannot drift from the API.
+This guide is for writing one. Two things before you do:
+
+- **Every seam ships a default.** The root package wires the Ax engine, a
+  sandboxed executor, the governed harness loop, guarded source rewriting, and
+  an in-memory store. Implementing a seam is always opt-in, never homework;
+  `test/defaults.test.ts` enforces that a zero-config runtime lacks nothing but
+  a credential.
+- **You rarely need to name these types.** Passing an implementation inline to
+  `createTrainingRuntime` or `configureTraining` gets full inference from
+  contextual typing; the named types exist for implementations that live in
+  their own package.
+
+Every snippet here is compiled by `test/docs.test.ts`, so it cannot drift from
+the API.
 
 ## Which primitive do you want?
 
@@ -17,7 +29,7 @@ This guide is for writing one. Every snippet here is compiled by
 | Call your own optimizer instead of Ax | A [`TrainingEngine`](#trainingengine) |
 | Run candidate code somewhere safer | An [`ImplementationExecutor`](#implementationexecutor) |
 | Change how rounds are explored | A [`TrainingLoop`](#trainingloop) |
-| Write the result somewhere other than the source file | A [`PromotionApplier`](#promotionapplier) |
+| Write the result somewhere other than the source file | A [`Promoter`](#promoter) |
 | Persist captured traces | A [`TrainingStore`](#trainingstore) |
 
 The first row is the common wrong turn. Choosing a model is a **setting**, not a
@@ -82,7 +94,8 @@ was always a gate that returned a boolean.
 
 ## TrainingEngine
 
-Proposes a replacement body. The only required output is a string.
+**Default: the Ax engine — including any model or service chosen through
+`model` above.** Proposes a replacement body. The only required output is a string.
 
 The root README has [a complete worked example](../README.md#custom-engines).
 Two things it does not cover:
@@ -111,16 +124,21 @@ of engine, so an engine that returns nonsense is refused rather than applied.
 
 ## ImplementationExecutor
 
-Runs a proposed body against arguments, in isolation you own.
+Runs a proposed body against arguments, in isolation you own. **Default: a
+sandboxed executor with a 5s timeout.** For tests and trusted local loops the
+package also ships `directExecutor` — the no-isolation `new Function` runner
+that every test double used to reimplement by hand — so the only reason to
+write one is real isolation you own:
 
 ```ts
-import type { ImplementationExecutor } from "ts-autocode";
+import { directExecutor, type ImplementationExecutor } from "ts-autocode";
 
-const executor: ImplementationExecutor = async (target, implementation, args, options) => {
-  const parameters = target.parameters.map((parameter) => parameter.name);
-  const candidate = new Function(...parameters, implementation) as (...values: unknown[]) => unknown;
-  return candidate.apply(options?.receiver, [...args]);
-};
+declare function runInMySandbox(source: string, args: readonly unknown[], timeoutMs: number | undefined): Promise<unknown>;
+
+const executor: ImplementationExecutor = async (target, implementation, args, options) =>
+  runInMySandbox(`(${target.parameters.map((parameter) => parameter.name).join(", ")}) => { ${implementation} }`, args, options?.timeoutMs);
+
+const testExecutor = directExecutor; // trusted candidates only
 ```
 
 Rules the conformance suite enforces:
@@ -138,7 +156,8 @@ container.
 
 ## TrainingLoop
 
-Orchestrates propose/review rounds. The runtime owns proposing and reviewing;
+**Default: the governed harness loop; `sequentialLoop` is the simpler shipped
+alternative and supports fan-out.** Orchestrates propose/review rounds. The runtime owns proposing and reviewing;
 the loop owns iteration and stopping.
 
 The root README has [a complete worked example](../README.md#extending-the-library)
@@ -166,19 +185,23 @@ Also honor `input.signal`, and treat `maxRounds` and `fanOut` as budgets rather
 than suggestions — `sequentialLoop` supports fan-out; the default governed
 harness loop reviews one candidate per round and refuses more.
 
-## PromotionApplier
+## Promoter
 
-Applies a gate-approved candidate, undoably. How it applies is the provider's
+*(Formerly `PromotionApplier`; the old name remains as a deprecated alias.)*
+
+Applies a gate-approved candidate, undoably. **Default: guarded source
+rewriting from `ts-autocode-rewrite`, which refuses to write over a body that
+changed since discovery.** How it applies is the provider's
 concern — the shipped one rewrites the source file; yours could open a pull
 request or patch a running process. Training requires only that it be reversible.
 
 ```ts
 import { readFile, writeFile } from "node:fs/promises";
-import type { PromotionApplier } from "ts-autocode";
+import type { Promoter } from "ts-autocode";
 
 declare function patch(source: string, implementation: string): string;
 
-const applier: PromotionApplier = async (candidate, decision) => {
+const applier: Promoter = async (candidate, decision) => {
   // A decision names the candidate it was made about. Applying it to a
   // different one would write code that never passed a gate.
   if (!decision.promote || decision.candidateId !== candidate.id) {
@@ -199,7 +222,7 @@ body digests; if yours writes to something a human can also edit, do the same.
 
 ## TrainingStore
 
-Two methods. The default is in-memory and volatile.
+**Default: `MemoryTrainingStore`, in-memory and volatile.** Two methods:
 
 ```ts
 import type { TrainingRecord, TrainingStore } from "ts-autocode";
@@ -288,7 +311,7 @@ on violation, so it works under Vitest, Jest, `node:test`, or a bare loop.
 
 One suite per seam — `trainingEngineContract`,
 `implementationExecutorContract`, `trainingLoopContract`,
-`promotionApplierContract`, `trainingStoreContract` — plus `conformanceSuites`,
+`promoterContract`, `trainingStoreContract` — plus `conformanceSuites`,
 which bundles all five. Fixtures let you build a subject without a checkout of
 this repo:
 

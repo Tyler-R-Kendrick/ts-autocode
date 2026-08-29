@@ -55,6 +55,7 @@ defaultTsconfig
 defineTrainable
 defined
 digest
+directExecutor
 discoverInSource
 discoverTrainables
 dispatchRewrite
@@ -70,6 +71,7 @@ instrumentTrainable
 isTsAutocodeError
 optional
 parseSetting
+promoterContract
 promotionApplierContract
 provideTrainingDefaults
 resetTraining

@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
 	conformanceSuites,
 	createHarnessLoop,
+	directExecutor,
 	MemoryTrainingStore,
 	rewritePromotion,
 	sequentialLoop,
@@ -67,8 +68,7 @@ describe("TrainingEngine conformance", () => {
 describe("ImplementationExecutor conformance", () => {
 	const executors: ReadonlyArray<readonly [string, ImplementationExecutor]> = [
 		["the Ax sandbox executor", executeImplementation],
-		["a plain Function executor", async (target, implementation, args) =>
-			new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args) as unknown],
+		["the shipped direct executor", directExecutor],
 	];
 
 	for (const [name, executor] of executors) {

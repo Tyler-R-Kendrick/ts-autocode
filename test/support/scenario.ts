@@ -4,7 +4,7 @@ import { join } from "node:path";
 import {
 	createTrainingRuntime,
 	defineTrainable,
-	type ImplementationExecutor,
+	directExecutor,
 	type Training,
 	type TrainingEngine,
 	type TrainingEvent,
@@ -41,8 +41,7 @@ const defaultSource = `class Router {
 
 /** Runs candidate bodies directly; the sandbox is exercised in the contract
  * suite, and a spec about user-visible behavior should not depend on it. */
-export const directExecutor: ImplementationExecutor = async (target, implementation, args) =>
-	new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args) as unknown;
+export { directExecutor };
 
 export class Scenario {
 	readonly events: TrainingEvent[] = [];

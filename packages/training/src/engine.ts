@@ -106,6 +106,18 @@ export type ImplementationExecutor = (
 	options?: Readonly<{ timeoutMs?: number; signal?: AbortSignal; receiver?: unknown }>,
 ) => Promise<unknown>;
 
+/** Runs a candidate body directly with `new Function` -- no sandbox, no
+ * timeout, full access to the process. The executor every test double in this
+ * repo reimplemented by hand; exported so nobody else has to. Use it only
+ * where the candidate is trusted -- tests and local development loops. The
+ * executor the root package wires by default runs candidates in isolation. */
+export const directExecutor: ImplementationExecutor = async (target, implementation, args, options) => {
+	const body = new Function(...target.parameters.map((parameter) => parameter.name), implementation) as (
+		...values: unknown[]
+	) => unknown;
+	return body.apply(options?.receiver, [...args]);
+};
+
 /** The synthetic `function candidate(...)` declaration that wraps a proposed body.
  * Executors transpile and run exactly what the engine validated. */
 export function candidateDeclaration(target: TrainableTarget, implementation: string): string {
