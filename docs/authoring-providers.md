@@ -33,7 +33,26 @@ configureTraining({
 
 `apiKey` is optional there — it falls back to the configured `SecretProvider`,
 then the environment. `teacher` names an optional stronger model for the
-optimizer's teacher role.
+optimizer's teacher role. The `provider` string is handed to Ax's own provider
+registry, not a list this library maintains.
+
+When the descriptor does not fit — a self-hosted endpoint, a proxy, a client
+you have already built — supply the client itself. The library then holds no
+opinion about providers at all:
+
+```ts
+import { configureTraining } from "ts-autocode";
+
+declare const myClient: { chat: (request: unknown) => Promise<unknown> };
+
+configureTraining({
+  model: { service: myClient },
+});
+```
+
+`service` is carried opaquely to whichever engine is configured; the default Ax
+engine accepts any `AxAIService` (or a factory returning one) and rejects
+anything else with an error naming the setting.
 
 ## PromotionGate
 

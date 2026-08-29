@@ -398,8 +398,25 @@ secret provider, then the environment variable conventional for that provider
 (`ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, and so on). With nothing configured the
 default is OpenAI reading `OPENAI_API_KEY`.
 
-For Ax-specific tuning beyond model choice — a prepared `AxAIService`, or
-optimizer options — the `ts-autocode/ax` adapter builds an engine you pass
+The descriptor is sugar, not a support matrix. When it does not fit — a
+self-hosted endpoint, a proxy with its own auth, a client you have already
+built — supply the client itself as `model.service` and the library holds no
+opinion about providers at all. The default Ax engine accepts any
+`AxAIService`, or a factory returning one:
+
+```ts
+import { configureTraining } from "ts-autocode";
+import { ai } from "@ax-llm/ax";
+
+configureTraining({
+  model: {
+    service: ai({ name: "openai", apiKey: process.env.MY_PROXY_KEY ?? "", apiURL: "https://llm.internal.example" }),
+  },
+});
+```
+
+For Ax-specific tuning beyond model choice — optimizer options, a separate
+teacher service — the `ts-autocode/ax` adapter builds an engine you pass
 through the provider-neutral `engine` slot:
 
 ```ts

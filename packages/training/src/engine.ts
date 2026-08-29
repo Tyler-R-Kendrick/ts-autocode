@@ -42,7 +42,18 @@ export interface OptimizeRequest {
  * Choosing a model previously meant constructing a whole replacement engine,
  * which is a lot of ceremony for the first thing most users want to change. */
 export interface ModelSelection {
-	/** Provider id, e.g. `"openai"`, `"anthropic"`, `"google-gemini"`. */
+	/** A pre-built client the configured engine should use directly -- the
+	 * escape hatch that makes the library responsible for *no* provider list.
+	 * Carried opaquely, like `variables`: this package never calls it, and the
+	 * engine defines what it accepts (the default Ax engine takes any
+	 * `AxAIService`, or a factory returning one). When set, `provider`,
+	 * `name` and `apiKey` are that client's concern, not this library's. */
+	readonly service?: unknown;
+	/** Provider id, resolved by the configured engine, e.g. `"openai"`,
+	 * `"anthropic"`, `"google-gemini"`. The default Ax engine hands it to Ax's
+	 * own provider registry, so any provider Ax supports works here -- this
+	 * library maintains no list of its own. For anything beyond that registry,
+	 * supply {@link ModelSelection.service}. */
 	readonly provider?: string;
 	/** Model id, e.g. `"gpt-4o-mini"`. Unset uses the provider's own default. */
 	readonly name?: string;
@@ -50,6 +61,7 @@ export interface ModelSelection {
 	readonly apiKey?: string;
 	/** An optional stronger model for the optimizer's teacher role. */
 	readonly teacher?: Readonly<{
+		readonly service?: unknown;
 		readonly provider?: string;
 		readonly name?: string;
 		readonly apiKey?: string;

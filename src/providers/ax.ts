@@ -10,6 +10,7 @@ import {
 
 import {
 	EngineProposalError,
+	InvalidSettingsError,
 	MissingSecretError,
 	optional,
 	type EngineContext,
@@ -222,13 +223,35 @@ async function teacherService(options: AxEngineOptions, context: EngineContext):
 	return teacher === undefined ? undefined : defaultAI(context, teacher);
 }
 
-/** Builds an Ax service from a provider-neutral {@link ModelSelection}: its
- * `apiKey` wins, then the secret provider, then the environment names known for
+/** Accepts whatever `ModelSelection.service` carries as an Ax service, if it
+ * is one. Structural on purpose: the training package carries the value
+ * opaquely, so this is the first place that can say what it must look like --
+ * and a wrong value should fail here, with a message naming the setting,
+ * rather than deep inside an optimization round. */
+function suppliedService(value: unknown): AxAIService {
+	if (value !== null && typeof value === "object" && "chat" in value && typeof (value as { chat: unknown }).chat === "function") {
+		return value as AxAIService;
+	}
+	throw new InvalidSettingsError(
+		"model.service must be an AxAIService (an object with a chat method), or a factory returning one -- e.g. ai({ name, apiKey }) from @ax-llm/ax",
+	);
+}
+
+/** Builds an Ax service from a provider-neutral {@link ModelSelection}. A
+ * user-supplied `service` wins outright -- this library then holds no opinion
+ * about providers at all. Otherwise `provider` is handed to Ax's own registry;
+ * `apiKey` wins over the secret provider, then the environment names known for
  * that provider -- so naming a provider is enough. */
 async function defaultAI(
 	context: EngineContext,
 	selection: ModelSelection | ModelSelection["teacher"],
 ): Promise<AxAIService> {
+	if (selection?.service !== undefined) {
+		const value = typeof selection.service === "function"
+			? await (selection.service as (context: EngineContext) => AxAIService | Promise<AxAIService>)(context)
+			: selection.service;
+		return suppliedService(value);
+	}
 	const provider = selection?.provider ?? defaultAIProvider;
 	const names = apiKeyNamesFor(provider);
 	const secretName = names[0] ?? apiKeySecret;
