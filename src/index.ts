@@ -87,6 +87,7 @@ export {
 	resetTraining,
 	sequentialLoop,
 	SourceDiscoveryError,
+	registerTrainable,
 	stampTrainable,
 	toTrainableToken,
 	trainableStamp,

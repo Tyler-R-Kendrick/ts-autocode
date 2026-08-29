@@ -54,8 +54,36 @@ export function defineTrainable(id: string): TrainableToken {
 	});
 }
 
+/** In-process index from a user-owned `unique symbol` to the token the
+ * marking machinery registered under it. This is what makes
+ * `training.train(route)` plain symbol-key indexing: the `@trainable(route)`
+ * decorator registers the declaration under the symbol, and every training
+ * API that receives the symbol looks it up here. Object identity of the
+ * symbol is the uniqueness guarantee -- nothing is retyped anywhere. */
+const registered = new Map<symbol, TrainableToken>();
+
+/** Binds `identity` -- typically an application's own `unique symbol` -- to
+ * the token the marking machinery derived for a declaration. Called by
+ * instrumentation (the `@trainable(symbol)` decorator), never by application
+ * code: the registration happens where the declaration is, so the key cannot
+ * drift from it. Idempotent for the same id; a symbol cannot be rebound to a
+ * different declaration. */
+export function registerTrainable(identity: symbol, token: TrainableToken): TrainableToken {
+	const existing = registered.get(identity);
+	if (existing && existing.id !== token.id) {
+		throw new InvalidTrainableIdentityError(
+			`symbol ${String(identity)} is already registered to ${existing.id}; one symbol keys one trainable`,
+		);
+	}
+	const bound = Object.freeze({ id: token.id, symbol: identity });
+	registered.set(identity, bound);
+	return bound;
+}
+
 export function toTrainableToken(identity: TrainableIdentity): TrainableToken {
-	if (typeof identity === "symbol") return trainableTokenFromSymbol(identity);
+	if (typeof identity === "symbol") {
+		return registered.get(identity) ?? trainableTokenFromSymbol(identity);
+	}
 	if (typeof identity === "function") {
 		const id = (identity as Partial<Record<typeof trainableStamp, unknown>>)[trainableStamp];
 		if (typeof id === "string") return defineTrainable(id);

@@ -75,6 +75,7 @@ parseSetting
 promoterContract
 promotionApplierContract
 provideTrainingDefaults
+registerTrainable
 resetTraining
 restoreImplementation
 revertRewrite

@@ -43,12 +43,15 @@ describe("ts-autocode discover", () => {
 		expect(result.stdout).toContain("2 trainables.");
 	});
 
-	it("suggests a defineTrainable call using a real discovered id", async () => {
+	it("suggests the unique-symbol key flow against a real discovered id", async () => {
 		const result = await run(["discover", "--file", await project()]);
-		// The suggested snippet is the payoff: it removes the guesswork from the
-		// one stringly-typed seam in an otherwise type-safe design. The string
-		// appears exactly once -- inside defineTrainable -- per the identity ADR.
-		expect(result.stdout).toContain('defineTrainable("Router.route")');
+		// Per the identity ADR the user types no name anywhere: they declare a
+		// unique symbol, @trainable(route) keys the code with it, and train
+		// reuses the same symbol. The discovered id appears only as a comment
+		// pointing at which method to decorate.
+		expect(result.stdout).toContain("unique symbol");
+		expect(result.stdout).toContain("@trainable(route) on Router.route");
+		expect(result.stdout).toContain("training.train(route,");
 	});
 
 	it("emits machine-readable output", async () => {

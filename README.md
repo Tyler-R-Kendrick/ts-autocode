@@ -46,9 +46,10 @@ Router.route  src/router.ts
 
 1 trainable.
 
-Bind evals to one with its symbol:
-  const route = defineTrainable("Router.route");
-  await training.train({ trainable: route.symbol, /* ... */ });
+Bind evals with your own symbol key:
+  export const route: unique symbol = Symbol("route");
+  // @trainable(route) on Router.route, then:
+  await training.train(route, { /* ... */ });
 ```
 
 `ts-autocode status` reports how many traces each trainable has captured, which
@@ -102,54 +103,54 @@ class Router {
 }
 ```
 
-When no symbol is passed, one is auto-generated for the decorated method: the
-identity above is `Router.route`, and `defineTrainable("Router.route").symbol`
-recreates its stable symbol anywhere. Pass a symbol explicitly for a durable
-id detached from the class name:
+Declare your own `unique symbol` and hand it to the decorator — the symbol is
+the key. `@trainable(route)` registers the method under it, and every training
+API reuses the *same* symbol, so discovery is plain symbol-key indexing and
+the symbol's object identity is the uniqueness guarantee. The durable string
+id the machinery needs (for stores and source rewriting) is derived from the
+declaring class and method — you never type a name anywhere:
 
 ```ts
-import { defineTrainable, trainable } from "ts-autocode";
+import { trainable } from "ts-autocode";
 
-const route = defineTrainable("acme.route");
+export const route: unique symbol = Symbol("route");
 
 class Router {
-  @trainable(route.symbol)
+  @trainable(route)
   route(input: string): string {
     return input;
   }
 }
 ```
 
-A token contains a durable string id and stable `Symbol.for(...)` symbol. The
-same symbol binds the method, its captures, AgentV results, optimizer
-candidate, and promotion decision — so evals, tests, and training reuse it to
-target exactly this trainable, binding evals to a training target at test time
-instead of only iterating during runtime.
+The same symbol binds the method, its captures, AgentV results, optimizer
+candidate, and promotion decision — evals, tests, and training all key off it
+to target exactly this trainable. The binding registers at first construction
+of the class.
 
 ## Train and activate
 
 AgentV owns eval definitions, graders, traces, scores, and result types. The
 `training` export is ready to use without any setup call.
 
-`train` takes the trainable's symbol (or its full token), never a raw string.
-Reusing `route.symbol` — the same symbol passed to `@trainable(route.symbol)`
-above — pins these evals to that exact method; for an auto-generated identity,
-`defineTrainable("Router.route").symbol` recreates the symbol.
+`train` takes the same symbol `@trainable(route)` put on the code — never a
+raw string. Symbol in the decorator, symbol at the call: one key, indexed.
 
 ```ts
-import { defineTrainable, training } from "ts-autocode";
+import { trainable, training } from "ts-autocode";
+
+export const route: unique symbol = Symbol("route");
 
 class Router {
+  @trainable(route)
   route(input: string): string {
     "use training";
     return input.includes("invoice") ? "billing" : "fallback";
   }
 }
+void new Router();
 
-const route = defineTrainable("Router.route");
-
-const run = await training.train({
-  trainable: route.symbol,
+const run = await training.train(route, {
   objective: "Preserve correct billing and fallback routing",
   cases: [
     ["Where is my invoice?", "billing"],
@@ -167,25 +168,17 @@ const activation = await run.activate();
 await activation.rollback();
 ```
 
-`trainable` is never a plain string — that is an ADR, enforced at compile
-time: a string is not a sufficient identity to guarantee uniqueness. Pass the
-symbol (as above), the token, or — when the method is marked with
-`@trainable()` or load-time instrumentation — the method itself, which
-carries the identity the marking machinery declared:
+The identity is never a plain string — that is an ADR, enforced at compile
+time: a string is not a sufficient identity to guarantee uniqueness. The key
+is the symbol you declared (as above); the marked method itself also works,
+since instrumentation stamps it with the identity it registered:
 
 ```ts
-import { trainable, training } from "ts-autocode";
+import { training } from "ts-autocode";
 
-class Biller {
-  @trainable()
-  route(input: string): string {
-    "use training";
-    return input;
-  }
-}
-void new Biller();
+declare class Router { route(input: string): string; }
 
-await training.train({ trainable: Biller.prototype.route, cases: [["a", "a"]] });
+await training.train(Router.prototype.route, { cases: [["a", "a"]] });
 ```
 
 `cases` are `[input, expected]` pairs that become equality eval cases,
@@ -236,12 +229,13 @@ replacement, verifies the candidate against the same cases, and applies the
 promotion gate. Activating the run then updates the marked TypeScript body.
 
 ```ts
-import { defineTrainable, training } from "ts-autocode";
+import { training } from "ts-autocode";
 
-const route = defineTrainable("Router.route");
+// Under `--import ts-autocode/register`, the instrumented method itself is
+// an identity: it carries the id the machinery derived from the source.
+declare const router: { route(input: string): string };
 
-const run = await training.train({
-  trainable: route,
+const run = await training.train(router.route, {
   objective: "Preserve routing behavior observed in production",
   minTraces: 20,
   evaluation: {

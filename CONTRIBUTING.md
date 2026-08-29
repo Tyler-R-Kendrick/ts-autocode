@@ -35,10 +35,13 @@ npm run check
   timeout, a threshold) belongs on `TrainingSettings`/`TrainInput`, carried
   opaquely if provider-specific — never a hardcoded registry in this repo.
 - **A trainable identity is never a plain string (ADR).** A string is not a
-  sufficient identity to guarantee uniqueness. Accepted identities are the
-  symbol, the `TrainableToken`, or the marked method/function itself (which
-  instrumentation stamps). `test/adr.test.ts` pins the rejection at compile
-  time; do not re-admit strings as call-site sugar.
+  sufficient identity to guarantee uniqueness. The design: the application
+  declares a `unique symbol`, `@trainable(symbol)` keys the code with it, and
+  `train(symbol)` is symbol-key indexing — the symbol's object identity is the
+  guarantee. The marked method itself also works (instrumentation stamps it).
+  String-typed identity, including `defineTrainable("...")` in examples, is a
+  hard failure: `test/adr.test.ts` pins the string form as a compile error and
+  scans every doc snippet for the banned pattern. See `AGENTS.md`.
 - Validate settings at the boundary with `parseSetting`, so misconfiguration
   fails as `InvalidSettingsError` naming the setting, not deep in a run.
 

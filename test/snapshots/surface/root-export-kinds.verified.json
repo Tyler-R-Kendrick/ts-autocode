@@ -76,6 +76,7 @@
   "promoterContract": "array",
   "promotionApplierContract": "array",
   "provideTrainingDefaults": "function",
+  "registerTrainable": "function",
   "resetTraining": "function",
   "restoreImplementation": "function",
   "revertRewrite": "function",

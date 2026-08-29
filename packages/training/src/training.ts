@@ -301,6 +301,10 @@ type CandidateEvalConfig = Omit<EvalConfig, "task"> & { readonly signal?: AbortS
 export interface Training {
 	records(trainable?: TrainableIdentity): Promise<readonly TrainingRecord[]>;
 	evaluate(trainable: TrainableIdentity, config: EvalConfig): Promise<TrainableEvalRun>;
+	/** Train the trainable a symbol keys: `training.train(route)`, the same
+	 * symbol `@trainable(route)` put on the code. Options ride along as the
+	 * second argument; the object form remains for spelling everything out. */
+	train(trainable: TrainableIdentity, input?: Omit<TrainInput, "trainable">): Promise<TrainingRun>;
 	train(input: TrainInput): Promise<TrainingRun>;
 	/** Route one call of a marked trainable through *this* runtime's capture.
 	 *
@@ -454,7 +458,10 @@ class TrainingRuntime implements Training {
 		return run;
 	}
 
-	async train(input: TrainInput): Promise<TrainingRun> {
+	async train(first: TrainInput | TrainableIdentity, rest?: Omit<TrainInput, "trainable">): Promise<TrainingRun> {
+		const input: TrainInput = typeof first === "object" && first !== null && "trainable" in first
+			? first as TrainInput
+			: { ...rest, trainable: first as TrainableIdentity };
 		const token = toTrainableToken(input.trainable);
 		const objective = input.objective ?? defaultObjective;
 		const evaluation = input.evaluation?.tests ? input.evaluation

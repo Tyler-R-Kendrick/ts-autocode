@@ -2,6 +2,7 @@ import { annotateRewrite, declaringContainer, dispatchRewrite } from "ts-autocod
 import {
 	defineTrainable,
 	InvalidTrainableIdentityError,
+	registerTrainable,
 	stampTrainable,
 	trainableTokenFromSymbol,
 	trainingMarker,
@@ -19,19 +20,28 @@ export type TrainableDecorator = <This, Args extends unknown[], Result>(
 
 const wrappedMarker = Symbol.for("ts-autocode.wrapped");
 
-/** Decorator form: `@trainable()`. Pass a symbol (for example
- * `defineTrainable("acme.route").symbol`) to bind an explicit identity that
- * evals, tests, and `training.train` reuse to target this exact method. When
- * no symbol is provided, a token is auto-generated from the declaring class
- * and method name; `defineTrainable("Router.route").symbol` recreates the same
- * stable symbol anywhere. The method is woven through the rewrite engine under
- * the "use training" marker at first construction, so promoted candidates can
- * hot-swap it. */
+/** Decorator form: `@trainable(symbol)`. The symbol is the application's own
+ * key -- declare a `unique symbol` (`const route = Symbol("route")`), put it
+ * on the trainable code here, and reuse the same symbol at
+ * `training.train(route)`: discovery is then plain symbol-key indexing, and
+ * the symbol's object identity is the uniqueness guarantee. The durable id
+ * the machinery needs (for stores and source rewriting) is derived from the
+ * declaring class and method, never from anything the caller typed.
+ *
+ * With no symbol, the machinery both derives the id and mints the key. A
+ * `Symbol.for` registry symbol is also accepted for the zero-config directive
+ * flow, where ids come from parsed source. The method is woven through the
+ * rewrite engine at first construction, so promoted candidates can hot-swap
+ * it -- which is also when the symbol binding registers. */
 export function trainable(identity?: symbol): TrainableDecorator {
 	if (identity !== undefined && typeof identity !== "symbol") {
 		throw new InvalidTrainableIdentityError("trainable identity must be a symbol; omit it to infer from the decorated method");
 	}
-	const explicit = identity === undefined ? undefined : trainableTokenFromSymbol(identity);
+	// A registry symbol carries its own durable id; a unique symbol gets one
+	// derived from the declaration it decorates, at first construction.
+	const explicit = identity !== undefined && Symbol.keyFor(identity) !== undefined
+		? trainableTokenFromSymbol(identity)
+		: undefined;
 	return function <This, Args extends unknown[], Result>(
 		method: (this: This, ...args: Args) => Result,
 		context: ClassMethodDecoratorContext<This, (this: This, ...args: Args) => Result>,
@@ -40,9 +50,11 @@ export function trainable(identity?: symbol): TrainableDecorator {
 		context.addInitializer(function (this: This) {
 			const owner = (context.static ? this : (this as object).constructor) as abstract new (...args: never[]) => unknown;
 			// Infer from the class that actually declares the method, so a base method
-			// first initialized through a subclass still resolves to Base.method. The
-			// auto-generated token's Symbol.for symbol is recreatable via defineTrainable.
-			const token = explicit ?? defineTrainable(`${declaringClassName(owner, name, context.static) ?? "Anonymous"}.${name}`);
+			// first initialized through a subclass still resolves to Base.method.
+			const inferred = defineTrainable(`${declaringClassName(owner, name, context.static) ?? "Anonymous"}.${name}`);
+			const token = identity !== undefined && explicit === undefined
+				? registerTrainable(identity, inferred)
+				: explicit ?? inferred;
 			annotateRewrite(owner, name, token.id, trainingMarker);
 			// Stamp both the original method and whatever weaving installed in its
 			// slot, so `train({ trainable: Router.prototype.route })` resolves the

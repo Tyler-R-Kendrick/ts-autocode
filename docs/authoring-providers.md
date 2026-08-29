@@ -17,11 +17,23 @@ This guide is for writing one. Two things before you do:
   contextual typing; the named types exist for implementations that live in
   their own package. An engine can be a bare function returning the new body,
   and `[input, expected]` pairs stand in for hand-built eval cases. An identity
-  is **never a plain string** — that is an ADR, enforced at compile time: pass
-  the trainable's symbol, its token, or the marked method itself.
+  is **never a plain string** — that is an ADR, enforced at compile time: the
+  key is a `unique symbol` the application declares, put on the code by
+  `@trainable(symbol)` and reused at `train(symbol)`.
 
 ```ts
-import { createTrainingRuntime, defineTrainable, directExecutor } from "ts-autocode";
+import { createTrainingRuntime, directExecutor, trainable } from "ts-autocode";
+
+export const route: unique symbol = Symbol("route");
+
+class Router {
+  @trainable(route)
+  route(input: string): string {
+    "use training";
+    return input;
+  }
+}
+void new Router();
 
 const training = createTrainingRuntime({
   engine: () => "return input.toUpperCase();",
@@ -29,8 +41,7 @@ const training = createTrainingRuntime({
   source: { files: ["src/router.ts"] },
 });
 
-const run = await training.train({
-  trainable: defineTrainable("Router.route").symbol,
+const run = await training.train(route, {
   cases: [["abc", "ABC"], ["xyz", "XYZ"]],
 });
 ```
@@ -91,10 +102,11 @@ returns a failure reason — or `undefined` to allow. Returning a string is what
 refuses; the strings land in `decision.failures` and in `PromotionRejectedError`.
 
 ```ts
-import { defineTrainable, training } from "ts-autocode";
+import { training } from "ts-autocode";
 
-await training.train({
-  trainable: defineTrainable("Router.route").symbol,
+declare const route: unique symbol; // the key @trainable(route) registered
+
+await training.train(route, {
   cases: [["abc", "ABC"]],
   promotion: {
     gates: [({ candidate }) =>
