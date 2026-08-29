@@ -8,7 +8,7 @@ land, never lower them to get a build green.
 |---|---|---|
 | Atomic unit | `packages/*/test/*.test.ts` | Behavior of one function or class, including every branch of its defaulting and rejection rules |
 | Functional | `test/*.test.ts` | A whole path through the runtime: mark, capture, train, gate, activate, roll back |
-| Documentation | `test/docs.test.ts` | README and architecture snippets that no longer compile |
+| Documentation | `test/docs.test.ts` | README, architecture and provider-authoring snippets that no longer compile |
 | Surface | `test/surface.test.ts` | Re-export drift between the root package and its siblings |
 | Protocol | `test/digest-protocol.test.ts` | Two packages that must agree without importing each other |
 | Compatibility | `test/deprecated.test.ts` | A deprecated spelling that silently stopped working |

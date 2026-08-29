@@ -502,6 +502,10 @@ const loop: TrainingLoop = async (input) => {
 `createEvalRun` and `createPromotionDecision` build the parts individually when
 you have real evidence to carry.
 
+[docs/authoring-providers.md](docs/authoring-providers.md) covers all five
+injected seams — engine, executor, loop, promotion applier and store — with the
+rules each one must satisfy and the conformance suites that check them.
+
 ## Errors
 
 Every failure this library raises is a `TsAutocodeError` carrying a `code` you
