@@ -15,7 +15,24 @@ This guide is for writing one. Two things before you do:
 - **You rarely need to name these types.** Passing an implementation inline to
   `createTrainingRuntime` or `configureTraining` gets full inference from
   contextual typing; the named types exist for implementations that live in
-  their own package.
+  their own package. Identities are plain strings (`"Router.route"`), an engine
+  can be a bare function returning the new body, and `[input, expected]` pairs
+  stand in for hand-built eval cases:
+
+```ts
+import { createTrainingRuntime, directExecutor } from "ts-autocode";
+
+const training = createTrainingRuntime({
+  engine: () => "return input.toUpperCase();",
+  executor: directExecutor,
+  source: { files: ["src/router.ts"] },
+});
+
+const run = await training.train({
+  trainable: "Router.route",
+  cases: [["abc", "ABC"], ["xyz", "XYZ"]],
+});
+```
 
 Every snippet here is compiled by `test/docs.test.ts`, so it cannot drift from
 the API.
@@ -73,21 +90,27 @@ returns a failure reason — or `undefined` to allow. Returning a string is what
 refuses; the strings land in `decision.failures` and in `PromotionRejectedError`.
 
 ```ts
-import { defaultPromotionGates, type PromotionGate } from "ts-autocode";
+import { training } from "ts-autocode";
 
-const noNetwork: PromotionGate = ({ candidate }) =>
-  /\bfetch\s*\(/.test(candidate.implementation)
-    ? "candidate makes a network call"
-    : undefined;
-
-const gates = [...defaultPromotionGates, noNetwork];
+await training.train({
+  trainable: "Router.route",
+  cases: [["abc", "ABC"]],
+  promotion: {
+    gates: [({ candidate }) =>
+      /\bfetch\s*\(/.test(candidate.implementation)
+        ? "candidate makes a network call"
+        : undefined],
+  },
+});
 ```
 
-**`promotion.gates` replaces the standard set rather than extending it**, so
-spread `defaultPromotionGates` unless you genuinely mean to drop them. Rules
-never mutate and never see each other; the context carries `candidate`,
-`evaluations`, `results`, `conformance`, `meanScore`, `passRate`, and the
-resolved `minScore` / `minPassRate` thresholds.
+**`promotion.gates` extends the standard set** — the standard gates always run
+first, then the configured policy, then yours, so a configured gate can only
+ever make promotion stricter. (An earlier revision of this guide claimed the
+opposite; spreading `defaultPromotionGates` into `gates` runs the defaults
+twice.) Rules never mutate and never see each other; the context carries
+`candidate`, `evaluations`, `results`, `conformance`, `meanScore`, `passRate`,
+and the resolved `minScore` / `minPassRate` thresholds.
 
 A gate may be async. `policy` is the deprecated spelling of the same idea — it
 was always a gate that returned a boolean.
@@ -95,7 +118,10 @@ was always a gate that returned a boolean.
 ## TrainingEngine
 
 **Default: the Ax engine — including any model or service chosen through
-`model` above.** Proposes a replacement body. The only required output is a string.
+`model` above.** Proposes a replacement body. The only required output is a
+string, and a bare `(request, context) => body` function is accepted anywhere
+an engine is — the `{ id, optimize }` object form below is for engines with an
+identity worth publishing.
 
 The root README has [a complete worked example](../README.md#custom-engines).
 Two things it does not cover:

@@ -96,6 +96,27 @@ export interface TrainingEngine {
 	optimize(request: OptimizeRequest, context: EngineContext): Promise<EngineCandidate>;
 }
 
+/** A bare function accepted anywhere a {@link TrainingEngine} is: return the
+ * replacement body (or a full candidate) and the runtime derives the rest.
+ * The `{ id, optimize }` object form exists for engines with an identity worth
+ * publishing; requiring it of an inline lambda was ceremony. */
+export type EngineFunction = (
+	request: OptimizeRequest,
+	context: EngineContext,
+) => string | EngineCandidate | Promise<string | EngineCandidate>;
+
+/** Normalizes either engine spelling to the object form. */
+export function asEngine(value: TrainingEngine | EngineFunction): TrainingEngine {
+	if (typeof value !== "function") return value;
+	return {
+		id: value.name ? `inline/${value.name}` : "inline/engine",
+		async optimize(request, context) {
+			const proposed = await value(request, context);
+			return typeof proposed === "string" ? { implementation: proposed } : proposed;
+		},
+	};
+}
+
 /** Runs a proposed implementation against arguments in provider-owned isolation.
  * `receiver` is the live `this` when a hot-swapped instance method is invoked;
  * sandboxed executors may ignore it. */

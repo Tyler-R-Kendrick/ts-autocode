@@ -51,9 +51,9 @@ describe("trainable identity", () => {
 		expect(first.symbol).toBe(second.symbol);
 	});
 
-	it("rejects string identities in training APIs", async () => {
-		await expect(defaultTraining.records("Router.route" as never)).rejects.toThrow(
-			"must be a symbol or TrainableToken",
+	it("accepts the plain string id in training APIs", async () => {
+		expect(await defaultTraining.records("Router.route")).toEqual(
+			await defaultTraining.records(defineTrainable("Router.route")),
 		);
 	});
 });
@@ -441,4 +441,119 @@ describe("promotion applier on an isolated runtime", () => {
 		expect(second).toEqual([]);
 	});
 
+});
+
+describe("call-site shorthand", () => {
+	// The sugar is one semantics with two spellings: each shorthand must behave
+	// exactly as its verbose form, or it is a second API rather than sugar.
+	async function fixture(name: string) {
+		const directory = await mkdtemp(join(tmpdir(), `ts-autocode-${name}-`));
+		const artifact = join(directory, "echo.ts");
+		await writeFile(artifact, `export function ${name}(input: string): string {
+  "use training";
+  return input;
+}\n`);
+		return { directory, artifact };
+	}
+
+	it("trains from a string id, a bare-function engine, and [input, expected] pairs", async () => {
+		const { directory, artifact } = await fixture("sugarTrain");
+		const runtime = createTrainingRuntime({
+			engine: () => "return input.toUpperCase();",
+			executor: directExecutor,
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+		});
+
+		const run = await runtime.train({
+			trainable: "sugarTrain",
+			cases: [["abc", "ABC"], ["xyz", "XYZ"]],
+			evaluation: { outputDir: join(directory, "agentv") },
+			rounds: { max: 1 },
+		});
+
+		expect(run.outcome).toBe("ready");
+		expect(run.final.verification.run.summary.passed).toBe(2);
+		// The derived engine id is stable and names the inline form.
+		expect(run.final.candidate.engineId).toBe("inline/engine");
+	});
+
+	it("keeps the last expected value for a repeated input, like live replay", async () => {
+		const { directory, artifact } = await fixture("sugarDedupe");
+		const runtime = createTrainingRuntime({
+			engine: () => "return input;",
+			executor: directExecutor,
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+		});
+
+		const run = await runtime.train({
+			trainable: "sugarDedupe",
+			cases: [["same", "WRONG"], ["same", "same"]],
+			evaluation: { outputDir: join(directory, "agentv") },
+			rounds: { max: 1 },
+		});
+
+		expect(run.outcome).toBe("ready");
+		expect(run.baseline.run.summary.total).toBe(1);
+	});
+
+	it("JSON-encodes non-string pairs the same way outputs are compared", async () => {
+		const { directory, artifact } = await fixture("sugarJson");
+		const runtime = createTrainingRuntime({
+			engine: () => "return input * 2;",
+			executor: directExecutor,
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+		});
+
+		const run = await runtime.train({
+			trainable: "sugarJson",
+			cases: [[21, 42]],
+			evaluation: { outputDir: join(directory, "agentv") },
+			rounds: { max: 1 },
+		});
+		expect(run.outcome).toBe("ready");
+	});
+
+	it("explicit evaluation.tests win over cases", async () => {
+		const { directory, artifact } = await fixture("sugarPrecedence");
+		const runtime = createTrainingRuntime({
+			engine: () => "return input.toUpperCase();",
+			executor: directExecutor,
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+		});
+
+		const run = await runtime.train({
+			trainable: "sugarPrecedence",
+			cases: [["ignored", "IGNORED"]],
+			evaluation: {
+				tests: [{ id: "explicit", input: "abc", assert: [{ type: "equals", value: "ABC" }] }],
+				task: (input: string) => input.toUpperCase(),
+				outputDir: join(directory, "agentv"),
+			},
+			rounds: { max: 1 },
+		});
+		expect(run.baseline.run.summary.total).toBe(1);
+		expect(run.final.verification.evaluations[0]?.test?.id).toBe("explicit");
+	});
+
+	it("a named engine function derives its id from the function name", async () => {
+		const { directory, artifact } = await fixture("sugarNamed");
+		function uppercase() { return "return input.toUpperCase();"; }
+		const runtime = createTrainingRuntime({
+			engine: uppercase,
+			executor: directExecutor,
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+		});
+		const run = await runtime.train({
+			trainable: "sugarNamed",
+			cases: [["abc", "ABC"]],
+			evaluation: { outputDir: join(directory, "agentv") },
+			rounds: { max: 1 },
+		});
+		expect(run.final.candidate.engineId).toBe("inline/uppercase");
+	});
 });

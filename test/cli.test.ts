@@ -43,11 +43,12 @@ describe("ts-autocode discover", () => {
 		expect(result.stdout).toContain("2 trainables.");
 	});
 
-	it("suggests a defineTrainable call using a real discovered id", async () => {
+	it("suggests a train call using a real discovered id", async () => {
 		const result = await run(["discover", "--file", await project()]);
 		// The suggested snippet is the payoff: it removes the guesswork from the
-		// one stringly-typed seam in an otherwise type-safe design.
-		expect(result.stdout).toContain('defineTrainable("Router.route")');
+		// one stringly-typed seam in an otherwise type-safe design. The id is
+		// now passed straight to train() -- no defineTrainable ceremony.
+		expect(result.stdout).toContain('trainable: "Router.route"');
 	});
 
 	it("emits machine-readable output", async () => {

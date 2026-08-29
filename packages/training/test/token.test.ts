@@ -57,10 +57,18 @@ describe("toTrainableToken", () => {
 		expect(toTrainableToken(Symbol.for("Custom.method")).id).toBe("Custom.method");
 	});
 
-	it("rejects anything that is not a symbol or token", () => {
-		for (const value of ["Router.route", 42, null, undefined, {}, { id: 1 }, []]) {
+	it("accepts the plain string id, resolving it exactly as defineTrainable does", () => {
+		// The string was once rejected on the theory that the branded token was
+		// safer -- but defineTrainable(id) is itself an unchecked string, so the
+		// rejection bought nothing except ceremony at every call site.
+		expect(toTrainableToken("Router.route")).toEqual(defineTrainable("Router.route"));
+		expect(() => toTrainableToken("  ")).toThrow(InvalidTrainableIdentityError);
+	});
+
+	it("rejects anything that is not a string, symbol or token", () => {
+		for (const value of [42, null, undefined, {}, { id: 1 }, []]) {
 			expect(() => toTrainableToken(value as never)).toThrow(InvalidTrainableIdentityError);
-			expect(() => toTrainableToken(value as never)).toThrow("must be a symbol or TrainableToken");
+			expect(() => toTrainableToken(value as never)).toThrow("must be a string id, symbol, or TrainableToken");
 		}
 	});
 });

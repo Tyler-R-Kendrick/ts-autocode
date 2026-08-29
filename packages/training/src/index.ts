@@ -79,12 +79,13 @@ export type { TrainableId, TrainableIdentity, TrainableToken } from "./token.js"
 export { defaultTsconfig, discoverInSource, discoverTrainables, inMemoryArtifactRef, trainingMarker } from "./source.js";
 export type { Marker, SourceSettings, TrainableTarget } from "./source.js";
 
-export { candidateDeclaration, directExecutor } from "./engine.js";
+export { asEngine, candidateDeclaration, directExecutor } from "./engine.js";
 export type {
 	BoundEvaluation,
 	CandidatePatch,
 	EngineCandidate,
 	EngineContext,
+	EngineFunction,
 	ImplementationExecutor,
 	ModelSelection,
 	OptimizeRequest,

@@ -22,6 +22,7 @@
   "TsAutocodeTypeError": "class",
   "annotateRewrite": "function",
   "applyCandidate": "function",
+  "asEngine": "function",
   "candidateDeclaration": "function",
   "captureTrainable": "function",
   "check": "function",

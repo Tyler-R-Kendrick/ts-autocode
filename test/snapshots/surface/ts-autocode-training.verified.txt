@@ -19,6 +19,7 @@ TrainingIncompleteError
 TsAutocodeError
 TsAutocodeSyntaxError
 TsAutocodeTypeError
+asEngine
 candidateDeclaration
 captureTrainable
 configureTraining

@@ -21,6 +21,7 @@ TsAutocodeSyntaxError
 TsAutocodeTypeError
 annotateRewrite
 applyCandidate
+asEngine
 candidateDeclaration
 captureTrainable
 check

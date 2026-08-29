@@ -46,9 +46,8 @@ Router.route  src/router.ts
 
 1 trainable.
 
-Bind evals to one with its symbol:
-  const target = defineTrainable("Router.route");
-  await training.train({ trainable: target.symbol, /* ... */ });
+Bind evals to one with its id:
+  await training.train({ trainable: "Router.route", /* ... */ });
 ```
 
 `ts-autocode status` reports how many traces each trainable has captured, which
@@ -137,15 +136,7 @@ above — pins these evals to that exact method; for an auto-generated identity,
 `defineTrainable("Router.route").symbol` recreates the symbol.
 
 ```ts
-import { defineTrainable, training, type CandidatePatch } from "ts-autocode";
-
-// The same identity the marked method carries; see the section above.
-const route = defineTrainable("Router.route");
-
-// Whatever your deployment rules are — anything returning a boolean works.
-const deploymentPolicy = {
-  allows: (candidate: CandidatePatch) => candidate.implementation.length < 4_000,
-};
+import { training } from "ts-autocode";
 
 class Router {
   route(input: string): string {
@@ -154,30 +145,17 @@ class Router {
   }
 }
 
-const router = new Router();
-
-const tests = [
-  {
-    id: "billing",
-    input: "Where is my invoice?",
-    assert: [{ type: "equals", value: "billing" }],
-  },
-  {
-    id: "fallback",
-    input: "Reset my password",
-    assert: [{ type: "equals", value: "fallback" }],
-  },
-];
-
 const run = await training.train({
-  trainable: route.symbol,
+  trainable: "Router.route",
   objective: "Preserve correct billing and fallback routing",
-  evaluation: {
-    tests,
-    task: (input) => router.route(input),
-    workers: 2,
+  cases: [
+    ["Where is my invoice?", "billing"],
+    ["Reset my password", "fallback"],
+  ],
+  promotion: {
+    // Any extra rule a candidate must clear, on top of the standard gates.
+    gates: [({ candidate }) => candidate.implementation.length < 4_000 ? undefined : "candidate too large"],
   },
-  policy: (candidate) => deploymentPolicy.allows(candidate),
 });
 
 const activation = await run.activate();
@@ -185,6 +163,12 @@ const activation = await run.activate();
 // Refuses to overwrite later changes.
 await activation.rollback();
 ```
+
+`trainable` is the identity `ts-autocode discover` prints; `cases` are
+`[input, expected]` pairs that become equality eval cases, evaluated exactly
+as replayed live traffic is. The long forms — `defineTrainable(id).symbol`,
+`evaluation.tests` with explicit asserts and a `task`, `policy` — all still
+work and are the escape hatch when a case is not input/expected equality.
 
 Activating a training run writes the gated source rewrite and, for async
 targets, hot-swaps the running implementation through `ts-autocode-rewrite`'s
