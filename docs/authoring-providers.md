@@ -15,12 +15,13 @@ This guide is for writing one. Two things before you do:
 - **You rarely need to name these types.** Passing an implementation inline to
   `createTrainingRuntime` or `configureTraining` gets full inference from
   contextual typing; the named types exist for implementations that live in
-  their own package. Identities are plain strings (`"Router.route"`), an engine
-  can be a bare function returning the new body, and `[input, expected]` pairs
-  stand in for hand-built eval cases:
+  their own package. An engine can be a bare function returning the new body,
+  and `[input, expected]` pairs stand in for hand-built eval cases. An identity
+  is **never a plain string** — that is an ADR, enforced at compile time: pass
+  the trainable's symbol, its token, or the marked method itself.
 
 ```ts
-import { createTrainingRuntime, directExecutor } from "ts-autocode";
+import { createTrainingRuntime, defineTrainable, directExecutor } from "ts-autocode";
 
 const training = createTrainingRuntime({
   engine: () => "return input.toUpperCase();",
@@ -29,7 +30,7 @@ const training = createTrainingRuntime({
 });
 
 const run = await training.train({
-  trainable: "Router.route",
+  trainable: defineTrainable("Router.route").symbol,
   cases: [["abc", "ABC"], ["xyz", "XYZ"]],
 });
 ```
@@ -90,10 +91,10 @@ returns a failure reason — or `undefined` to allow. Returning a string is what
 refuses; the strings land in `decision.failures` and in `PromotionRejectedError`.
 
 ```ts
-import { training } from "ts-autocode";
+import { defineTrainable, training } from "ts-autocode";
 
 await training.train({
-  trainable: "Router.route",
+  trainable: defineTrainable("Router.route").symbol,
   cases: [["abc", "ABC"]],
   promotion: {
     gates: [({ candidate }) =>

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	defineTrainable,
+	stampTrainable,
 	toTrainableToken,
 	trainableIdFromKey,
 	trainableTokenFromSymbol,
@@ -57,18 +58,22 @@ describe("toTrainableToken", () => {
 		expect(toTrainableToken(Symbol.for("Custom.method")).id).toBe("Custom.method");
 	});
 
-	it("accepts the plain string id, resolving it exactly as defineTrainable does", () => {
-		// The string was once rejected on the theory that the branded token was
-		// safer -- but defineTrainable(id) is itself an unchecked string, so the
-		// rejection bought nothing except ceremony at every call site.
-		expect(toTrainableToken("Router.route")).toEqual(defineTrainable("Router.route"));
-		expect(() => toTrainableToken("  ")).toThrow(InvalidTrainableIdentityError);
+	it("resolves a marked callable to the identity its stamp declares", () => {
+		const marked = stampTrainable((input: string) => input, defineTrainable("A.marked"));
+		expect(toTrainableToken(marked)).toEqual(defineTrainable("A.marked"));
 	});
 
-	it("rejects anything that is not a string, symbol or token", () => {
-		for (const value of [42, null, undefined, {}, { id: 1 }, []]) {
+	it("refuses an unmarked callable, naming the fix", () => {
+		expect(() => toTrainableToken((input: string) => input)).toThrow(InvalidTrainableIdentityError);
+		expect(() => toTrainableToken(function orphan() {} as never)).toThrow("function orphan is not marked trainable");
+	});
+
+	it("rejects strings and anything else that is not an identity", () => {
+		// ADR: a plain string is never an identity; test/adr.test.ts pins the
+		// rejection at compile time, this pins it at runtime.
+		for (const value of ["Router.route", 42, null, undefined, {}, { id: 1 }]) {
 			expect(() => toTrainableToken(value as never)).toThrow(InvalidTrainableIdentityError);
-			expect(() => toTrainableToken(value as never)).toThrow("must be a string id, symbol, or TrainableToken");
+			expect(() => toTrainableToken(value as never)).toThrow("must be a symbol or TrainableToken");
 		}
 	});
 });

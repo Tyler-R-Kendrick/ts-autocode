@@ -7,5 +7,6 @@ normalize      router.ts
 
 3 trainables.
 
-Bind evals to one with its id:
-  await training.train({ trainable: "Router.route", /* ... */ });
+Bind evals to one with its symbol:
+  const target = defineTrainable("Router.route");
+  await training.train({ trainable: target.symbol, /* ... */ });

@@ -2,6 +2,7 @@ import { annotateRewrite, declaringContainer, dispatchRewrite } from "ts-autocod
 import {
 	defineTrainable,
 	InvalidTrainableIdentityError,
+	stampTrainable,
 	trainableTokenFromSymbol,
 	trainingMarker,
 } from "ts-autocode-training";
@@ -43,6 +44,12 @@ export function trainable(identity?: symbol): TrainableDecorator {
 			// auto-generated token's Symbol.for symbol is recreatable via defineTrainable.
 			const token = explicit ?? defineTrainable(`${declaringClassName(owner, name, context.static) ?? "Anonymous"}.${name}`);
 			annotateRewrite(owner, name, token.id, trainingMarker);
+			// Stamp both the original method and whatever weaving installed in its
+			// slot, so `train({ trainable: Router.prototype.route })` resolves the
+			// identity the marking machinery declared -- never a retyped string.
+			stampTrainable(method, token);
+			const container = (context.static ? owner : owner.prototype) as Record<string, unknown> | undefined;
+			if (container && typeof container[name] === "function") stampTrainable(container[name], token);
 		});
 		return method;
 	};
@@ -59,6 +66,7 @@ export function wrapTrainable<F extends (...args: never[]) => unknown>(fn: F, id
 	};
 	Object.defineProperty(wrapped, "name", { value: name, configurable: true });
 	Object.defineProperty(wrapped, wrappedMarker, { value: true });
+	stampTrainable(wrapped, defineTrainable(id));
 	return wrapped as unknown as F;
 }
 
@@ -70,6 +78,10 @@ export function instrumentTrainable(
 	id: string,
 ): void {
 	annotateRewrite(owner, methodName, id, trainingMarker);
+	const container = declaringContainer(owner, methodName) as Record<string, unknown> | undefined;
+	if (container && typeof container[methodName] === "function") {
+		stampTrainable(container[methodName], defineTrainable(id));
+	}
 }
 
 /** Name of the class that declares `methodName`, walking to the owning prototype

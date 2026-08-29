@@ -46,8 +46,9 @@ Router.route  src/router.ts
 
 1 trainable.
 
-Bind evals to one with its id:
-  await training.train({ trainable: "Router.route", /* ... */ });
+Bind evals to one with its symbol:
+  const route = defineTrainable("Router.route");
+  await training.train({ trainable: route.symbol, /* ... */ });
 ```
 
 `ts-autocode status` reports how many traces each trainable has captured, which
@@ -136,7 +137,7 @@ above — pins these evals to that exact method; for an auto-generated identity,
 `defineTrainable("Router.route").symbol` recreates the symbol.
 
 ```ts
-import { training } from "ts-autocode";
+import { defineTrainable, training } from "ts-autocode";
 
 class Router {
   route(input: string): string {
@@ -145,8 +146,10 @@ class Router {
   }
 }
 
+const route = defineTrainable("Router.route");
+
 const run = await training.train({
-  trainable: "Router.route",
+  trainable: route.symbol,
   objective: "Preserve correct billing and fallback routing",
   cases: [
     ["Where is my invoice?", "billing"],
@@ -164,11 +167,31 @@ const activation = await run.activate();
 await activation.rollback();
 ```
 
-`trainable` is the identity `ts-autocode discover` prints; `cases` are
-`[input, expected]` pairs that become equality eval cases, evaluated exactly
-as replayed live traffic is. The long forms — `defineTrainable(id).symbol`,
-`evaluation.tests` with explicit asserts and a `task`, `policy` — all still
-work and are the escape hatch when a case is not input/expected equality.
+`trainable` is never a plain string — that is an ADR, enforced at compile
+time: a string is not a sufficient identity to guarantee uniqueness. Pass the
+symbol (as above), the token, or — when the method is marked with
+`@trainable()` or load-time instrumentation — the method itself, which
+carries the identity the marking machinery declared:
+
+```ts
+import { trainable, training } from "ts-autocode";
+
+class Biller {
+  @trainable()
+  route(input: string): string {
+    "use training";
+    return input;
+  }
+}
+void new Biller();
+
+await training.train({ trainable: Biller.prototype.route, cases: [["a", "a"]] });
+```
+
+`cases` are `[input, expected]` pairs that become equality eval cases,
+evaluated exactly as replayed live traffic is. `evaluation.tests` with
+explicit asserts and a `task` remains the escape hatch when a case is not
+input/expected equality.
 
 Activating a training run writes the gated source rewrite and, for async
 targets, hot-swaps the running implementation through `ts-autocode-rewrite`'s

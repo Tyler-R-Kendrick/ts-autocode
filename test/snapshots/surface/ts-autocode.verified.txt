@@ -80,10 +80,12 @@ restoreImplementation
 revertRewrite
 rewritePromotion
 sequentialLoop
+stampTrainable
 swapImplementation
 swappedImplementation
 toTrainableToken
 trainable
+trainableStamp
 trainableTokenFromSymbol
 training
 trainingEngineContract

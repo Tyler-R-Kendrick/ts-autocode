@@ -58,7 +58,9 @@ promotionApplierContract
 provideTrainingDefaults
 resetTraining
 sequentialLoop
+stampTrainable
 toTrainableToken
+trainableStamp
 trainableTokenFromSymbol
 training
 trainingEngineContract

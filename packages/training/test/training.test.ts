@@ -13,6 +13,7 @@ import {
 	configureTraining,
 	defineTrainable,
 	directExecutor,
+	stampTrainable,
 	MemoryTrainingStore,
 	training as defaultTraining,
 	type Activation,
@@ -21,6 +22,12 @@ import {
 	type TrainingEngine,
 	type TrainingStore,
 } from "../src/index.js";
+
+/** What instrumentation does when it marks a callable; inlined here because
+ * the root package's decorator lives outside this package. */
+function wrapTrainableForTest<F>(fn: F, id: string): F {
+	return stampTrainable(fn, defineTrainable(id));
+}
 
 describe("trainable identity", () => {
 	it("marks methods with only the directive and exposes no weaving API", () => {
@@ -51,10 +58,20 @@ describe("trainable identity", () => {
 		expect(first.symbol).toBe(second.symbol);
 	});
 
-	it("accepts the plain string id in training APIs", async () => {
-		expect(await defaultTraining.records("Router.route")).toEqual(
-			await defaultTraining.records(defineTrainable("Router.route")),
+	it("rejects string identities in training APIs", async () => {
+		// ADR: a plain string is not a sufficient identity. It must not compile
+		// (pinned in test/tier1.test.ts) and must not slip through at runtime.
+		await expect(defaultTraining.records("Router.route" as never)).rejects.toThrow(
+			"must be a symbol or TrainableToken",
 		);
+	});
+
+	it("accepts the marked method itself as an identity", async () => {
+		const marked = wrapTrainableForTest((input: string) => input, "Marked.byMethod");
+		expect(await defaultTraining.records(marked)).toEqual(
+			await defaultTraining.records(defineTrainable("Marked.byMethod")),
+		);
+		await expect(defaultTraining.records((input: string) => input)).rejects.toThrow("is not marked trainable");
 	});
 });
 
@@ -466,7 +483,7 @@ describe("call-site shorthand", () => {
 		});
 
 		const run = await runtime.train({
-			trainable: "sugarTrain",
+			trainable: defineTrainable("sugarTrain").symbol,
 			cases: [["abc", "ABC"], ["xyz", "XYZ"]],
 			evaluation: { outputDir: join(directory, "agentv") },
 			rounds: { max: 1 },
@@ -488,7 +505,7 @@ describe("call-site shorthand", () => {
 		});
 
 		const run = await runtime.train({
-			trainable: "sugarDedupe",
+			trainable: defineTrainable("sugarDedupe").symbol,
 			cases: [["same", "WRONG"], ["same", "same"]],
 			evaluation: { outputDir: join(directory, "agentv") },
 			rounds: { max: 1 },
@@ -508,7 +525,7 @@ describe("call-site shorthand", () => {
 		});
 
 		const run = await runtime.train({
-			trainable: "sugarJson",
+			trainable: defineTrainable("sugarJson").symbol,
 			cases: [[21, 42]],
 			evaluation: { outputDir: join(directory, "agentv") },
 			rounds: { max: 1 },
@@ -526,7 +543,7 @@ describe("call-site shorthand", () => {
 		});
 
 		const run = await runtime.train({
-			trainable: "sugarPrecedence",
+			trainable: defineTrainable("sugarPrecedence").symbol,
 			cases: [["ignored", "IGNORED"]],
 			evaluation: {
 				tests: [{ id: "explicit", input: "abc", assert: [{ type: "equals", value: "ABC" }] }],
@@ -549,7 +566,7 @@ describe("call-site shorthand", () => {
 			tracing: { enabled: false },
 		});
 		const run = await runtime.train({
-			trainable: "sugarNamed",
+			trainable: defineTrainable("sugarNamed").symbol,
 			cases: [["abc", "ABC"]],
 			evaluation: { outputDir: join(directory, "agentv") },
 			rounds: { max: 1 },

@@ -73,8 +73,8 @@ export type {
 	TrainingRound,
 } from "./loop.js";
 
-export { defineTrainable, toTrainableToken, trainableTokenFromSymbol } from "./token.js";
-export type { TrainableId, TrainableIdentity, TrainableToken } from "./token.js";
+export { defineTrainable, stampTrainable, toTrainableToken, trainableStamp, trainableTokenFromSymbol } from "./token.js";
+export type { TrainableCallable, TrainableId, TrainableIdentity, TrainableToken } from "./token.js";
 
 export { defaultTsconfig, discoverInSource, discoverTrainables, inMemoryArtifactRef, trainingMarker } from "./source.js";
 export type { Marker, SourceSettings, TrainableTarget } from "./source.js";

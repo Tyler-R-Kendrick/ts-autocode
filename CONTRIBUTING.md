@@ -34,6 +34,11 @@ npm run check
 - Provider choices are settings, not code: anything a user picks (a model, a
   timeout, a threshold) belongs on `TrainingSettings`/`TrainInput`, carried
   opaquely if provider-specific — never a hardcoded registry in this repo.
+- **A trainable identity is never a plain string (ADR).** A string is not a
+  sufficient identity to guarantee uniqueness. Accepted identities are the
+  symbol, the `TrainableToken`, or the marked method/function itself (which
+  instrumentation stamps). `test/adr.test.ts` pins the rejection at compile
+  time; do not re-admit strings as call-site sugar.
 - Validate settings at the boundary with `parseSetting`, so misconfiguration
   fails as `InvalidSettingsError` naming the setting, not deep in a run.
 
