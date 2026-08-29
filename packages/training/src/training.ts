@@ -117,6 +117,12 @@ export interface TrainingSettings {
 	/** Options handed to the executor on every candidate run. */
 	readonly execution?: ExecutionSettings;
 	readonly loop?: TrainingLoop;
+	/** Applies a gate-approved candidate. Every other seam resolves from these
+	 * settings before falling back to {@link provideTrainingDefaults}; this one
+	 * did not exist, so an applier could only ever be registered process-wide.
+	 * That left {@link createTrainingRuntime} sharing one applier between
+	 * runtimes -- the component that writes generated code into a source file. */
+	readonly promote?: PromotionApplier;
 	readonly evolution?: EvolutionSettings;
 	/** Default directory for run artifacts and eval output; a run's
 	 * `EvalConfig.outputDir` still overrides it. */
@@ -548,7 +554,7 @@ class TrainingRuntime implements Training {
 		if (!decision.promote) {
 			throw new PromotionRejectedError(candidate.id, decision);
 		}
-		const promote = defaultProviders.promote;
+		const promote = this.#settings.promote ?? defaultProviders.promote;
 		if (!promote) {
 			throw new PromotionApplierNotConfiguredError();
 		}

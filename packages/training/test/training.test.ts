@@ -16,6 +16,7 @@ import {
 	training as defaultTraining,
 	type Activation,
 	type ImplementationExecutor,
+	type PromotionApplier,
 	type TrainingEngine,
 	type TrainingStore,
 } from "../src/index.js";
@@ -378,4 +379,66 @@ describe("capture on an isolated runtime", () => {
 		await isolated.flush();
 		expect((await isolated.records(token))[0]?.succeeded).toBe(true);
 	});
+});
+
+describe("promotion applier on an isolated runtime", () => {
+	// Every other seam resolved `settings.X ?? defaultProviders.X`; `promote`
+	// alone read the process-wide provider, so an applier could not be injected
+	// per runtime. `createTrainingRuntime` therefore left one seam global -- the
+	// one that writes generated code into a source file. Found while writing the
+	// provider authoring guide: the wiring example would not compile.
+	async function trained(promote: PromotionApplier, name: string) {
+		const directory = await mkdtemp(join(tmpdir(), `ts-autocode-${name}-`));
+		const artifact = join(directory, "echo.ts");
+		await writeFile(artifact, `export function ${name}(input: string): string {
+  "use training";
+  return input;
+}\n`);
+		const runtime = createTrainingRuntime({
+			engine: { id: "applier-test", optimize: async () => ({ implementation: "return input.toUpperCase();" }) },
+			executor: functionExecutor,
+			promote,
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+		});
+		const run = await runtime.train({
+			trainable: defineTrainable(name).symbol,
+			evaluation: {
+				tests: [{ id: "upper", input: "abc", assert: [{ type: "equals", value: "ABC" }] }],
+				task: (input) => input.toUpperCase(),
+				outputDir: join(directory, "agentv"),
+			},
+			rounds: { max: 1 },
+		});
+		expect(run.outcome).toBe("ready");
+		return run;
+	}
+
+	it("prefers the runtime's applier over the process-wide one", async () => {
+		const applied: string[] = [];
+		const run = await trained(async (candidate) => {
+			applied.push(candidate.id);
+			return { rollback: async () => { applied.push("rolled-back"); } };
+		}, "applierPreferred");
+
+		const activation = await run.activate();
+		expect(applied).toHaveLength(1);
+		await activation.rollback();
+		expect(applied.at(-1)).toBe("rolled-back");
+	});
+
+	it("keeps two runtimes' appliers apart", async () => {
+		const first: string[] = [];
+		const second: string[] = [];
+		const runs = await Promise.all([
+			trained(async () => { first.push("applied"); return { rollback: async () => {} }; }, "applierFirst"),
+			trained(async () => { second.push("applied"); return { rollback: async () => {} }; }, "applierSecond"),
+		]);
+
+		await runs[0]?.activate();
+
+		expect(first).toEqual(["applied"]);
+		expect(second).toEqual([]);
+	});
+
 });
