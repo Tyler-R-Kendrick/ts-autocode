@@ -1,0 +1,19 @@
+EngineNotConfiguredError             engine_not_configured      no training engine is configured; import "ts-autocode" for the Ax default or set TrainingSettings.engine
+ExecutorNotConfiguredError           executor_not_configured    candidate execution requires an executor; import "ts-autocode" or set TrainingSettings.executor
+PromotionApplierNotConfiguredError   applier_not_configured     activation requires a promotion applier; import "ts-autocode" for the default or set TrainingProviders.promote
+PromotionRejectedError               promotion_rejected         candidate has not passed the promotion gate: cand-1
+InsufficientTracesError              insufficient_traces        training from captured traffic requires 1 distinct successful runtime trace; found 0
+InsufficientTracesError              insufficient_traces        training from captured traffic requires 3 distinct successful runtime traces; found 2
+TraceNotFoundError                   trace_not_found            live trace was not found for eval input: Where is my invoice?
+CandidateSyntaxError                 candidate_syntax           engine returned invalid TypeScript for Router.route
+EngineContractError                  engine_contract            engine returned an empty implementation
+EngineProposalError                  engine_proposal            Ax did not optimize Router.route
+MissingSecretError                   missing_secret             default optimizer requires OPENAI_API_KEY or a custom TrainingSettings.engine
+LoopCapabilityError                  loop_capability            the governed harness loop reviews one candidate per round
+InvalidTrainableIdentityError        invalid_identity           trainable id must be a non-empty string
+SourceDiscoveryError                 source_discovery           trainable source was not found: Router.route
+OperationInterruptedError            operation_interrupted      engine.propose was interrupted
+InvalidSettingsError                 invalid_settings           minScore must be between 0 and 1
+OperationTimeout                     -                          engine.propose timed out after 30000ms
+TrainingIncompleteError              training_incomplete        training loop returned no rounds: stalled
+TrainingIncompleteError              training_incomplete        background training did not produce a promotable candidate: exhausted

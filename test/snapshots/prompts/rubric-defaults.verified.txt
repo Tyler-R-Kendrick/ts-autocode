@@ -1,0 +1,2 @@
+objective: Preserve behavior demonstrated by the evaluation cases
+rubric:    Candidate must pass source conformance checks. Minimum evaluation score: 0.8. Minimum evaluation pass rate: 1. No additional promotion policy.

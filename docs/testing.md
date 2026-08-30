@@ -12,6 +12,7 @@ land, never lower them to get a build green.
 | Surface | `test/surface.test.ts` | Re-export drift between the root package and its siblings |
 | Protocol | `test/digest-protocol.test.ts` | Two packages that must agree without importing each other |
 | Compatibility | `test/deprecated.test.ts` | A deprecated spelling that silently stopped working |
+| Characterization | `test/characterization*.test.ts` | A change to anything this library *generates* — rewritten source, emitted instrumentation, prompts, CLI output, the export surface |
 
 ## Running
 
@@ -23,6 +24,33 @@ npm run check         # typecheck + coverage + build
 
 Coverage reports land in `test/output/coverage` (git-ignored). `lcov.info` is
 there for editor and CI integrations.
+
+## Characterization snapshots
+
+For a library whose product is rewritten source, the generated text *is* the
+product, and a diff of it is the only review that shows what actually changed.
+`toContain("return input")` says almost nothing about an emitted module.
+
+`test/support/verify.ts` follows the [Verify](https://github.com/VerifyTests/Verify)
+model rather than Vitest's inline snapshots: one named file per subject under
+`test/snapshots/`, committed and reviewed like any other artifact. An inline
+`.snap` blob keyed by test name is hard to read in a diff, and a test rename
+silently orphans it.
+
+```
+test/snapshots/rewrite/emitted-instrumentation.verified.ts
+test/snapshots/prompts/ax-program-signature.verified.json
+test/snapshots/surface/ts-autocode.txt
+```
+
+Approve a deliberate change with `npm test -- -u`, and **read the diff** — that
+is the entire value. `scrub()` removes digests, UUIDs, timestamps and absolute
+paths first, because a snapshot that churns is one everyone learns to
+re-approve without reading.
+
+Snapshots are excluded from `tsconfig.test.json`: they are generated artifacts,
+and the emitted instrumentation deliberately references names from the module it
+is appended to, so it does not typecheck standalone.
 
 ## Conventions
 

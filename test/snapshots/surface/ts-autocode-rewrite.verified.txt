@@ -1,0 +1,17 @@
+annotateRewrite
+applyCandidate
+check
+commitRewrite
+configureRewrite
+createRewriter
+declaringContainer
+digest
+dispatchRewrite
+emitInstrumentation
+installInstrumentation
+installedInstrumentation
+instrumentKey
+restoreImplementation
+revertRewrite
+swapImplementation
+swappedImplementation

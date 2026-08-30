@@ -71,3 +71,46 @@ class Router {
 		expect(discoverTrainables({ files: [`${output}/router.ts`] })[0]?.id).toBe("custom.route");
 	});
 });
+
+describe("parameter types inferred from literal defaults", () => {
+	// A defaulted parameter has no type annotation, and reporting it as
+	// `unknown` reached the Ax field mapper as `json` -- so the optimizer was
+	// told a plainly numeric argument had an opaque shape. Found by the
+	// characterization snapshot of the generated program signature.
+	const declare = (parameters: string) => discoverInSource(`class Fixture {
+	method(${parameters}): void {
+		"use training";
+	}
+}`, "fixture.ts")[0]?.parameters ?? [];
+
+	it.each([
+		["retries = 2", "number"],
+		["name = \"x\"", "string"],
+		["flag = true", "boolean"],
+		["flag = false", "boolean"],
+		["offset = -1", "number"],
+		["big = 1n", "bigint"],
+		["tags = [\"a\", \"b\"]", "string[]"],
+		["counts = [1, 2]", "number[]"],
+	])("infers %s as %s", (declaration, expected) => {
+		expect(declare(declaration)[0]?.type).toBe(expected);
+	});
+
+	it("prefers an explicit annotation over the initializer", () => {
+		expect(declare("retries: 1 | 2 = 2")[0]?.type).toBe("1 | 2");
+	});
+
+	it("leaves a non-literal default unknown rather than guessing", () => {
+		for (const declaration of ["value = compute()", "value = {}", "value = []", "mixed = [1, \"a\"]"]) {
+			expect(declare(declaration)[0]?.type).toBe("unknown");
+		}
+	});
+
+	it("still marks a defaulted parameter optional", () => {
+		expect(declare("retries = 2")[0]?.optional).toBe(true);
+	});
+
+	it("leaves an undefaulted, unannotated parameter unknown", () => {
+		expect(declare("value")[0]?.type).toBe("unknown");
+	});
+});

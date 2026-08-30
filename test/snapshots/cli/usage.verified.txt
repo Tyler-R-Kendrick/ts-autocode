@@ -1,0 +1,13 @@
+ts-autocode <command> [options]
+
+Commands:
+  discover            List every trainable the TypeScript project marks.
+  status              Show captured traces per trainable from a run's artifacts.
+  help                Show this message.
+
+Options:
+  --cwd <dir>         Project root (default: the working directory).
+  --project <file>    tsconfig to read (default: tsconfig.json).
+  --file <path>       Scan only these files; repeatable.
+  --output-dir <dir>  Where run artifacts live (default: .agentv).
+  --json              Emit JSON instead of a table.

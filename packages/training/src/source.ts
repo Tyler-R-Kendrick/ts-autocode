@@ -86,6 +86,37 @@ export function discoverInSource(source: string, artifactRef = inMemoryArtifactR
 	return discoverSourceFile(sourceFile, artifactRef);
 }
 
+/** A parameter's declared type, or one inferred from a literal default.
+ *
+ * `retries = 2` has no type annotation, and reporting it as `unknown` reached
+ * the default engine's field mapper as `json` -- so the optimizer was told a
+ * plainly numeric argument had an opaque shape. TypeScript infers these from
+ * the initializer and so can we, for the literal forms that cover almost every
+ * real default. Anything else stays `unknown`, as before. */
+function parameterType(parameter: ts.ParameterDeclaration, sourceFile: ts.SourceFile): string {
+	const declared = parameter.type?.getText(sourceFile);
+	if (declared !== undefined) return declared;
+	return inferredLiteralType(parameter.initializer) ?? "unknown";
+}
+
+function inferredLiteralType(initializer: ts.Expression | undefined): string | undefined {
+	if (initializer === undefined) return undefined;
+	if (ts.isStringLiteralLike(initializer)) return "string";
+	if (ts.isNumericLiteral(initializer)) return "number";
+	if (initializer.kind === ts.SyntaxKind.TrueKeyword || initializer.kind === ts.SyntaxKind.FalseKeyword) return "boolean";
+	if (ts.isBigIntLiteral(initializer)) return "bigint";
+	// `-1` and friends: a negated numeric literal is still a number.
+	if (ts.isPrefixUnaryExpression(initializer) && ts.isNumericLiteral(initializer.operand)) {
+		return inferredLiteralType(initializer.operand);
+	}
+	if (ts.isArrayLiteralExpression(initializer)) {
+		const elements = initializer.elements.map((element) => inferredLiteralType(element));
+		const first = elements[0];
+		return first !== undefined && elements.every((element) => element === first) ? `${first}[]` : undefined;
+	}
+	return undefined;
+}
+
 function discoverSourceFile(
 	sourceFile: ts.SourceFile,
 	artifactRef: string,
@@ -138,7 +169,7 @@ function targetFor(
 	const parameters = node.parameters.map((parameter, index): TrainableParameter => ({
 		name: ts.isIdentifier(parameter.name) ? parameter.name.text : `arg${index}`,
 		declaration: parameter.getText(sourceFile),
-		type: parameter.type?.getText(sourceFile) ?? "unknown",
+		type: parameterType(parameter, sourceFile),
 		optional: parameter.questionToken !== undefined || parameter.initializer !== undefined,
 	}));
 	const returnType = node.type?.getText(sourceFile) ?? "unknown";

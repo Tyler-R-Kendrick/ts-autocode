@@ -1,0 +1,1 @@
+Candidate must pass source conformance checks. Minimum evaluation score: 0.95. Minimum evaluation pass rate: 0.5. Candidate must pass the configured promotion policy.
