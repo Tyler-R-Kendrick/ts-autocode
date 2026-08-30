@@ -177,6 +177,7 @@ root, so the split is organizational rather than a break.
 Extension points are constructible: a custom `TrainingLoop` returns a
 `CandidateReview` containing a `TrainableEvalRun`, and `createCandidateReview`,
 `createEvalRun`, and `createPromotionDecision` build those without a cast.
+[Authoring providers](authoring-providers.md) is the how-to for each seam.
 
 Every failure the library raises carries a `code` and is recognized by
 `isTsAutocodeError`. Errors that have always been `TypeError`s or

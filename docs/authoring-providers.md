@@ -1,0 +1,290 @@
+# Authoring providers
+
+`ts-autocode` ships working implementations of everything it needs, but none of
+them are the interface. Five seams are injected, and any structurally compatible
+implementation works: the runtime never imports a provider, and providers never
+import each other.
+
+This guide is for writing one. Every snippet here is compiled by
+`test/docs.test.ts`, so it cannot drift from the API.
+
+## Which primitive do you want?
+
+| You want to | Write |
+|---|---|
+| Use a different model or provider | **Nothing** — set `model`, see below |
+| Add a rule a candidate must clear | A [`PromotionGate`](#promotiongate) |
+| Call your own optimizer instead of Ax | A [`TrainingEngine`](#trainingengine) |
+| Run candidate code somewhere safer | An [`ImplementationExecutor`](#implementationexecutor) |
+| Change how rounds are explored | A [`TrainingLoop`](#trainingloop) |
+| Write the result somewhere other than the source file | A [`PromotionApplier`](#promotionapplier) |
+| Persist captured traces | A [`TrainingStore`](#trainingstore) |
+
+The first row is the common wrong turn. Choosing a model is a **setting**, not a
+reason to replace the engine:
+
+```ts
+import { configureTraining } from "ts-autocode";
+
+configureTraining({
+  model: { provider: "anthropic", name: "claude-sonnet-5" },
+});
+```
+
+`apiKey` is optional there — it falls back to the configured `SecretProvider`,
+then the environment. `teacher` names an optional stronger model for the
+optimizer's teacher role.
+
+## PromotionGate
+
+The smallest thing most people write. A gate reads the decision context and
+returns a failure reason — or `undefined` to allow. Returning a string is what
+refuses; the strings land in `decision.failures` and in `PromotionRejectedError`.
+
+```ts
+import { defaultPromotionGates, type PromotionGate } from "ts-autocode";
+
+const noNetwork: PromotionGate = ({ candidate }) =>
+  /\bfetch\s*\(/.test(candidate.implementation)
+    ? "candidate makes a network call"
+    : undefined;
+
+const gates = [...defaultPromotionGates, noNetwork];
+```
+
+**`promotion.gates` replaces the standard set rather than extending it**, so
+spread `defaultPromotionGates` unless you genuinely mean to drop them. Rules
+never mutate and never see each other; the context carries `candidate`,
+`evaluations`, `results`, `conformance`, `meanScore`, `passRate`, and the
+resolved `minScore` / `minPassRate` thresholds.
+
+A gate may be async. `policy` is the deprecated spelling of the same idea — it
+was always a gate that returned a boolean.
+
+## TrainingEngine
+
+Proposes a replacement body. The only required output is a string.
+
+The root README has [a complete worked example](../README.md#custom-engines).
+Two things it does not cover:
+
+```ts
+import type { TrainingEngine } from "ts-autocode";
+
+declare function callMyOptimizer(prompt: string, model: string | undefined): Promise<string>;
+
+const engine: TrainingEngine = {
+  id: "acme/optimizer",
+  async optimize(request, context) {
+    // Honor cancellation: the runtime aborts a round when the caller does, and
+    // retrying work nobody wants costs real money.
+    context.signal?.throwIfAborted();
+    // `model` is the user's `TrainingSettings.model`, carried through
+    // unmodified. The runtime knows nothing about any provider.
+    const implementation = await callMyOptimizer(request.objective, context.model?.name);
+    return { implementation };
+  },
+};
+```
+
+The core validates identity, source digests, and the final candidate regardless
+of engine, so an engine that returns nonsense is refused rather than applied.
+
+## ImplementationExecutor
+
+Runs a proposed body against arguments, in isolation you own.
+
+```ts
+import type { ImplementationExecutor } from "ts-autocode";
+
+const executor: ImplementationExecutor = async (target, implementation, args, options) => {
+  const parameters = target.parameters.map((parameter) => parameter.name);
+  const candidate = new Function(...parameters, implementation) as (...values: unknown[]) => unknown;
+  return candidate.apply(options?.receiver, [...args]);
+};
+```
+
+Rules the conformance suite enforces:
+
+- **A throwing body must surface as a rejected promise**, not a synchronous
+  throw. Callers `await` you; a synchronous throw escapes their `catch`.
+- `options.timeoutMs` and `options.signal` are yours to honor. The shipped
+  sandbox executor applies `execution.timeoutMs`, defaulting to 5s.
+- `options.receiver` is the live `this` when a hot-swapped instance method is
+  invoked. A sandboxed executor may ignore it.
+
+The example above is deliberately the *unsafe* one — it is what a test double
+looks like. A real executor runs the body in a worker, a VM context, or a
+container.
+
+## TrainingLoop
+
+Orchestrates propose/review rounds. The runtime owns proposing and reviewing;
+the loop owns iteration and stopping.
+
+The root README has [a complete worked example](../README.md#extending-the-library)
+using `createCandidateReview`, which builds the `CandidateReview` a loop must
+return without any casts. The shapes you are handed:
+
+```ts
+import type { ProposalTurn, ReviewContext, TrainingLoopInput } from "ts-autocode";
+
+declare const input: TrainingLoopInput;
+// `slot` is the 1-based fan-out slot, always 1 without fan-out; `feedback`
+// carries failure strings from earlier reviews of rejected candidates.
+declare const turn: ProposalTurn;   // { round, slot, feedback, signal? }
+declare const review: ReviewContext; // { label, signal? }
+```
+
+The one rule no type expresses:
+
+> **The winning round must be last.** When a loop returns `outcome: "ready"`,
+> the runtime activates `rounds.at(-1)`. A loop that finds a winner in round 2,
+> keeps exploring, and returns all four rounds in order will activate round 4's
+> candidate instead.
+
+Also honor `input.signal`, and treat `maxRounds` and `fanOut` as budgets rather
+than suggestions — `sequentialLoop` supports fan-out; the default governed
+harness loop reviews one candidate per round and refuses more.
+
+## PromotionApplier
+
+Applies a gate-approved candidate, undoably. How it applies is the provider's
+concern — the shipped one rewrites the source file; yours could open a pull
+request or patch a running process. Training requires only that it be reversible.
+
+```ts
+import { readFile, writeFile } from "node:fs/promises";
+import type { PromotionApplier } from "ts-autocode";
+
+declare function patch(source: string, implementation: string): string;
+
+const applier: PromotionApplier = async (candidate, decision) => {
+  // A decision names the candidate it was made about. Applying it to a
+  // different one would write code that never passed a gate.
+  if (!decision.promote || decision.candidateId !== candidate.id) {
+    throw new Error(`candidate has not passed the promotion gate: ${candidate.id}`);
+  }
+  const artifact = candidate.target.artifactRef;
+  const before = await readFile(artifact, "utf8");
+  await writeFile(artifact, patch(before, candidate.implementation), "utf8");
+  return {
+    rollback: async () => { await writeFile(artifact, before, "utf8"); },
+  };
+};
+```
+
+The returned `rollback` is what `Activation.rollback()` calls. The shipped
+applier refuses to roll back over an edit made after activation, by comparing
+body digests; if yours writes to something a human can also edit, do the same.
+
+## TrainingStore
+
+Two methods. The default is in-memory and volatile.
+
+```ts
+import type { TrainingRecord, TrainingStore } from "ts-autocode";
+
+class ArrayStore implements TrainingStore {
+  readonly #records: TrainingRecord[] = [];
+
+  async append(record: TrainingRecord): Promise<void> {
+    this.#records.push(structuredClone(record));
+  }
+
+  async list(trainableId?: string): Promise<readonly TrainingRecord[]> {
+    // Never hand back live internal state: one caller's mutation would
+    // corrupt every other reader.
+    const all = this.#records.map((record) => structuredClone(record));
+    return trainableId === undefined
+      ? all
+      : all.filter((record) => record.trainableId === trainableId);
+  }
+}
+```
+
+Rules the conformance suite enforces: **append order is preserved**, `list()`
+does not alias internal state, and an omitted `trainableId` returns everything
+while a given one filters. Training reads captured traces back as eval cases,
+so a store that reorders or drops records silently changes what a candidate is
+trained to reproduce.
+
+## Registering what you wrote
+
+Three ways in, for three different situations:
+
+```ts
+import { configureTraining, createTrainingRuntime } from "ts-autocode";
+import type { ImplementationExecutor, PromotionApplier, TrainingEngine } from "ts-autocode";
+
+declare const engine: TrainingEngine;
+declare const executor: ImplementationExecutor;
+declare const promote: PromotionApplier;
+
+// Isolated: owns its settings, store and evolution state, registers nothing
+// globally. Use this in tests and multi-tenant hosts.
+const runtime = createTrainingRuntime({
+  engine,
+  executor,
+  promote,
+  execution: { timeoutMs: 10_000 },
+  source: { files: ["src/router.ts"] },
+  onEvent: (event) => console.log(event.type),
+});
+
+// Process-wide: what an application does once at startup. Replaces the
+// previous settings unless you pass `{ merge: true }`.
+configureTraining({ engine });
+```
+
+The third is `provideTrainingDefaults`, which supplies *lazy fallbacks* rather
+than settings. It is for provider packages — `ts-autocode` itself calls it to
+wire the Ax engine, its sandbox executor, the harness loop, and the rewrite
+applier — not for applications. Explicit settings always win over it.
+
+`resetTraining()` discards the process-wide runtime and its settings, restoring
+the state of a fresh import. Without it, one test's `configureTraining` call is
+visible to every later one.
+
+## Proving it conforms
+
+Types cannot state "the winning round must be last", or "append order is
+preserved". Those rules are carried by a conformance kit that ships with the
+package, so you can check your implementation against the same suite the
+built-in providers are checked against:
+
+```ts
+import { trainingStoreContract, type TrainingStore } from "ts-autocode";
+
+declare function it(name: string, body: () => Promise<void>): void;
+declare function makeMyStore(): TrainingStore;
+
+for (const check of trainingStoreContract) {
+  it(check.name, () => check.run(() => makeMyStore()));
+}
+```
+
+Deliberately framework-agnostic: a check is `{ name, run(subject) }` and throws
+on violation, so it works under Vitest, Jest, `node:test`, or a bare loop.
+
+One suite per seam — `trainingEngineContract`,
+`implementationExecutorContract`, `trainingLoopContract`,
+`promotionApplierContract`, `trainingStoreContract` — plus `conformanceSuites`,
+which bundles all five. Fixtures let you build a subject without a checkout of
+this repo:
+
+```ts
+import { conformanceCandidate, conformanceTarget } from "ts-autocode";
+
+// A discovered target and a candidate patch for it, ready to hand to an
+// executor or an applier under test.
+const target = conformanceTarget;
+const candidate = conformanceCandidate("return input.toUpperCase();");
+```
+
+`conformanceAsyncTarget` is the same for a method returning a promise.
+
+These suites are also how this repo checks its own providers: `test/contract.test.ts`
+runs every shipped implementation through them, alongside a deliberately
+different second store — a suite that only ever sees one shape is describing
+that shape rather than a contract.

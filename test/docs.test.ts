@@ -20,6 +20,7 @@ const docs = [
 	"packages/rewrite/README.md",
 	"packages/grounding/README.md",
 	"docs/architecture.md",
+	"docs/authoring-providers.md",
 ];
 
 interface Snippet {
@@ -50,8 +51,18 @@ export function typescriptSnippets(doc: string, markdown: string): readonly Snip
 	return snippets;
 }
 
-const snippets = docs.flatMap((doc) =>
-	typescriptSnippets(doc, readFileSync(join(repoRoot, doc), "utf8")));
+/** Reads a listed doc, naming it when it is missing. An unguarded read throws
+ * at module load for a renamed or misspelled entry, which takes down the whole
+ * suite instead of failing one case that says which file it wanted. */
+function readDoc(doc: string): string {
+	try {
+		return readFileSync(join(repoRoot, doc), "utf8");
+	} catch (error) {
+		throw new Error(`documentation file listed for typechecking is unreadable: ${doc}`, { cause: error });
+	}
+}
+
+const snippets = docs.flatMap((doc) => typescriptSnippets(doc, readDoc(doc)));
 
 // Snippets compile inside the repo (under the git-ignored test output tree) so
 // NodeNext resolution sees the real node_modules and the root package's
