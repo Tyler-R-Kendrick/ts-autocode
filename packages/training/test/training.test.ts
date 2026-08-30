@@ -8,6 +8,7 @@ import "./wiring.js";
 
 import * as publicApi from "../src/index.js";
 import {
+	createTrainingRuntime,
 	captureTrainable,
 	configureTraining,
 	defineTrainable,
@@ -325,3 +326,56 @@ describe("training resilience policies", () => {
 
 const functionExecutor: ImplementationExecutor = async (target, implementation, args) =>
 	new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args);
+
+describe("capture on an isolated runtime", () => {
+	// `captureTrainable` routes to the process-wide runtime, so a runtime built
+	// with `createTrainingRuntime` could train and evaluate but never capture --
+	// half a runtime, and exactly the case isolation exists for. Found while
+	// writing fault-injection tests against an isolated runtime.
+	it("records through the runtime it was called on, not the global one", async () => {
+		const isolated = createTrainingRuntime({ tracing: { enabled: false } });
+		const other = createTrainingRuntime({ tracing: { enabled: false } });
+		const token = defineTrainable("Isolated.route");
+
+		expect(isolated.capture(token, "route", undefined, (input: string) => input.toUpperCase(), ["abc"]))
+			.toBe("ABC");
+		await isolated.flush();
+		await other.flush();
+
+		expect((await isolated.records(token)).length).toBe(1);
+		expect((await other.records(token)).length).toBe(0);
+	});
+
+	it("accepts a symbol identity as well as a token", async () => {
+		const isolated = createTrainingRuntime({ tracing: { enabled: false } });
+		const token = defineTrainable("Isolated.symbol");
+		isolated.capture(token.symbol, "route", undefined, (input: string) => input, ["x"]);
+		await isolated.flush();
+		expect((await isolated.records(token)).length).toBe(1);
+	});
+
+	it("preserves this, arguments, return values and thrown errors", async () => {
+		const isolated = createTrainingRuntime({ tracing: { enabled: false } });
+		const token = defineTrainable("Isolated.receiver");
+		const receiver = { suffix: "!" };
+		function method(this: typeof receiver, input: string): string {
+			return `${input}${this.suffix}`;
+		}
+		expect(isolated.capture(token, "method", receiver, method, ["hi"])).toBe("hi!");
+
+		const boom = () => { throw new Error("thrown"); };
+		expect(() => isolated.capture(token, "boom", undefined, boom, [])).toThrow("thrown");
+		await isolated.flush();
+		const records = await isolated.records(token);
+		expect(records.map((record) => record.succeeded)).toEqual([true, false]);
+	});
+
+	it("awaits an async method and records its settled outcome", async () => {
+		const isolated = createTrainingRuntime({ tracing: { enabled: false } });
+		const token = defineTrainable("Isolated.async");
+		await expect(isolated.capture(token, "slow", undefined, async (input: string) => input, ["x"]))
+			.resolves.toBe("x");
+		await isolated.flush();
+		expect((await isolated.records(token))[0]?.succeeded).toBe(true);
+	});
+});

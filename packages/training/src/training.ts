@@ -279,6 +279,20 @@ export interface Training {
 	records(trainable?: TrainableIdentity): Promise<readonly TrainingRecord[]>;
 	evaluate(trainable: TrainableIdentity, config: EvalConfig): Promise<TrainableEvalRun>;
 	train(input: TrainInput): Promise<TrainingRun>;
+	/** Route one call of a marked trainable through *this* runtime's capture.
+	 *
+	 * {@link captureTrainable} does the same thing for the process-wide runtime,
+	 * and is what installed instrumentation calls. A runtime built with
+	 * {@link createTrainingRuntime} is not reachable that way -- it registers
+	 * nothing globally, by design -- so without this an isolated runtime could
+	 * train and evaluate but never capture, which is half a runtime. */
+	capture<This, Args extends unknown[], Result>(
+		trainable: TrainableIdentity,
+		methodName: string,
+		thisValue: This,
+		method: (this: This, ...args: Args) => Result,
+		args: Args,
+	): Result;
 	flush(): Promise<void>;
 }
 
@@ -547,6 +561,16 @@ class TrainingRuntime implements Training {
 		await Promise.all([...this.#pending]);
 	}
 
+	capture<This, Args extends unknown[], Result>(
+		trainable: TrainableIdentity,
+		methodName: string,
+		thisValue: This,
+		method: (this: This, ...args: Args) => Result,
+		args: Args,
+	): Result {
+		return this.invoke(thisValue, method, args, toTrainableToken(trainable), methodName);
+	}
+
 	invoke<This, Args extends unknown[], Result>(
 		thisValue: This,
 		method: (this: This, ...args: Args) => Result,
@@ -756,6 +780,8 @@ export const training: Training = Object.freeze<Training>({
 	records: (identity) => runtime().records(identity),
 	evaluate: (identity, config) => runtime().evaluate(identity, config),
 	train: (input) => runtime().train(input),
+	capture: (trainable, methodName, thisValue, method, args) =>
+		runtime().capture(trainable, methodName, thisValue, method, args),
 	flush: () => runtime().flush(),
 });
 

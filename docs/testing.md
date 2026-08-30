@@ -15,6 +15,7 @@ land, never lower them to get a build green.
 | Property | `test/property.test.ts` | A law that holds for chosen examples but not in general |
 | Fuzz | `test/fuzz.test.ts` | A parser crashing, hanging, or corrupting source it did not write |
 | Contract | `test/contract.test.ts` | A provider implementation that satisfies the types but not the contract |
+| Chaos | `test/chaos.test.ts` | A dependency failing, hanging, or racing — and the damage that leaves behind |
 | Characterization | `test/characterization*.test.ts` | A change to anything this library *generates* — rewritten source, emitted instrumentation, prompts, CLI output, the export surface |
 
 ## Running
