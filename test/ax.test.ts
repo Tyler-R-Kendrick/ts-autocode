@@ -157,4 +157,49 @@ describe("model selection", () => {
 		expect(apiKeyNamesFor("anthropic")).toEqual(["ANTHROPIC_API_KEY"]);
 		expect(apiKeyNamesFor("some-new-provider")).toEqual(["SOME_NEW_PROVIDER_API_KEY"]);
 	});
+
+	// The provider/name descriptor is sugar over Ax's registry. The library is
+	// responsible for no provider list: a user-built service -- any client with
+	// a chat method -- passes straight through, keys and endpoints included.
+	it("uses a supplied service directly, consulting no provider or key", async () => {
+		const supplied = { chat: vi.fn() };
+		const engine = createAxEngine();
+		await engine.optimize(request(), {
+			variables: {},
+			model: { service: supplied },
+		}).catch(() => undefined);
+		expect(mocks.ai).not.toHaveBeenCalled();
+		expect(mocks.optimize.mock.calls[0]?.[3]).toMatchObject({ studentAI: supplied });
+	});
+
+	it("accepts a factory for the supplied service and hands it the context", async () => {
+		const supplied = { chat: vi.fn() };
+		const factory = vi.fn(() => supplied);
+		const engine = createAxEngine();
+		await engine.optimize(request(), {
+			variables: {},
+			model: { service: factory },
+		}).catch(() => undefined);
+		expect(factory).toHaveBeenCalledWith(expect.objectContaining({ variables: {} }));
+		expect(mocks.optimize.mock.calls[0]?.[3]).toMatchObject({ studentAI: supplied });
+	});
+
+	it("uses a supplied teacher service alongside a descriptor-built student", async () => {
+		vi.stubEnv("OPENAI_API_KEY", "student-key");
+		const teacher = { chat: vi.fn() };
+		const engine = createAxEngine();
+		await engine.optimize(request(), {
+			variables: {},
+			model: { teacher: { service: teacher } },
+		}).catch(() => undefined);
+		expect(mocks.optimize.mock.calls[0]?.[3]).toMatchObject({ teacherAI: teacher });
+	});
+
+	it("rejects a value that is not a service, naming the setting and the shape", async () => {
+		const engine = createAxEngine();
+		await expect(engine.optimize(request(), {
+			variables: {},
+			model: { service: { notAChatClient: true } },
+		})).rejects.toThrow("model.service must be an AxAIService");
+	});
 });

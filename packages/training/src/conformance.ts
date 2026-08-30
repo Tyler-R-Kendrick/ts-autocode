@@ -415,7 +415,7 @@ function promotingInput(promote: boolean) {
 /** What every {@link PromotionApplier} must do. Training requires only that an
  * application be undoable -- but it requires that absolutely, because it is the
  * only thing standing between a bad candidate and a permanently edited file. */
-export const promotionApplierContract: readonly ConformanceCheck<Factory<PromotionApplier>>[] = [
+export const promoterContract: readonly ConformanceCheck<Factory<PromotionApplier>>[] = [
 	check("refuses a candidate the gate did not pass", async (factory) => {
 		const promote = await factory();
 		let rejected = false;
@@ -456,10 +456,14 @@ export const promotionApplierContract: readonly ConformanceCheck<Factory<Promoti
 ];
 
 /** Every suite, for an implementer who wants to run the lot. */
+/** @deprecated Renamed to {@link promoterContract}, matching the `Promoter`
+ * seam name. The same checks, verbatim. */
+export const promotionApplierContract = promoterContract;
+
 export const conformanceSuites = Object.freeze({
 	trainingStore: trainingStoreContract,
 	trainingEngine: trainingEngineContract,
 	implementationExecutor: implementationExecutorContract,
 	trainingLoop: trainingLoopContract,
-	promotionApplier: promotionApplierContract,
+	promotionApplier: promoterContract,
 });

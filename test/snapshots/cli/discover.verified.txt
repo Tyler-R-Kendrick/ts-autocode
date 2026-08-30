@@ -7,6 +7,7 @@ normalize      router.ts
 
 3 trainables.
 
-Bind evals to one with its symbol:
-  const target = defineTrainable("Router.route");
-  await training.train({ trainable: target.symbol, /* ... */ });
+Bind evals with your own symbol key:
+  export const route: unique symbol = Symbol("route");
+  // @trainable(route) on Router.route, then:
+  await training.train(route, { /* ... */ });

@@ -5,10 +5,12 @@
 `TrainableToken` is the durable join key. A token id binds a trainable method to
 its runtime captures, AgentV evaluations, optimizer request, candidate, and
 promotion decision. Training APIs (`train`, `evaluate`, `records`) identify
-their target by the token or its symbol, never by a raw
-string; the `@trainable()` decorator auto-generates a token when no symbol is
-passed, and `defineTrainable(id)` recreates the same token and symbol anywhere,
-so tests and evals can bind to a training target directly.
+their target by the token or its symbol, never by a raw string. The
+application declares a `unique symbol` and puts it on the code with
+`@trainable(symbol)`; training reuses the same symbol, so discovery is plain
+symbol-key indexing, and the durable id is derived from the declaring class
+and method rather than typed anywhere. Internally the machinery mints tokens
+from ids it parses out of source; those ids never pass through user code.
 
 The first-statement `"use training"` directive is the consumer-facing marker.
 The TypeScript compiler API discovers the enclosing method directly and records
@@ -184,7 +186,8 @@ Every failure the library raises carries a `code` and is recognized by
 `SyntaxError`s still are — family membership is decided by a brand rather than
 the prototype chain — and every message string is unchanged.
 
-`ts-autocode discover` lists the trainables a project marks along with the exact
-identity to pass to `defineTrainable`. That identity is the one place this
-design falls back to an unchecked string, so printing real ids is what keeps the
-marker approach usable.
+`ts-autocode discover` lists the trainables a project marks with their derived
+ids, and its suggested snippet shows the symbol-key flow: declare a
+`unique symbol`, decorate the printed method with `@trainable(symbol)`, and
+train with the same symbol. The printed id is informational — it names which
+method to decorate, and is never something an application types back in.

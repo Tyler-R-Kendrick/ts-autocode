@@ -19,6 +19,7 @@ TrainingIncompleteError
 TsAutocodeError
 TsAutocodeSyntaxError
 TsAutocodeTypeError
+asEngine
 candidateDeclaration
 captureTrainable
 configureTraining
@@ -42,6 +43,7 @@ defaultRetry
 defaultTsconfig
 defineTrainable
 defined
+directExecutor
 discoverInSource
 discoverTrainables
 evaluatePromotionGate
@@ -51,11 +53,15 @@ inMemoryArtifactRef
 isTsAutocodeError
 optional
 parseSetting
+promoterContract
 promotionApplierContract
 provideTrainingDefaults
+registerTrainable
 resetTraining
 sequentialLoop
+stampTrainable
 toTrainableToken
+trainableStamp
 trainableTokenFromSymbol
 training
 trainingEngineContract

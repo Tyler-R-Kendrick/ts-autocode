@@ -3,7 +3,11 @@ import type { EvalTestInput } from "@agentv/core";
 // Imported by package name, exactly as a consumer would. The repo maps
 // `ts-autocode` to `src/` for typechecking; a published install resolves the
 // same specifier to `dist/`.
-import { createTrainingRuntime, defineTrainable, type TrainingEngine } from "ts-autocode";
+import { createTrainingRuntime, instrumentTrainable, type TrainingEngine } from "ts-autocode";
+
+// The application's own key. Its object identity is the identity guarantee:
+// no name is typed anywhere, and training reuses this exact symbol.
+export const route: unique symbol = Symbol("route");
 
 class Router {
 	route(input: string): string {
@@ -12,14 +16,15 @@ class Router {
 	}
 }
 
+// `@trainable(route)` without decorator syntax -- this example also runs under
+// `node --experimental-strip-types`, which cannot lower TC39 decorators. The
+// durable id is derived from the class and method, never typed.
+instrumentTrainable(Router, "route", route);
+
 const tests = [
 	{ id: "billing", input: "Where is my invoice?", assert: [{ type: "equals", value: "billing" }] },
 	{ id: "fallback", input: "Reset my password", assert: [{ type: "equals", value: "fallback" }] },
 ] satisfies EvalTestInput[];
-
-// The token's symbol binds these evals to the directive-marked method above.
-// `npx ts-autocode discover` prints this id rather than making you guess it.
-const route = defineTrainable("Router.route");
 
 /** Runs the example. Pass an engine to run it offline — the default Ax engine
  * needs a provider key, which a CI typecheck must not require. */
@@ -29,8 +34,7 @@ export async function optimizeRouter(engine?: TrainingEngine) {
 		source: { files: [import.meta.filename] },
 		...(engine === undefined ? {} : { engine }),
 	});
-	return training.train({
-		trainable: route.symbol,
+	return training.train(route, {
 		objective: "Keep billing routing correct and preserve the fallback",
 		evaluation: {
 			tests,

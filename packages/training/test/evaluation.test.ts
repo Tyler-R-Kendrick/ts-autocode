@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+	directExecutor,
 	configureTraining,
 	defineTrainable,
 	type ImplementationExecutor,
@@ -13,8 +14,7 @@ function pipelineTarget(input: string): string {
 	return input;
 }
 
-const functionExecutor: ImplementationExecutor = async (target, implementation, args) =>
-	new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args) as unknown;
+const functionExecutor: ImplementationExecutor = directExecutor;
 
 describe("AgentV evaluation", () => {
 	it("binds AgentV results to the trainable token", async () => {

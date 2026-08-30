@@ -22,6 +22,7 @@ export type {
 	EvolutionSettings,
 	ExecutionSettings,
 	PromotionApplier,
+	Promoter,
 	TrainInput,
 	Training,
 	TrainingEvent,
@@ -72,18 +73,19 @@ export type {
 	TrainingRound,
 } from "./loop.js";
 
-export { defineTrainable, toTrainableToken, trainableTokenFromSymbol } from "./token.js";
-export type { TrainableId, TrainableIdentity, TrainableToken } from "./token.js";
+export { defineTrainable, registerTrainable, stampTrainable, toTrainableToken, trainableStamp, trainableTokenFromSymbol } from "./token.js";
+export type { TrainableCallable, TrainableId, TrainableIdentity, TrainableToken } from "./token.js";
 
 export { defaultTsconfig, discoverInSource, discoverTrainables, inMemoryArtifactRef, trainingMarker } from "./source.js";
 export type { Marker, SourceSettings, TrainableTarget } from "./source.js";
 
-export { candidateDeclaration } from "./engine.js";
+export { asEngine, candidateDeclaration, directExecutor } from "./engine.js";
 export type {
 	BoundEvaluation,
 	CandidatePatch,
 	EngineCandidate,
 	EngineContext,
+	EngineFunction,
 	ImplementationExecutor,
 	ModelSelection,
 	OptimizeRequest,
@@ -105,6 +107,7 @@ export {
 	conformanceTarget,
 	implementationExecutorContract,
 	promotionApplierContract,
+	promoterContract,
 	trainingEngineContract,
 	trainingLoopContract,
 	trainingStoreContract,

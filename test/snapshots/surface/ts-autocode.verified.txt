@@ -21,6 +21,7 @@ TsAutocodeSyntaxError
 TsAutocodeTypeError
 annotateRewrite
 applyCandidate
+asEngine
 candidateDeclaration
 captureTrainable
 check
@@ -55,6 +56,7 @@ defaultTsconfig
 defineTrainable
 defined
 digest
+directExecutor
 discoverInSource
 discoverTrainables
 dispatchRewrite
@@ -70,17 +72,21 @@ instrumentTrainable
 isTsAutocodeError
 optional
 parseSetting
+promoterContract
 promotionApplierContract
 provideTrainingDefaults
+registerTrainable
 resetTraining
 restoreImplementation
 revertRewrite
 rewritePromotion
 sequentialLoop
+stampTrainable
 swapImplementation
 swappedImplementation
 toTrainableToken
 trainable
+trainableStamp
 trainableTokenFromSymbol
 training
 trainingEngineContract

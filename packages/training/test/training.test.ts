@@ -12,6 +12,8 @@ import {
 	captureTrainable,
 	configureTraining,
 	defineTrainable,
+	directExecutor,
+	stampTrainable,
 	MemoryTrainingStore,
 	training as defaultTraining,
 	type Activation,
@@ -20,6 +22,12 @@ import {
 	type TrainingEngine,
 	type TrainingStore,
 } from "../src/index.js";
+
+/** What instrumentation does when it marks a callable; inlined here because
+ * the root package's decorator lives outside this package. */
+function wrapTrainableForTest<F>(fn: F, id: string): F {
+	return stampTrainable(fn, defineTrainable(id));
+}
 
 describe("trainable identity", () => {
 	it("marks methods with only the directive and exposes no weaving API", () => {
@@ -51,9 +59,19 @@ describe("trainable identity", () => {
 	});
 
 	it("rejects string identities in training APIs", async () => {
+		// ADR: a plain string is not a sufficient identity. It must not compile
+		// (pinned in test/tier1.test.ts) and must not slip through at runtime.
 		await expect(defaultTraining.records("Router.route" as never)).rejects.toThrow(
 			"must be a symbol or TrainableToken",
 		);
+	});
+
+	it("accepts the marked method itself as an identity", async () => {
+		const marked = wrapTrainableForTest((input: string) => input, "Marked.byMethod");
+		expect(await defaultTraining.records(marked)).toEqual(
+			await defaultTraining.records(defineTrainable("Marked.byMethod")),
+		);
+		await expect(defaultTraining.records((input: string) => input)).rejects.toThrow("is not marked trainable");
 	});
 });
 
@@ -325,8 +343,7 @@ describe("training resilience policies", () => {
 	});
 });
 
-const functionExecutor: ImplementationExecutor = async (target, implementation, args) =>
-	new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args);
+const functionExecutor: ImplementationExecutor = directExecutor;
 
 describe("capture on an isolated runtime", () => {
 	// `captureTrainable` routes to the process-wide runtime, so a runtime built
@@ -439,6 +456,146 @@ describe("promotion applier on an isolated runtime", () => {
 
 		expect(first).toEqual(["applied"]);
 		expect(second).toEqual([]);
+	});
+
+});
+
+describe("call-site shorthand", () => {
+	// The sugar is one semantics with two spellings: each shorthand must behave
+	// exactly as its verbose form, or it is a second API rather than sugar.
+	async function fixture(name: string) {
+		const directory = await mkdtemp(join(tmpdir(), `ts-autocode-${name}-`));
+		const artifact = join(directory, "echo.ts");
+		await writeFile(artifact, `export function ${name}(input: string): string {
+  "use training";
+  return input;
+}\n`);
+		return { directory, artifact };
+	}
+
+	it("trains from a string id, a bare-function engine, and [input, expected] pairs", async () => {
+		const { directory, artifact } = await fixture("sugarTrain");
+		const runtime = createTrainingRuntime({
+			engine: () => "return input.toUpperCase();",
+			executor: directExecutor,
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+		});
+
+		const run = await runtime.train({
+			trainable: defineTrainable("sugarTrain").symbol,
+			cases: [["abc", "ABC"], ["xyz", "XYZ"]],
+			evaluation: { outputDir: join(directory, "agentv") },
+			rounds: { max: 1 },
+		});
+
+		expect(run.outcome).toBe("ready");
+		expect(run.final.verification.run.summary.passed).toBe(2);
+		// The derived engine id is stable and names the inline form.
+		expect(run.final.candidate.engineId).toBe("inline/engine");
+	});
+
+	it("keeps the last expected value for a repeated input, like live replay", async () => {
+		const { directory, artifact } = await fixture("sugarDedupe");
+		const runtime = createTrainingRuntime({
+			engine: () => "return input;",
+			executor: directExecutor,
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+		});
+
+		const run = await runtime.train({
+			trainable: defineTrainable("sugarDedupe").symbol,
+			cases: [["same", "WRONG"], ["same", "same"]],
+			evaluation: { outputDir: join(directory, "agentv") },
+			rounds: { max: 1 },
+		});
+
+		expect(run.outcome).toBe("ready");
+		expect(run.baseline.run.summary.total).toBe(1);
+	});
+
+	it("JSON-encodes non-string pairs the same way outputs are compared", async () => {
+		const { directory, artifact } = await fixture("sugarJson");
+		const runtime = createTrainingRuntime({
+			engine: () => "return input * 2;",
+			executor: directExecutor,
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+		});
+
+		const run = await runtime.train({
+			trainable: defineTrainable("sugarJson").symbol,
+			cases: [[21, 42]],
+			evaluation: { outputDir: join(directory, "agentv") },
+			rounds: { max: 1 },
+		});
+		expect(run.outcome).toBe("ready");
+	});
+
+	it("explicit evaluation.tests win over cases", async () => {
+		const { directory, artifact } = await fixture("sugarPrecedence");
+		const runtime = createTrainingRuntime({
+			engine: () => "return input.toUpperCase();",
+			executor: directExecutor,
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+		});
+
+		const run = await runtime.train({
+			trainable: defineTrainable("sugarPrecedence").symbol,
+			cases: [["ignored", "IGNORED"]],
+			evaluation: {
+				tests: [{ id: "explicit", input: "abc", assert: [{ type: "equals", value: "ABC" }] }],
+				task: (input: string) => input.toUpperCase(),
+				outputDir: join(directory, "agentv"),
+			},
+			rounds: { max: 1 },
+		});
+		expect(run.baseline.run.summary.total).toBe(1);
+		expect(run.final.verification.evaluations[0]?.test?.id).toBe("explicit");
+	});
+
+	it("a named engine function derives its id from the function name", async () => {
+		const { directory, artifact } = await fixture("sugarNamed");
+		function uppercase() { return "return input.toUpperCase();"; }
+		const runtime = createTrainingRuntime({
+			engine: uppercase,
+			executor: directExecutor,
+			source: { files: [artifact] },
+			tracing: { enabled: false },
+		});
+		const run = await runtime.train({
+			trainable: defineTrainable("sugarNamed").symbol,
+			cases: [["abc", "ABC"]],
+			evaluation: { outputDir: join(directory, "agentv") },
+			rounds: { max: 1 },
+		});
+		expect(run.final.candidate.engineId).toBe("inline/uppercase");
+	});
+});
+
+describe("review findings pinned", () => {
+	it("directExecutor runs await-bearing candidates for async targets", async () => {
+		// The engine validates async candidates against an async declaration, so
+		// the shipped executor must compile them as async functions -- a sync
+		// Function constructor throws on `await` before the body ever runs.
+		const { conformanceAsyncTarget } = await import("../src/conformance.js");
+		await expect(
+			directExecutor(conformanceAsyncTarget, "return await Promise.resolve(input.toUpperCase());", ["abc"]),
+		).resolves.toBe("ABC");
+	});
+
+	it("the ambient training.train forwards the positional options", async () => {
+		// The frozen `training` facade wrapped train as (input) => ..., silently
+		// dropping the second argument of train(identity, options) -- the exact
+		// call the docs advertise. Dropped options mean the run falls back to
+		// replay and fails with InsufficientTracesError before ever looking at
+		// the source; forwarded cases skip replay and reach source discovery.
+		configureTraining({ tracing: { enabled: false } });
+		const token = defineTrainable("Wrapper.forwards");
+		await expect(defaultTraining.train(token, { cases: [["a", "b"]] }))
+			.rejects.toThrow("trainable source was not found");
 	});
 
 });

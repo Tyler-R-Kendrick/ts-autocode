@@ -21,7 +21,10 @@ export const usage = `ts-autocode <command> [options]
 
 Commands:
   discover            List every trainable the TypeScript project marks.
-  status              Show captured traces per trainable from a run's artifacts.
+  status              Show captured traces per trainable, read from the
+                      records artifact at <output-dir>/records.json. A store
+                      must persist that artifact; the default in-memory store
+                      does not, so a fresh project reports zero captures.
   help                Show this message.
 
 Options:
@@ -69,9 +72,10 @@ function table(rows: readonly DiscoveredRow[]): string {
 		"",
 		`${rows.length} trainable${rows.length === 1 ? "" : "s"}.`,
 		"",
-		"Bind evals to one with its symbol:",
-		`  const target = defineTrainable(${JSON.stringify(rows[0]?.id ?? "Class.method")});`,
-		"  await training.train({ trainable: target.symbol, /* ... */ });",
+		"Bind evals with your own symbol key:",
+		"  export const route: unique symbol = Symbol(\"route\");",
+		`  // @trainable(route) on ${rows[0]?.id ?? "Class.method"}, then:`,
+		"  await training.train(route, { /* ... */ });",
 	].join("\n");
 }
 

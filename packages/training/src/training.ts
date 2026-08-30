@@ -18,9 +18,11 @@ import {
 	TrainingIncompleteError,
 } from "./errors.js";
 import {
+	asEngine,
 	CandidateEngine,
 	type BoundEvaluation,
 	type CandidatePatch,
+	type EngineFunction,
 	type ImplementationExecutor,
 	type ModelSelection,
 	type SecretProvider,
@@ -51,6 +53,7 @@ import {
 const trainableAttribute = "ts_autocode.trainable.id";
 const tracerName = "ts-autocode";
 const traceMinimum = z.number().int().positive("minTraces must be a positive integer");
+const executionTimeout = z.number().positive("execution.timeoutMs must be a positive number of milliseconds").finite("execution.timeoutMs must be a positive number of milliseconds");
 
 export interface CaptureSettings {
 	readonly enabled?: boolean;
@@ -112,7 +115,9 @@ export interface ExecutionSettings {
 }
 
 export interface TrainingSettings {
-	readonly engine?: TrainingEngine;
+	/** The optimizer. A bare `(request, context) => body` function works; the
+	 * `{ id, optimize }` object form is for engines with a published identity. */
+	readonly engine?: TrainingEngine | EngineFunction;
 	readonly executor?: ImplementationExecutor;
 	/** Options handed to the executor on every candidate run. */
 	readonly execution?: ExecutionSettings;
@@ -122,7 +127,7 @@ export interface TrainingSettings {
 	 * did not exist, so an applier could only ever be registered process-wide.
 	 * That left {@link createTrainingRuntime} sharing one applier between
 	 * runtimes -- the component that writes generated code into a source file. */
-	readonly promote?: PromotionApplier;
+	readonly promote?: Promoter;
 	readonly evolution?: EvolutionSettings;
 	/** Default directory for run artifacts and eval output; a run's
 	 * `EvalConfig.outputDir` still overrides it. */
@@ -194,8 +199,15 @@ export interface TrainInput {
 	 * captures; ignored when explicit `evaluation.tests` are given. */
 	readonly minTraces?: number;
 	readonly constraints?: readonly string[];
-	readonly engine?: TrainingEngine;
+	readonly engine?: TrainingEngine | EngineFunction;
 	readonly signal?: AbortSignal;
+	/** The shortest way to state evaluation: `[input, expected]` pairs. Each
+	 * becomes an equality eval case, with non-strings JSON-encoded the same way
+	 * outputs are compared, and the baseline task is a lookup over the pairs --
+	 * exactly how replayed live traffic is evaluated. Repeated inputs keep the
+	 * last expected value. `evaluation.tests`, when present, wins; `evaluation`
+	 * still carries options like `outputDir` alongside `cases`. */
+	readonly cases?: ReadonlyArray<readonly [input: unknown, expected: unknown]>;
 	/** Round budget and width. */
 	readonly rounds?: RoundSettings;
 	/** Promotion thresholds and extra gates. */
@@ -273,17 +285,26 @@ export interface AppliedPromotion {
  * wired provider supports it, the running process. How is the provider's
  * concern; training only requires that the application be undoable. The
  * resolved executor is passed along for providers that run candidates live. */
-export type PromotionApplier = (
+export type Promoter = (
 	candidate: CandidatePatch,
 	decision: PromotionDecision,
 	executor?: ImplementationExecutor,
 ) => Promise<AppliedPromotion>;
+
+/** @deprecated Renamed to {@link Promoter} — the agent noun its four sibling
+ * seams already use (engine, executor, loop, store). Structurally identical;
+ * existing implementations need no change. */
+export type PromotionApplier = Promoter;
 
 type CandidateEvalConfig = Omit<EvalConfig, "task"> & { readonly signal?: AbortSignal };
 
 export interface Training {
 	records(trainable?: TrainableIdentity): Promise<readonly TrainingRecord[]>;
 	evaluate(trainable: TrainableIdentity, config: EvalConfig): Promise<TrainableEvalRun>;
+	/** Train the trainable a symbol keys: `training.train(route)`, the same
+	 * symbol `@trainable(route)` put on the code. Options ride along as the
+	 * second argument; the object form remains for spelling everything out. */
+	train(trainable: TrainableIdentity, input?: Omit<TrainInput, "trainable">): Promise<TrainingRun>;
 	train(input: TrainInput): Promise<TrainingRun>;
 	/** Route one call of a marked trainable through *this* runtime's capture.
 	 *
@@ -319,10 +340,11 @@ class TrainingRuntime implements Training {
 		this.#tracer = settings.tracing?.tracer ?? trace.getTracer(tracerName);
 	}
 
-	#engineFor(override?: TrainingEngine): CandidateEngine {
-		if (override) return new CandidateEngine(override);
+	#engineFor(override?: TrainingEngine | EngineFunction): CandidateEngine {
+		if (override) return new CandidateEngine(asEngine(override));
 		if (!this.#engine) {
-			const strategy = this.#settings.engine ?? defaultProviders.engine?.();
+			const configured = this.#settings.engine;
+			const strategy = (configured ? asEngine(configured) : undefined) ?? defaultProviders.engine?.();
 			if (!strategy) {
 				throw new EngineNotConfiguredError();
 			}
@@ -401,7 +423,9 @@ class TrainingRuntime implements Training {
 	async #evaluateCandidate(candidate: CandidatePatch, config: CandidateEvalConfig): Promise<TrainableEvalRun> {
 		const token = defineTrainable(candidate.trainableId);
 		const execute = this.#executorOrThrow();
-		const timeoutMs = this.#settings.execution?.timeoutMs;
+		const timeoutMs = this.#settings.execution?.timeoutMs === undefined
+			? undefined
+			: parseSetting(executionTimeout, this.#settings.execution.timeoutMs);
 		const decodeArgs = this.#settings.execution?.decodeArgs ?? evaluationArgs;
 		const { signal, ...evaluation } = config;
 		signal?.throwIfAborted();
@@ -434,10 +458,15 @@ class TrainingRuntime implements Training {
 		return run;
 	}
 
-	async train(input: TrainInput): Promise<TrainingRun> {
+	async train(first: TrainInput | TrainableIdentity, rest?: Omit<TrainInput, "trainable">): Promise<TrainingRun> {
+		const input: TrainInput = typeof first === "object" && first !== null && "trainable" in first
+			? first as TrainInput
+			: { ...rest, trainable: first as TrainableIdentity };
 		const token = toTrainableToken(input.trainable);
 		const objective = input.objective ?? defaultObjective;
-		const evaluation = input.evaluation?.tests ? input.evaluation : await this.#replayEvaluation(token, input);
+		const evaluation = input.evaluation?.tests ? input.evaluation
+			: input.cases ? casesEvaluation(input.cases, input.evaluation)
+			: await this.#replayEvaluation(token, input);
 		const { task: _task, outputDir = this.#settings.outputDir ?? defaultOutputDir, ...candidateEvaluation } = evaluation;
 		const baseline = await this.evaluate(token, { ...evaluation, outputDir });
 		const loop = this.#settings.loop ?? defaultProviders.loop ?? sequentialLoop;
@@ -485,7 +514,7 @@ class TrainingRuntime implements Training {
 			baseline,
 			rounds: Object.freeze([...result.rounds]),
 			final,
-			canActivate: () => activationReadiness(run),
+			canActivate: () => activationReadiness(run, () => (this.#settings.promote ?? defaultProviders.promote) !== undefined),
 			activate: () => this.#activate(run),
 		});
 		return run;
@@ -521,7 +550,7 @@ class TrainingRuntime implements Training {
 	async #propose(token: TrainableToken, input: {
 		readonly objective: string;
 		readonly constraints: readonly string[];
-		readonly engine?: TrainingEngine;
+		readonly engine?: TrainingEngine | EngineFunction;
 		readonly signal?: AbortSignal;
 	}): Promise<CandidatePatch> {
 		const target = findTrainable(token.id, this.#settings.source);
@@ -766,7 +795,7 @@ export interface TrainingProviders {
 	readonly executor?: ImplementationExecutor;
 	readonly loop?: TrainingLoop;
 	readonly evolution?: EvolutionSettings;
-	readonly promote?: PromotionApplier;
+	readonly promote?: Promoter;
 }
 
 let defaultProviders: TrainingProviders = {};
@@ -785,7 +814,8 @@ export function provideTrainingDefaults(providers: TrainingProviders): void {
 export const training: Training = Object.freeze<Training>({
 	records: (identity) => runtime().records(identity),
 	evaluate: (identity, config) => runtime().evaluate(identity, config),
-	train: (input) => runtime().train(input),
+	train: (first: TrainInput | TrainableIdentity, rest?: Omit<TrainInput, "trainable">) =>
+		runtime().train(first as TrainInput, rest),
 	capture: (trainable, methodName, thisValue, method, args) =>
 		runtime().capture(trainable, methodName, thisValue, method, args),
 	flush: () => runtime().flush(),
@@ -812,10 +842,16 @@ function runtime(): TrainingRuntime {
 
 /** Why a run's final candidate may not be applied. Mirrors exactly what
  * `activate()` enforces, so the two can never disagree. */
-function activationReadiness(run: TrainingRun): ActivationReadiness {
+function activationReadiness(run: TrainingRun, hasApplier: () => boolean): ActivationReadiness {
 	const { decision } = run.final;
-	if (decision.promote) return Object.freeze({ ready: true as const });
-	return Object.freeze({ ready: false as const, outcome: run.outcome, failures: decision.failures });
+	if (decision.promote && hasApplier()) return Object.freeze({ ready: true as const });
+	// Everything #activate would throw for must be visible here, or the
+	// documented contract -- "whether activate() would succeed, without
+	// throwing" -- is false for exactly the runtimes isolation exists for.
+	const failures = decision.promote
+		? [new PromotionApplierNotConfiguredError().message]
+		: decision.failures;
+	return Object.freeze({ ready: false as const, outcome: run.outcome, failures: Object.freeze([...failures]) });
 }
 
 function isPromise<T>(value: T): value is T & Promise<Awaited<T>> {
@@ -836,6 +872,38 @@ export function evaluationArgs(input: string): readonly unknown[] {
 		const parsed = JSON.parse(input) as unknown;
 		return Array.isArray(parsed) ? parsed : [parsed];
 	}, () => [input]);
+}
+
+/** `[input, expected]` pairs as an eval config: equality cases plus the same
+ * lookup task replayed traffic uses, so `cases` and live replay are one
+ * evaluation semantics with two sources. */
+function casesEvaluation(
+	pairs: ReadonlyArray<readonly [unknown, unknown]>,
+	evaluation: TrainInput["evaluation"],
+): EvalConfig {
+	const text = (value: unknown): string => typeof value === "string" ? value : JSON.stringify(value);
+	const byInput = new Map<string, EvalTestInput>();
+	pairs.forEach(([input, expected], index) => {
+		const value = text(input);
+		const expectedOutput = text(expected);
+		byInput.set(value, {
+			id: `case-${index + 1}`,
+			input: value,
+			expectedOutput,
+			assert: [{ type: "equals", value: expectedOutput }],
+		});
+	});
+	const tests = [...byInput.values()];
+	const expected = new Map(tests.map((test) => [String(test.input), test.expectedOutput ?? ""]));
+	return {
+		...evaluation,
+		tests,
+		task: (value) => {
+			const output = expected.get(value);
+			if (output === undefined) throw new TraceNotFoundError(value);
+			return output;
+		},
+	};
 }
 
 function liveEvalCases(records: readonly TrainingRecord[]): readonly EvalTestInput[] {
