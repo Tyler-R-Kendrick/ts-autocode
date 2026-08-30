@@ -121,6 +121,7 @@ describe("ts-autocode argument handling", () => {
 		expect(result.stderr).not.toContain("    at ");
 	});
 });
+<<<<<<< HEAD
 
 describe("ts-autocode status output paths", () => {
 	it("reports no trainables in table form when the project marks none", async () => {
@@ -194,3 +195,5 @@ describe("ts-autocode option handling", () => {
 		expect(rows[0]?.location).toBe("router.ts");
 	});
 });
+=======
+>>>>>>> origin/main
