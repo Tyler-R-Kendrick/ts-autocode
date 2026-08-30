@@ -98,6 +98,19 @@ export type { DecisionInput, EvalRunInput, ReviewInput } from "./builders.js";
 
 export { defined, optional } from "./optional.js";
 
+export {
+	conformanceAsyncTarget,
+	conformanceCandidate,
+	conformanceSuites,
+	conformanceTarget,
+	implementationExecutorContract,
+	promotionApplierContract,
+	trainingEngineContract,
+	trainingLoopContract,
+	trainingStoreContract,
+} from "./conformance.js";
+export type { ConformanceCheck, Factory } from "./conformance.js";
+
 export { defaultMinPassRate, defaultMinScore, defaultPromotionGates, evaluatePromotionGate } from "./promotion.js";
 export type { PromotionDecision, PromotionGate, PromotionGateContext, PromotionGateInput } from "./promotion.js";
 

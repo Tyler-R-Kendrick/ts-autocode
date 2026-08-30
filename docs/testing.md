@@ -14,6 +14,7 @@ land, never lower them to get a build green.
 | Compatibility | `test/deprecated.test.ts` | A deprecated spelling that silently stopped working |
 | Property | `test/property.test.ts` | A law that holds for chosen examples but not in general |
 | Fuzz | `test/fuzz.test.ts` | A parser crashing, hanging, or corrupting source it did not write |
+| Contract | `test/contract.test.ts` | A provider implementation that satisfies the types but not the contract |
 | Characterization | `test/characterization*.test.ts` | A change to anything this library *generates* — rewritten source, emitted instrumentation, prompts, CLI output, the export surface |
 
 ## Running

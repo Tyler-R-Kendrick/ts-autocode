@@ -32,8 +32,8 @@ export default defineConfig({
 			reportsDirectory: "test/output/coverage",
 			// Ratchets: raise these as suites land, never lower them to get green.
 			thresholds: {
-				statements: 90,
-				branches: 78,
+				statements: 91,
+				branches: 80,
 				functions: 93,
 				lines: 93,
 			},

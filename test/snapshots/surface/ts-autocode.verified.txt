@@ -28,6 +28,10 @@ commitRewrite
 configureRewrite
 configureRewriteCapture
 configureTraining
+conformanceAsyncTarget
+conformanceCandidate
+conformanceSuites
+conformanceTarget
 createCandidateReview
 createEvalRun
 createHarnessLoop
@@ -57,6 +61,7 @@ dispatchRewrite
 emitInstrumentation
 evaluatePromotionGate
 evaluationArgs
+implementationExecutorContract
 inMemoryArtifactRef
 installInstrumentation
 installedInstrumentation
@@ -65,6 +70,7 @@ instrumentTrainable
 isTsAutocodeError
 optional
 parseSetting
+promotionApplierContract
 provideTrainingDefaults
 resetTraining
 restoreImplementation
@@ -77,8 +83,11 @@ toTrainableToken
 trainable
 trainableTokenFromSymbol
 training
+trainingEngineContract
+trainingLoopContract
 trainingMarker
 trainingRounds
+trainingStoreContract
 windowedContext
 withPolicy
 wrapTrainable
