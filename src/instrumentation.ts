@@ -82,17 +82,27 @@ export function wrapTrainable<F extends (...args: never[]) => unknown>(fn: F, id
 	return wrapped as unknown as F;
 }
 
-/** Load-time instrumentation (`ts-autocode/register`): weave a directive-marked
- * class method through the rewrite engine. Idempotent. */
+/** Weaves a directive-marked class method through the rewrite engine.
+ *
+ * With a **symbol**, this is exactly `@trainable(symbol)` without decorator
+ * syntax -- for runtimes whose transforms cannot lower TC39 decorators yet:
+ * the method registers under the application's own unique symbol, and the
+ * durable id is derived from the class and method names, never typed. With a
+ * **string**, it is the load-time machinery (`ts-autocode/register`) supplying
+ * an id it derived from parsed source. Idempotent. */
 export function instrumentTrainable(
 	owner: abstract new (...args: never[]) => unknown,
 	methodName: string,
-	id: string,
+	identity: string | symbol,
 ): void {
-	annotateRewrite(owner, methodName, id, trainingMarker);
+	const derived = defineTrainable(`${owner.name || "Anonymous"}.${methodName}`);
+	const token = typeof identity === "symbol"
+		? (Symbol.keyFor(identity) !== undefined ? trainableTokenFromSymbol(identity) : registerTrainable(identity, derived))
+		: defineTrainable(identity);
+	annotateRewrite(owner, methodName, token.id, trainingMarker);
 	const container = declaringContainer(owner, methodName) as Record<string, unknown> | undefined;
 	if (container && typeof container[methodName] === "function") {
-		stampTrainable(container[methodName], defineTrainable(id));
+		stampTrainable(container[methodName], token);
 	}
 }
 

@@ -203,3 +203,16 @@ describe("the stamp protocol", () => {
 		expect(() => toTrainableToken(anonymous)).toThrow("function (anonymous) is not marked trainable");
 	});
 });
+
+describe("unregistered unique symbols", () => {
+	it("fail loudly instead of deriving an id from the description", () => {
+		// The description is user-typed text; deriving an id from it would be
+		// string identity by the back door, and could silently target a
+		// directive-marked trainable that happens to share the name.
+		const unregistered: unique symbol = Symbol("Router.route");
+		expect(() => toTrainableToken(unregistered)).toThrow(InvalidTrainableIdentityError);
+		expect(() => toTrainableToken(unregistered)).toThrow(
+			"Symbol(Router.route) is not a registered trainable; @trainable(symbol) registers it at first construction",
+		);
+	});
+});

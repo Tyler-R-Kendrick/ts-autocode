@@ -127,13 +127,19 @@ export type ImplementationExecutor = (
 	options?: Readonly<{ timeoutMs?: number; signal?: AbortSignal; receiver?: unknown }>,
 ) => Promise<unknown>;
 
+const AsyncFunction = Object.getPrototypeOf(async function () { /* shape only */ }).constructor as FunctionConstructor;
+
 /** Runs a candidate body directly with `new Function` -- no sandbox, no
  * timeout, full access to the process. The executor every test double in this
  * repo reimplemented by hand; exported so nobody else has to. Use it only
  * where the candidate is trusted -- tests and local development loops. The
  * executor the root package wires by default runs candidates in isolation. */
 export const directExecutor: ImplementationExecutor = async (target, implementation, args, options) => {
-	const body = new Function(...target.parameters.map((parameter) => parameter.name), implementation) as (
+	// An async target's candidates may legitimately contain `await` -- the
+	// engine validates them against an async declaration -- so they must be
+	// compiled as async functions, not thrown at a sync Function constructor.
+	const compile = target.async ? AsyncFunction : Function;
+	const body = new compile(...target.parameters.map((parameter) => parameter.name), implementation) as (
 		...values: unknown[]
 	) => unknown;
 	return body.apply(options?.receiver, [...args]);

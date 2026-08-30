@@ -107,6 +107,18 @@ describe("ADR: trainable identity is never a plain string", () => {
 			snippets(readFileSync(join(repoRoot, doc), "utf8")).some((code) => code.includes("defineTrainable(")));
 		expect(offenders).toEqual([]);
 	});
+
+	it("no example calls defineTrainable(...) either", async () => {
+		// Examples are the other place an application copies from. The review
+		// that added this found examples/optimize.ts still teaching the banned
+		// pattern -- it escaped the snippet scan because it is a .ts file.
+		const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+		const { readdirSync } = await import("node:fs");
+		const offenders = readdirSync(join(repoRoot, "examples"))
+			.filter((name) => name.endsWith(".ts"))
+			.filter((name) => readFileSync(join(repoRoot, "examples", name), "utf8").includes("defineTrainable("));
+		expect(offenders).toEqual([]);
+	});
 });
 
 function snippets(markdown: string): readonly string[] {

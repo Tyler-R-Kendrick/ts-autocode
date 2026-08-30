@@ -514,7 +514,7 @@ class TrainingRuntime implements Training {
 			baseline,
 			rounds: Object.freeze([...result.rounds]),
 			final,
-			canActivate: () => activationReadiness(run),
+			canActivate: () => activationReadiness(run, () => (this.#settings.promote ?? defaultProviders.promote) !== undefined),
 			activate: () => this.#activate(run),
 		});
 		return run;
@@ -814,7 +814,8 @@ export function provideTrainingDefaults(providers: TrainingProviders): void {
 export const training: Training = Object.freeze<Training>({
 	records: (identity) => runtime().records(identity),
 	evaluate: (identity, config) => runtime().evaluate(identity, config),
-	train: (input) => runtime().train(input),
+	train: (first: TrainInput | TrainableIdentity, rest?: Omit<TrainInput, "trainable">) =>
+		runtime().train(first as TrainInput, rest),
 	capture: (trainable, methodName, thisValue, method, args) =>
 		runtime().capture(trainable, methodName, thisValue, method, args),
 	flush: () => runtime().flush(),
@@ -841,10 +842,16 @@ function runtime(): TrainingRuntime {
 
 /** Why a run's final candidate may not be applied. Mirrors exactly what
  * `activate()` enforces, so the two can never disagree. */
-function activationReadiness(run: TrainingRun): ActivationReadiness {
+function activationReadiness(run: TrainingRun, hasApplier: () => boolean): ActivationReadiness {
 	const { decision } = run.final;
-	if (decision.promote) return Object.freeze({ ready: true as const });
-	return Object.freeze({ ready: false as const, outcome: run.outcome, failures: decision.failures });
+	if (decision.promote && hasApplier()) return Object.freeze({ ready: true as const });
+	// Everything #activate would throw for must be visible here, or the
+	// documented contract -- "whether activate() would succeed, without
+	// throwing" -- is false for exactly the runtimes isolation exists for.
+	const failures = decision.promote
+		? [new PromotionApplierNotConfiguredError().message]
+		: decision.failures;
+	return Object.freeze({ ready: false as const, outcome: run.outcome, failures: Object.freeze([...failures]) });
 }
 
 function isPromise<T>(value: T): value is T & Promise<Awaited<T>> {

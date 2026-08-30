@@ -82,7 +82,17 @@ export function registerTrainable(identity: symbol, token: TrainableToken): Trai
 
 export function toTrainableToken(identity: TrainableIdentity): TrainableToken {
 	if (typeof identity === "symbol") {
-		return registered.get(identity) ?? trainableTokenFromSymbol(identity);
+		const bound = registered.get(identity);
+		if (bound) return bound;
+		// Registry symbols carry a machinery-derived id in their key; a unique
+		// symbol carries nothing until @trainable(symbol) registers it. Falling
+		// back to the description here would derive an id from user-typed text
+		// -- string identity by the back door -- and could silently target a
+		// different trainable, so an unregistered unique symbol fails loudly.
+		if (Symbol.keyFor(identity) !== undefined) return trainableTokenFromSymbol(identity);
+		throw new InvalidTrainableIdentityError(
+			`symbol ${String(identity)} is not a registered trainable; @trainable(symbol) registers it at first construction of the declaring class`,
+		);
 	}
 	if (typeof identity === "function") {
 		const id = (identity as Partial<Record<typeof trainableStamp, unknown>>)[trainableStamp];

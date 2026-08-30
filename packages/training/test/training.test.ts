@@ -574,3 +574,28 @@ describe("call-site shorthand", () => {
 		expect(run.final.candidate.engineId).toBe("inline/uppercase");
 	});
 });
+
+describe("review findings pinned", () => {
+	it("directExecutor runs await-bearing candidates for async targets", async () => {
+		// The engine validates async candidates against an async declaration, so
+		// the shipped executor must compile them as async functions -- a sync
+		// Function constructor throws on `await` before the body ever runs.
+		const { conformanceAsyncTarget } = await import("../src/conformance.js");
+		await expect(
+			directExecutor(conformanceAsyncTarget, "return await Promise.resolve(input.toUpperCase());", ["abc"]),
+		).resolves.toBe("ABC");
+	});
+
+	it("the ambient training.train forwards the positional options", async () => {
+		// The frozen `training` facade wrapped train as (input) => ..., silently
+		// dropping the second argument of train(identity, options) -- the exact
+		// call the docs advertise. Dropped options mean the run falls back to
+		// replay and fails with InsufficientTracesError before ever looking at
+		// the source; forwarded cases skip replay and reach source discovery.
+		configureTraining({ tracing: { enabled: false } });
+		const token = defineTrainable("Wrapper.forwards");
+		await expect(defaultTraining.train(token, { cases: [["a", "b"]] }))
+			.rejects.toThrow("trainable source was not found");
+	});
+
+});
