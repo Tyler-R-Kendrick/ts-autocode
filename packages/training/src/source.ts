@@ -44,9 +44,19 @@ export interface TrainableTarget {
 	readonly parameters: readonly TrainableParameter[];
 	readonly returnType: string;
 	readonly async: boolean;
+	/** Offset of the first character after the directive (or after the body's
+	 * opening brace when the marker is a decorator). Guarded rewriting replaces
+	 * exactly `[bodyStart, bodyEnd)`. */
 	readonly bodyStart: number;
+	/** Offset of the body's closing brace. */
 	readonly bodyEnd: number;
+	/** Digest of the **raw** `[bodyStart, bodyEnd)` slice, whitespace included.
+	 * This is what guarded application re-computes to decide whether the file
+	 * changed since discovery, so it must not be derived from
+	 * {@link TrainableTarget.implementation}, which is trimmed. */
 	readonly bodyDigest: string;
+	/** The body as an engine should read it: the same slice, **trimmed**. The
+	 * untrimmed slice is recoverable as `source.slice(bodyStart, bodyEnd)`. */
 	readonly implementation: string;
 	readonly indentation: string;
 }
@@ -162,8 +172,14 @@ function targetFor(
 	if (node.asteriskToken) throw new InvalidTrainableIdentityError(`generator methods cannot be trainable: ${artifactRef}`);
 	const body = node.body as ts.Block;
 	const directive = firstDirective(body);
-	const bodyStart = directive?.end ?? body.getStart(sourceFile) + 1;
-	const bodyEnd = body.end - 1;
+	// TypeScript's error recovery synthesizes a body for an unterminated block,
+	// whose `end` can sit past EOF -- so a truncated file yielded a target
+	// claiming offsets outside its own source. Slicing clamps, so nothing was
+	// corrupted, but publishing an out-of-range range is malformed data crossing
+	// a public boundary. Clamp it: a no-op for source that parses.
+	const limit = sourceFile.text.length;
+	const bodyStart = Math.min(directive?.end ?? body.getStart(sourceFile) + 1, limit);
+	const bodyEnd = Math.max(bodyStart, Math.min(body.end - 1, limit));
 	const implementation = sourceFile.text.slice(bodyStart, bodyEnd);
 	const methodName = node.name?.getText(sourceFile) ?? "anonymous";
 	const parameters = node.parameters.map((parameter, index): TrainableParameter => ({

@@ -74,6 +74,7 @@
   "sequentialLoop": "function",
   "swapImplementation": "function",
   "swappedImplementation": "function",
+  "toTrainableToken": "function",
   "trainable": "function",
   "trainableTokenFromSymbol": "function",
   "training": "object",

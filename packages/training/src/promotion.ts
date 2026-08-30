@@ -4,8 +4,15 @@ import { z } from "zod";
 import type { BoundEvaluation, CandidatePatch } from "./engine.js";
 import { parseSetting } from "./errors.js";
 
-const unitInterval = (name: string) =>
-	z.number().finite(`${name} must be between 0 and 1`).min(0, `${name} must be between 0 and 1`).max(1, `${name} must be between 0 and 1`);
+/** A threshold in [0, 1]. Every rejection -- wrong type, NaN, Infinity, or
+ * merely out of range -- reports the same message, because a user who passed a
+ * bad threshold wants to know the range, not Zod's type vocabulary. Without the
+ * base-schema message, `minScore: Infinity` reported "expected number,
+ * received number", which says nothing useful. */
+const unitInterval = (name: string) => {
+	const message = `${name} must be between 0 and 1`;
+	return z.number({ error: message }).finite(message).min(0, message).max(1, message);
+};
 const minScoreThreshold = unitInterval("minScore");
 const minPassRateThreshold = unitInterval("minPassRate");
 
