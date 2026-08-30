@@ -121,3 +121,79 @@ describe("ts-autocode argument handling", () => {
 		expect(result.stderr).not.toContain("    at ");
 	});
 });
+<<<<<<< HEAD
+
+describe("ts-autocode status output paths", () => {
+	it("reports no trainables in table form when the project marks none", async () => {
+		await mkdir(directory, { recursive: true });
+		const empty = join(directory, "nothing.ts");
+		await writeFile(empty, "export const x = 1;\n", "utf8");
+		const result = await run(["status", "--file", empty]);
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("No trainables found.");
+	});
+
+	it("reports zero for a trainable that has no records at all", async () => {
+		const artifacts = join(directory, "empty-artifacts");
+		await mkdir(artifacts, { recursive: true });
+		await writeFile(join(artifacts, "records.json"), "[]", "utf8");
+		const result = await run(["status", "--file", await project(), "--output-dir", artifacts]);
+		expect(result.stdout).toMatch(/Router\.route\s+0 successful \/ 0 captured/);
+	});
+
+	it("ignores a malformed records file rather than crashing", async () => {
+		const artifacts = join(directory, "bad-artifacts");
+		await mkdir(artifacts, { recursive: true });
+		await writeFile(join(artifacts, "records.json"), "{ not json", "utf8");
+		const result = await run(["status", "--file", await project(), "--output-dir", artifacts]);
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("0 successful / 0 captured");
+	});
+
+	it("ignores a records file that is valid JSON but not an array", async () => {
+		const artifacts = join(directory, "object-artifacts");
+		await mkdir(artifacts, { recursive: true });
+		await writeFile(join(artifacts, "records.json"), '{"trainableId":"Router.route"}', "utf8");
+		expect((await run(["status", "--file", await project(), "--output-dir", artifacts])).code).toBe(0);
+	});
+
+	it("counts records for trainables the project no longer declares", async () => {
+		const artifacts = join(directory, "stale-artifacts");
+		await mkdir(artifacts, { recursive: true });
+		await writeFile(join(artifacts, "records.json"), JSON.stringify([
+			{ trainableId: "Gone.method", succeeded: true },
+			{ trainableId: "Router.route", succeeded: true },
+		]), "utf8");
+		const result = await run(["status", "--file", await project(), "--output-dir", artifacts, "--json"]);
+		// Only declared trainables are reported; a stale record is simply not shown.
+		expect(JSON.parse(result.stdout)).toEqual([
+			{ id: "Router.route", captured: 1, succeeded: 1 },
+			{ id: "Router.enrich", captured: 0, succeeded: 0 },
+		]);
+	});
+});
+
+describe("ts-autocode option handling", () => {
+	it("accepts repeated --file", async () => {
+		await mkdir(directory, { recursive: true });
+		const second = join(directory, "second.ts");
+		await writeFile(second, 'class Other {\n\tgo(): string {\n\t\t"use training";\n\t\treturn "x";\n\t}\n}\n', "utf8");
+		const result = await run(["discover", "--file", await project(), "--file", second, "--json"]);
+		const rows = JSON.parse(result.stdout) as Array<{ id: string }>;
+		expect(rows.map((row) => row.id)).toContain("Other.go");
+	});
+
+	it("resolves --file relative to --cwd", async () => {
+		await project();
+		const result = await run(["discover", "--cwd", directory, "--file", "router.ts", "--json"]);
+		expect((JSON.parse(result.stdout) as unknown[]).length).toBe(2);
+	});
+
+	it("reports paths relative to the working directory", async () => {
+		const result = await run(["discover", "--cwd", directory, "--file", "router.ts", "--json"]);
+		const rows = JSON.parse(result.stdout) as Array<{ location: string }>;
+		expect(rows[0]?.location).toBe("router.ts");
+	});
+});
+=======
+>>>>>>> origin/main

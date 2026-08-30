@@ -59,10 +59,65 @@ const snippets = docs.flatMap((doc) =>
 // consumer.
 const directory = join(repoRoot, "test", "output", "docs");
 
+/** Compiler options a consumer effectively gets, plus path mappings because the
+ * package cannot import itself by name from inside its own repo. Snippets stay
+ * written exactly as a consumer would write them. */
+const compilerOptions: ts.CompilerOptions = {
+	target: ts.ScriptTarget.ES2023,
+	module: ts.ModuleKind.NodeNext,
+	moduleResolution: ts.ModuleResolutionKind.NodeNext,
+	lib: ["lib.es2023.d.ts", "lib.esnext.decorators.d.ts"],
+	strict: true,
+	noUncheckedIndexedAccess: true,
+	exactOptionalPropertyTypes: true,
+	noEmit: true,
+	skipLibCheck: true,
+	types: ["node"],
+	baseUrl: repoRoot,
+	paths: {
+		"ts-autocode": ["src/index.ts"],
+		"ts-autocode/ax": ["src/providers/ax.ts"],
+		"ts-autocode/internal": ["src/internal.ts"],
+		"ts-autocode/grounding": ["src/grounding.ts"],
+	},
+};
+
+function snippetPath(snippet: Snippet): string {
+	return join(directory, `snippet-${snippet.doc.replace(/\W/g, "_")}-${snippet.line}.ts`);
+}
+
+function describeDiagnostic(diagnostic: ts.Diagnostic): string {
+	const line = diagnostic.file && diagnostic.start !== undefined
+		? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start).line + 1
+		: 0;
+	return `line ${line}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`;
+}
+
+/** Errors per snippet file. One `ts.Program` covers every snippet: building 26
+ * of them re-parsed the whole dependency graph each time, which took ~36s
+ * normally and blew the default 5s per-test timeout under coverage
+ * instrumentation. Each snippet is still its own module, so a stray
+ * declaration in one cannot satisfy another. */
+const diagnosticsBySnippet = new Map<string, readonly string[]>();
+
 beforeAll(async () => {
 	await rm(directory, { recursive: true, force: true });
 	await mkdir(directory, { recursive: true });
-});
+	const files = await Promise.all(snippets.map(async (snippet) => {
+		const file = snippetPath(snippet);
+		await writeFile(file, snippet.code, "utf8");
+		return file;
+	}));
+	const program = ts.createProgram(files, compilerOptions);
+	for (const file of files) diagnosticsBySnippet.set(file, []);
+	for (const diagnostic of ts.getPreEmitDiagnostics(program)) {
+		const name = diagnostic.file?.fileName;
+		if (name === undefined) continue;
+		const key = files.find((file) => file.replace(/\\/g, "/") === name);
+		if (key === undefined) continue;
+		diagnosticsBySnippet.set(key, [...(diagnosticsBySnippet.get(key) ?? []), describeDiagnostic(diagnostic)]);
+	}
+}, 180_000);
 
 afterAll(async () => {
 	await rm(directory, { recursive: true, force: true });
@@ -73,43 +128,14 @@ describe("documentation snippets", () => {
 		expect(snippets.length).toBeGreaterThan(5);
 	});
 
+	it("compiles every snippet it found", () => {
+		expect(diagnosticsBySnippet.size).toBe(snippets.length);
+	});
+
 	it.each(snippets.map((snippet) => [`${snippet.doc}:${snippet.line}`, snippet] as const))(
 		"%s compiles",
-		async (_label, snippet) => {
-			// Snippets are top-level-await narratives, so compile each as its own
-			// module resolving `ts-autocode` through the repo's real node_modules.
-			const file = join(directory, `snippet-${snippet.doc.replace(/\W/g, "_")}-${snippet.line}.ts`);
-			await writeFile(file, snippet.code, "utf8");
-			const program = ts.createProgram([file], {
-				target: ts.ScriptTarget.ES2023,
-				module: ts.ModuleKind.NodeNext,
-				moduleResolution: ts.ModuleResolutionKind.NodeNext,
-				lib: ["lib.es2023.d.ts", "lib.esnext.decorators.d.ts"],
-				strict: true,
-				noUncheckedIndexedAccess: true,
-				exactOptionalPropertyTypes: true,
-				noEmit: true,
-				skipLibCheck: true,
-				types: ["node"],
-				baseUrl: repoRoot,
-				// The package cannot import itself by name from inside its own
-				// repo, so resolve its public entries to their sources — the
-				// snippets stay written exactly as a consumer would write them.
-				paths: {
-					"ts-autocode": ["src/index.ts"],
-					"ts-autocode/ax": ["src/providers/ax.ts"],
-					"ts-autocode/grounding": ["src/grounding.ts"],
-				},
-			});
-			const errors = ts.getPreEmitDiagnostics(program)
-				.filter((diagnostic) => diagnostic.file?.fileName === file.replace(/\\/g, "/"))
-				.map((diagnostic) => {
-					const position = diagnostic.file && diagnostic.start !== undefined
-						? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start).line + 1
-						: 0;
-					return `line ${position}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`;
-				});
-			expect(errors).toEqual([]);
+		(_label, snippet) => {
+			expect(diagnosticsBySnippet.get(snippetPath(snippet))).toEqual([]);
 		},
 	);
 });
