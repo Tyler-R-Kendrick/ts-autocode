@@ -2,11 +2,19 @@ import type { EvaluationResult } from "@agentv/core";
 import { z } from "zod";
 
 import type { BoundEvaluation, CandidatePatch } from "./engine.js";
+import { parseSetting } from "./errors.js";
 
 const unitInterval = (name: string) =>
 	z.number().finite(`${name} must be between 0 and 1`).min(0, `${name} must be between 0 and 1`).max(1, `${name} must be between 0 and 1`);
 const minScoreThreshold = unitInterval("minScore");
 const minPassRateThreshold = unitInterval("minPassRate");
+
+/** Mean AgentV score a candidate must reach when `minScore` is unset. */
+export const defaultMinScore = 0.8;
+
+/** Fraction of evaluation cases a candidate must pass when `minPassRate` is
+ * unset; every case, by default. */
+export const defaultMinPassRate = 1;
 
 export interface PromotionGateInput {
 	readonly candidate: CandidatePatch;
@@ -77,8 +85,8 @@ export const defaultPromotionGates: readonly PromotionGate[] = [
 /** Runs the standard gates, the configured policy, and any extension gates
  * over one shared context; the collected failures decide promotion. */
 export async function evaluatePromotionGate(input: PromotionGateInput): Promise<PromotionDecision> {
-	const minScore = minScoreThreshold.parse(input.minScore ?? 0.8);
-	const minPassRate = minPassRateThreshold.parse(input.minPassRate ?? 1);
+	const minScore = parseSetting(minScoreThreshold, input.minScore ?? defaultMinScore);
+	const minPassRate = parseSetting(minPassRateThreshold, input.minPassRate ?? defaultMinPassRate);
 	const results = input.evaluations
 		.filter((evaluation) => evaluation.trainableId === input.candidate.trainableId && evaluation.candidateId === input.candidate.id)
 		.map((evaluation) => evaluation.result);

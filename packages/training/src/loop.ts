@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { CandidatePatch } from "./engine.js";
+import { parseSetting } from "./errors.js";
 import type { TrainableEvalRun } from "./evaluation.js";
 import type { PromotionDecision } from "./promotion.js";
 import type { TrainableId } from "./token.js";
@@ -90,8 +91,8 @@ const roundLimit = z.number().int().positive("maxRounds must be a positive integ
 const fanOutWidth = z.number().int().positive("fanOut must be a positive integer");
 
 export function trainingRounds(input: TrainingLoopInput): RoundSequence {
-	const maxRounds = roundLimit.parse(input.maxRounds ?? defaultMaxRounds);
-	const fanOut = fanOutWidth.parse(input.fanOut ?? defaultFanOut);
+	const maxRounds = parseSetting(roundLimit, input.maxRounds ?? defaultMaxRounds);
+	const fanOut = parseSetting(fanOutWidth, input.fanOut ?? defaultFanOut);
 	return {
 		subscribe(observer) {
 			let closed = false;

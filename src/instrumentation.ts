@@ -1,5 +1,10 @@
 import { annotateRewrite, declaringContainer, dispatchRewrite } from "ts-autocode-rewrite";
-import { defineTrainable, trainableTokenFromSymbol, trainingMarker } from "ts-autocode-training";
+import {
+	defineTrainable,
+	InvalidTrainableIdentityError,
+	trainableTokenFromSymbol,
+	trainingMarker,
+} from "ts-autocode-training";
 
 // Instrumentation is where training's identities meet the rewrite engine's
 // weaving. The training package knows nothing about interception; this package
@@ -23,7 +28,7 @@ const wrappedMarker = Symbol.for("ts-autocode.wrapped");
  * hot-swap it. */
 export function trainable(identity?: symbol): TrainableDecorator {
 	if (identity !== undefined && typeof identity !== "symbol") {
-		throw new TypeError("trainable identity must be a symbol; omit it to infer from the decorated method");
+		throw new InvalidTrainableIdentityError("trainable identity must be a symbol; omit it to infer from the decorated method");
 	}
 	const explicit = identity === undefined ? undefined : trainableTokenFromSymbol(identity);
 	return function <This, Args extends unknown[], Result>(

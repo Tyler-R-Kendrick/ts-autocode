@@ -3,6 +3,12 @@ import ts from "typescript";
 import { z } from "zod";
 
 import { digest } from "./digest.js";
+import {
+	CandidateSyntaxError,
+	EngineContractError,
+	InvalidSettingsError,
+	parseSetting,
+} from "./errors.js";
 
 import type { TrainingRecord } from "./records.js";
 import type { TrainableTarget } from "./source.js";
@@ -28,9 +34,33 @@ export interface OptimizeRequest {
 	readonly constraints?: readonly string[];
 }
 
+/** Which model an engine should use. Provider-neutral on purpose: this package
+ * knows nothing about any provider and simply carries the descriptor to the
+ * configured engine, exactly as it carries `variables` and `secrets`. The
+ * default Ax engine interprets `provider` as an Ax provider name.
+ *
+ * Choosing a model previously meant constructing a whole replacement engine,
+ * which is a lot of ceremony for the first thing most users want to change. */
+export interface ModelSelection {
+	/** Provider id, e.g. `"openai"`, `"anthropic"`, `"google-gemini"`. */
+	readonly provider?: string;
+	/** Model id, e.g. `"gpt-4o-mini"`. Unset uses the provider's own default. */
+	readonly name?: string;
+	/** API key. Falls back to the secret provider, then the environment. */
+	readonly apiKey?: string;
+	/** An optional stronger model for the optimizer's teacher role. */
+	readonly teacher?: Readonly<{
+		readonly provider?: string;
+		readonly name?: string;
+		readonly apiKey?: string;
+	}>;
+}
+
 export interface EngineContext {
 	readonly variables: Readonly<Record<string, string>>;
 	readonly secrets?: SecretProvider;
+	/** The configured {@link ModelSelection}, when one was given. */
+	readonly model?: ModelSelection;
 	readonly signal?: AbortSignal;
 }
 
@@ -82,7 +112,7 @@ export class CandidateEngine {
 	readonly #strategy: TrainingEngine;
 
 	constructor(strategy: TrainingEngine) {
-		engineId.parse(strategy.id);
+		parseSetting(engineId, strategy.id);
 		this.#strategy = strategy;
 	}
 
@@ -90,7 +120,7 @@ export class CandidateEngine {
 		this.#validateRequest(request);
 		const proposed = await this.#strategy.optimize(structuredClone(request), context);
 		const implementation = this.#cleanImplementation(proposed.implementation);
-		if (!implementation) throw new Error("engine returned an empty implementation");
+		if (!implementation) throw new EngineContractError("engine returned an empty implementation");
 		this.#validateImplementation(request.target, implementation);
 		const candidate = {
 			id: digest({ trainableId: request.trainableId, engineId: this.#strategy.id, target: request.target, implementation }),
@@ -104,18 +134,18 @@ export class CandidateEngine {
 	}
 
 	#validateRequest(request: OptimizeRequest): void {
-		if (!request.objective.trim()) throw new TypeError("optimization objective must be a non-empty string");
-		if (request.target.id !== request.trainableId) throw new Error("trainable target must match the request id");
+		if (!request.objective.trim()) throw new InvalidSettingsError("optimization objective must be a non-empty string");
+		if (request.target.id !== request.trainableId) throw new EngineContractError("trainable target must match the request id");
 		if (request.records.some((record) => record.trainableId !== request.trainableId)) {
-			throw new Error("training records must match the request id");
+			throw new EngineContractError("training records must match the request id");
 		}
 		if (request.evaluations.some((evaluation) => evaluation.trainableId !== request.trainableId)) {
-			throw new Error("evaluations must match the request id");
+			throw new EngineContractError("evaluations must match the request id");
 		}
 	}
 
 	#cleanImplementation(value: string): string {
-		return proposedImplementation.parse(value)
+		return parseSetting(proposedImplementation, value)
 			.trim().replace(/^```(?:typescript|ts|javascript|js)?\s*/i, "").replace(/\s*```$/, "").trim();
 	}
 
@@ -125,7 +155,7 @@ export class CandidateEngine {
 			reportDiagnostics: true,
 		}).diagnostics ?? [];
 		if (diagnostics.some((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)) {
-			throw new SyntaxError(`engine returned invalid TypeScript for ${target.id}`);
+			throw new CandidateSyntaxError(target.id);
 		}
 	}
 }

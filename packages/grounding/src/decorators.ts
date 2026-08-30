@@ -14,13 +14,43 @@ export interface FieldDescription {
 	readonly example?: unknown;
 }
 
+/** A declared parameter or return shape, carried on the contract so a
+ * registration grounds on the TypeScript signature even with no decorators. */
+export interface ShapeDescriptor {
+	readonly type: string;
+	readonly optional?: boolean;
+	readonly description?: string;
+}
+
 /** Provider-neutral composed grounding for one method. */
 export interface GroundingOptions {
 	readonly methodRef: string;
 	readonly intent: string;
-	readonly contract: { readonly ref: string };
+	readonly contract: {
+		readonly ref: string;
+		/** Declared parameter shapes, by parameter name. */
+		readonly input?: Readonly<Record<string, ShapeDescriptor>>;
+		readonly output?: ShapeDescriptor;
+	};
 	readonly params?: Record<string, FieldDescription>;
 	readonly output?: { readonly returns: FieldDescription };
+}
+
+/** Validate and freeze one composed grounding. Generated registration source
+ * calls this, so what codegen emits typechecks against a real API in the
+ * package that owns the concept -- this package never imports a training
+ * runtime, and a host registers the results against its own registry. */
+export function defineGrounding(options: GroundingOptions): GroundingOptions {
+	if (!options.methodRef?.trim()) {
+		throw new TypeError("grounding methodRef must be a non-empty string");
+	}
+	if (!options.intent?.trim()) {
+		throw new TypeError(`grounding intent must be a non-empty string for ${options.methodRef}`);
+	}
+	if (!options.contract?.ref?.trim()) {
+		throw new TypeError(`grounding contract ref must be a non-empty string for ${options.methodRef}`);
+	}
+	return Object.freeze({ ...options, contract: Object.freeze({ ...options.contract }) });
 }
 
 export interface PendingGrounding {

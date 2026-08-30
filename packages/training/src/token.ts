@@ -1,3 +1,5 @@
+import { InvalidTrainableIdentityError } from "./errors.js";
+
 const tokenPrefix = "ts-autocode.trainable";
 
 declare const trainableIdBrand: unique symbol;
@@ -18,7 +20,7 @@ export type TrainableIdentity = symbol | TrainableToken;
 export function defineTrainable(id: string): TrainableToken {
 	const normalized = id.trim();
 	if (!normalized) {
-		throw new TypeError("trainable id must be a non-empty string");
+		throw new InvalidTrainableIdentityError("trainable id must be a non-empty string");
 	}
 	return Object.freeze({
 		id: normalized as TrainableId,
@@ -29,7 +31,7 @@ export function defineTrainable(id: string): TrainableToken {
 export function toTrainableToken(identity: TrainableIdentity): TrainableToken {
 	if (typeof identity === "symbol") return trainableTokenFromSymbol(identity);
 	if (typeof (identity as TrainableToken | null)?.id === "string") return identity;
-	throw new TypeError("trainable identity must be a symbol or TrainableToken; create one with defineTrainable(id)");
+	throw new InvalidTrainableIdentityError("trainable identity must be a symbol or TrainableToken; create one with defineTrainable(id)");
 }
 
 /** Strips the library prefix so registered symbols and raw ids share one durable id space. */
@@ -39,6 +41,6 @@ export function trainableIdFromKey(key: string): string {
 
 export function trainableTokenFromSymbol(identity: symbol): TrainableToken {
 	const key = Symbol.keyFor(identity) ?? identity.description ?? "";
-	if (!key.trim()) throw new TypeError("trainable symbol must carry a registry key or description");
+	if (!key.trim()) throw new InvalidTrainableIdentityError("trainable symbol must carry a registry key or description");
 	return defineTrainable(trainableIdFromKey(key));
 }

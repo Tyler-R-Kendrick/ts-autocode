@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	createCandidateReview,
+	createPromotionDecision,
 	sequentialLoop,
 	trainingRounds,
 	type CandidatePatch,
@@ -22,16 +24,18 @@ function candidate(id: string): CandidatePatch {
 }
 
 function review(candidateId: string, promote: boolean, meanScore = promote ? 1 : 0): CandidateReview {
-	return {
-		verification: {} as never,
-		decision: {
+	// `createCandidateReview` supplies the verification run, so this no longer
+	// needs `{} as never` for a type a loop author cannot build.
+	return createCandidateReview({
+		candidate: candidate(candidateId),
+		decision: createPromotionDecision({
 			candidateId,
 			promote,
 			failures: promote ? [] : [`rejected ${candidateId}`],
 			meanScore,
 			passRate: promote ? 1 : 0,
-		},
-	};
+		}),
+	});
 }
 
 function loopInput(

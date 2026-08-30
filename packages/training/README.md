@@ -19,13 +19,27 @@ governed `ts-autocode-harness` loop as the default orchestrator, and
 `ts-autocode-rewrite` as capture interception and the promotion applier.
 
 ```ts
-import { configureTraining, provideTrainingDefaults } from "ts-autocode-training";
+import { provideTrainingDefaults, type ImplementationExecutor, type TrainingEngine } from "ts-autocode-training";
+
+declare const myEngine: TrainingEngine;
+declare const myRunner: { run: ImplementationExecutor };
 
 provideTrainingDefaults({
   engine: () => myEngine,
   executor: (target, implementation, args) => myRunner.run(target, implementation, args),
 });
 ```
+
+`configureTraining` configures one process-wide runtime; `createTrainingRuntime`
+builds an isolated one that registers nothing globally, for tests and for hosts
+serving several tenants. `resetTraining()` restores a fresh-import state.
+
+Extension points are constructible: a custom `TrainingLoop` must return a
+`CandidateReview` containing a `TrainableEvalRun`, and `createCandidateReview`,
+`createEvalRun` and `createPromotionDecision` build those without a cast.
+
+Every failure carries a `code` and is recognized by `isTsAutocodeError`; the
+ones that have always been `TypeError`s still are.
 
 Most applications should depend on [`ts-autocode`](../../README.md), which
 re-exports this package's API with Ax defaults already registered.

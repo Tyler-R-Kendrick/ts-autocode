@@ -144,16 +144,42 @@ export interface HarnessSettings<TCandidate> {
 }
 
 /** How many student rounds a harness runs when `maxRounds` is unset. */
-export const defaultMaxRounds = 3;
+export const defaultHarnessRounds = 3;
+
+/** @deprecated Renamed to {@link defaultHarnessRounds}; the old name collided
+ * with `ts-autocode-training`'s loop default, which kept both out of the root
+ * package's exports. */
+export const defaultMaxRounds = defaultHarnessRounds;
 
 export interface TrainingHarness<TCandidate, TAssessment, TFeedback> {
 	run<TChallenge>(input: HarnessInput<TCandidate, TAssessment, TFeedback, TChallenge>): Promise<HarnessRun<TCandidate, TAssessment, TChallenge>>;
 }
 
+/** A harness whose roles decide its types. `settings` mentions only
+ * `TCandidate`, so `defineTrainingHarness()` inferred `unknown` for the other
+ * two and every documented call site wrote all three out by hand --
+ * `defineTrainingHarness<Candidate, Assessment, string>()`. `TChallenge` was
+ * already scoped to `run` and inferred correctly; this gives the other two the
+ * same treatment, so `inferringHarness().run({ student, teacher })` types
+ * itself from the callbacks. */
+export interface InferringTrainingHarness<TCandidate> {
+	run<TAssessment, TFeedback, TChallenge>(
+		input: HarnessInput<TCandidate, TAssessment, TFeedback, TChallenge>,
+	): Promise<HarnessRun<TCandidate, TAssessment, TChallenge>>;
+}
+
+/** {@link defineTrainingHarness} with the assessment and feedback types
+ * inferred from the roles rather than written out. */
+export function inferringHarness<TCandidate = unknown>(
+	settings: HarnessSettings<TCandidate> = {},
+): InferringTrainingHarness<TCandidate> {
+	return defineTrainingHarness<TCandidate, never, never>(settings) as unknown as InferringTrainingHarness<TCandidate>;
+}
+
 export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 	settings: HarnessSettings<TCandidate> = {},
 ): TrainingHarness<TCandidate, TAssessment, TFeedback> {
-	const maxRounds = roundLimit.parse(settings.maxRounds ?? defaultMaxRounds);
+	const maxRounds = roundLimit.parse(settings.maxRounds ?? defaultHarnessRounds);
 	const identify = settings.candidateId ?? stringifyCandidate;
 
 	return Object.freeze({

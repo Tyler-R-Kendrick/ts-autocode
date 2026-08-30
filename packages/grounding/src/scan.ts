@@ -157,7 +157,8 @@ function memberName(name: ts.PropertyName, sourceFile: ts.SourceFile): string {
 }
 
 export interface RegistrationEmitOptions {
-	/** Module specifier the emitted `import { training } from …` uses. */
+	/** Module specifier the emitted `import { defineGrounding } from …` uses.
+	 * Defaults to this package's public entry. */
 	readonly runtimeModule?: string;
 	/** Leading comment lines (verbatim, with `//`) above the import. */
 	readonly header?: readonly string[];
@@ -168,7 +169,7 @@ const defaultHeader: readonly string[] = [
 ];
 
 /**
- * Generate the `training.define` registration source for a scanned class.
+ * Generate the `defineGrounding` registration source for a scanned class.
  * The declared TypeScript signature becomes the contract's shape
  * descriptors, so the registration grounds (shape present) even with every
  * decorator omitted.
@@ -179,7 +180,7 @@ export function generateDeclaredRegistrations(
 ): string {
 	const lines: string[] = [
 		...(emit.header ?? defaultHeader),
-		`import { training } from ${JSON.stringify(emit.runtimeModule ?? "ts-autocode")};`,
+		`import { defineGrounding } from ${JSON.stringify(emit.runtimeModule ?? "ts-autocode/grounding")};`,
 		"",
 	];
 	for (const op of declared.operations) {
@@ -210,7 +211,7 @@ export function generateDeclaredRegistrations(
 			...(Object.keys(params).length > 0 ? { params } : {}),
 			...(op.returns ? { output: { returns: { description: op.returns } } } : {}),
 		};
-		lines.push(`export const ${op.method} = training.define(${JSON.stringify(options, null, "\t")});`, "");
+		lines.push(`export const ${op.method} = defineGrounding(${JSON.stringify(options, null, "\t")});`, "");
 	}
 	return lines.join("\n");
 }

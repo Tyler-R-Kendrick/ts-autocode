@@ -3,6 +3,7 @@ import { dirname, extname, resolve } from "node:path";
 import ts from "typescript";
 
 import { digest } from "./digest.js";
+import { InvalidTrainableIdentityError, SourceDiscoveryError } from "./errors.js";
 import { trainableIdFromKey, type TrainableId } from "./token.js";
 
 /** A `"use <name>"` directive. Structural mirror of ts-autocode-rewrite's Marker,
@@ -71,7 +72,7 @@ export function discoverTrainables(settings: SourceSettings = {}): readonly Trai
 export function findTrainable(id: TrainableId, settings: SourceSettings = {}): TrainableTarget {
 	const matches = discoverTrainables(settings).filter((target) => target.id === id);
 	if (matches.length !== 1) {
-		throw new Error(
+		throw new SourceDiscoveryError(
 			matches.length === 0
 				? `trainable source was not found: ${id}`
 				: `trainable id must resolve to exactly one method: ${id}`,
@@ -127,7 +128,7 @@ function targetFor(
 	id: string,
 	className?: string,
 ): TrainableTarget {
-	if (node.asteriskToken) throw new TypeError(`generator methods cannot be trainable: ${artifactRef}`);
+	if (node.asteriskToken) throw new InvalidTrainableIdentityError(`generator methods cannot be trainable: ${artifactRef}`);
 	const body = node.body as ts.Block;
 	const directive = firstDirective(body);
 	const bodyStart = directive?.end ?? body.getStart(sourceFile) + 1;
@@ -143,7 +144,7 @@ function targetFor(
 	const returnType = node.type?.getText(sourceFile) ?? "unknown";
 	const signature = `${methodName}(${parameters.map(({ declaration }) => declaration).join(", ")}): ${returnType}`;
 	const idValue = id.trim();
-	if (!idValue) throw new TypeError("trainable id must be a non-empty string");
+	if (!idValue) throw new InvalidTrainableIdentityError("trainable id must be a non-empty string");
 	return Object.freeze({
 		id: idValue as TrainableId,
 		artifactRef,
@@ -192,7 +193,7 @@ function trainableDecoratorId(
 				? tokens.get(argument.text)
 				: undefined);
 	if (id === undefined) {
-		throw new TypeError(
+		throw new InvalidTrainableIdentityError(
 			`@trainable identity must be a symbol (defineTrainable(...).symbol or Symbol.for(...)) or omitted to infer in ${sourceFile.fileName}`,
 		);
 	}
@@ -262,10 +263,10 @@ function resolveLocalImport(artifactRef: string, specifier: string): string | un
 function projectFiles(cwd: string, tsconfig = defaultTsconfig): readonly string[] {
 	const configPath = resolve(cwd, tsconfig);
 	const config = ts.readConfigFile(configPath, ts.sys.readFile);
-	if (config.error) throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, "\n"));
+	if (config.error) throw new SourceDiscoveryError(ts.flattenDiagnosticMessageText(config.error.messageText, "\n"));
 	const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, cwd, undefined, configPath);
 	if (parsed.errors.length > 0) {
-		throw new Error(parsed.errors.map((error) => ts.flattenDiagnosticMessageText(error.messageText, "\n")).join("\n"));
+		throw new SourceDiscoveryError(parsed.errors.map((error) => ts.flattenDiagnosticMessageText(error.messageText, "\n")).join("\n"));
 	}
 	return parsed.fileNames;
 }

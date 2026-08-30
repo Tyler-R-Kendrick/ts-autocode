@@ -1,26 +1,60 @@
 export {
 	captureTrainable,
 	configureTraining,
+	createTrainingRuntime,
+	resetTraining,
 	defaultEvolution,
 	defaultObjective,
 	defaultOutputDir,
+	evaluationArgs,
 	provideTrainingDefaults,
 	training,
 } from "./training.js";
 export type {
 	Activation,
+	ActivationReadiness,
 	AppliedPromotion,
+	ConfigureOptions,
+	PromotionSettings,
+	RoundSettings,
 	CaptureSettings,
 	ErrorPhase,
 	EvolutionSettings,
+	ExecutionSettings,
 	PromotionApplier,
 	TrainInput,
 	Training,
+	TrainingEvent,
 	TrainingProviders,
 	TrainingRun,
 	TrainingSettings,
 	TracingSettings,
 } from "./training.js";
+
+export {
+	CandidateSyntaxError,
+	EngineContractError,
+	EngineNotConfiguredError,
+	EngineProposalError,
+	ExecutorNotConfiguredError,
+	InsufficientTracesError,
+	InvalidSettingsError,
+	InvalidTrainableIdentityError,
+	isTsAutocodeError,
+	LoopCapabilityError,
+	MissingSecretError,
+	OperationInterruptedError,
+	parseSetting,
+	PromotionApplierNotConfiguredError,
+	PromotionRejectedError,
+	SourceDiscoveryError,
+	TraceNotFoundError,
+	TrainingIncompleteError,
+	TsAutocodeError,
+	TsAutocodeSyntaxError,
+	TsAutocodeTypeError,
+} from "./errors.js";
+export type { TsAutocodeErrorCode } from "./errors.js";
 
 export { defaultRetry, OperationTimeoutError, withPolicy } from "./resilience.js";
 export type { ResiliencePolicy, ResilienceSettings, RetryOptions } from "./resilience.js";
@@ -51,6 +85,7 @@ export type {
 	EngineCandidate,
 	EngineContext,
 	ImplementationExecutor,
+	ModelSelection,
 	OptimizeRequest,
 	SecretProvider,
 	TrainingEngine,
@@ -58,7 +93,12 @@ export type {
 
 export type { TrainableEvalRun } from "./evaluation.js";
 
-export { defaultPromotionGates, evaluatePromotionGate } from "./promotion.js";
+export { createCandidateReview, createEvalRun, createPromotionDecision } from "./builders.js";
+export type { DecisionInput, EvalRunInput, ReviewInput } from "./builders.js";
+
+export { defined, optional } from "./optional.js";
+
+export { defaultMinPassRate, defaultMinScore, defaultPromotionGates, evaluatePromotionGate } from "./promotion.js";
 export type { PromotionDecision, PromotionGate, PromotionGateContext, PromotionGateInput } from "./promotion.js";
 
 export { MemoryTrainingStore } from "./records.js";

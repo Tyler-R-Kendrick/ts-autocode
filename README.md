@@ -30,6 +30,31 @@ npm install ts-autocode
 
 Node.js 20 or newer is required.
 
+## Command line
+
+```bash
+npx ts-autocode discover
+```
+
+`discover` lists every method the project marks and prints the exact identity
+to bind evals to — the one place this otherwise type-safe design falls back to
+a string, where a typo yields a different symbol with no error:
+
+```text
+Router.route  src/router.ts
+              route(input: string): string
+
+1 trainable.
+
+Bind evals to one with its symbol:
+  const target = defineTrainable("Router.route");
+  await training.train({ trainable: target.symbol, /* ... */ });
+```
+
+`ts-autocode status` reports how many traces each trainable has captured, which
+is what background evolution counts against `evolution.minTraces`. Both accept
+`--cwd`, `--project`, `--file` (repeatable), `--output-dir`, and `--json`.
+
 ## Use the directive
 
 Place the literal directive first in a function or method body. No import,
@@ -112,7 +137,24 @@ above — pins these evals to that exact method; for an auto-generated identity,
 `defineTrainable("Router.route").symbol` recreates the symbol.
 
 ```ts
-import { training } from "ts-autocode";
+import { defineTrainable, training, type CandidatePatch } from "ts-autocode";
+
+// The same identity the marked method carries; see the section above.
+const route = defineTrainable("Router.route");
+
+// Whatever your deployment rules are — anything returning a boolean works.
+const deploymentPolicy = {
+  allows: (candidate: CandidatePatch) => candidate.implementation.length < 4_000,
+};
+
+class Router {
+  route(input: string): string {
+    "use training";
+    return input.includes("invoice") ? "billing" : "fallback";
+  }
+}
+
+const router = new Router();
 
 const tests = [
   {
@@ -161,14 +203,22 @@ guarded source rewrite all apply automatically:
 node --import ts-autocode/register ./dist/server.js
 ```
 
+> This entry point installs a synchronous module load hook via
+> `module.registerHooks`, which needs **Node 22.15 or newer**. The rest of
+> `ts-autocode` works on Node 20; on an older runtime this entry says so and
+> points at the `@trainable()` decorator, which needs no load hook.
+
 The register hook instruments every `"use training"` function at module load.
 Once a trainable accumulates `evolution.minTraces` successful traces (default
 3), it is trained against those traces, verified candidate-bound, gated, and —
 only when the gate passes — its source body is rewritten. Failures surface
-through `TrainingSettings.onError` with the `"evolve"` phase and never block or
-alter application calls. Set `TS_AUTOCODE_EVOLVE=off` (or configure
-`evolution: { enabled: false }`) to capture without rewriting, and use
-`evolution.onEvolved` to observe applied rewrites.
+through `TrainingSettings.onEvent` (and the deprecated `onError` with the
+`"evolve"` phase) and never block or alter application calls. Loading the hook is itself the opt-in, so evolution is on unless you turn it
+off: set `TS_AUTOCODE_EVOLVE` to `0`, `false`, `off`, `no`, or `disabled` (or
+configure `evolution: { enabled: false }`) to capture without rewriting, and use
+`evolution.onEvolved` to observe applied rewrites. Because the feature rewrites
+your source, the switch fails closed — an unrecognized value throws rather than
+being read as consent.
 
 ## Train from live traces
 
@@ -179,6 +229,10 @@ replacement, verifies the candidate against the same cases, and applies the
 promotion gate. Activating the run then updates the marked TypeScript body.
 
 ```ts
+import { defineTrainable, training } from "ts-autocode";
+
+const route = defineTrainable("Router.route");
+
 const run = await training.train({
   trainable: route,
   objective: "Preserve routing behavior observed in production",
@@ -190,7 +244,7 @@ const run = await training.train({
 });
 
 const activation = await run.activate();
-console.log(activation.promotion.snapshot.candidateId);
+console.log(activation.run.final.candidate.id);
 ```
 
 Only successful traces with both captured input and output become eval cases.
@@ -214,10 +268,14 @@ promotion primitives also remain available.
 
 The built-in loop is an observable round sequence (`trainingRounds()`
 pushes each reviewed round to a subscriber; `sequentialLoop` collects the
-subscription into one run). `TrainInput.fanOut` caps how many candidates a
+subscription into one run). `TrainInput.rounds.fanOut` caps how many candidates a
 round proposes and reviews concurrently — the best gated candidate wins the
-round — and `TrainInput.gates` appends custom promotion rules to the standard
-gate set; the configured `policy` runs as one such rule.
+round. Fan-out belongs to `sequentialLoop`: the default governed harness loop
+reviews exactly one candidate per round, because its judge, adversary and
+rubric-revision sequence is serial, so it **rejects** a `fanOut` above 1 rather
+than accepting one it would ignore. `TrainInput.promotion.gates` appends custom
+promotion rules to the standard `defaultPromotionGates` set; the deprecated
+`policy` runs as one such rule.
 
 No Ax program is supplied by the caller. The default engine derives its fields,
 descriptions, executable examples, and return contract from the TypeScript
@@ -230,6 +288,7 @@ Runtime dependencies enter through `TrainingSettings`:
 
 - `engine` replaces the default Ax implementation with any `TrainingEngine`.
 - `loop` replaces the default harness orchestration with any `TrainingLoop`.
+- `model` selects the provider and model the engine uses; see below.
 - `secrets` and `variables` are passed to engine factories without entering traces.
 - `store`, `capture`, and `tracing` configure recording globally.
 - `resilience` attaches named timeout/retry policies to runtime operations —
@@ -241,6 +300,8 @@ Runtime dependencies enter through `TrainingSettings`:
   a 30-second cap per attempt:
 
   ```ts
+  import { configureTraining } from "ts-autocode";
+
   configureTraining({
     resilience: {
       propose: { timeoutMs: 30_000, retry: { attempts: 3 } },
@@ -248,6 +309,11 @@ Runtime dependencies enter through `TrainingSettings`:
   });
   ```
 
+- `execution` shapes each candidate run inside the executor. `timeoutMs` caps a
+  single execution (default 5 seconds) — distinct from
+  `resilience.evaluate.timeoutMs`, which bounds the whole attempt and may retry
+  it. `decodeArgs` turns an eval case's string input into the trainable's
+  argument list; see below.
 - `source` overrides TypeScript project discovery when the default `tsconfig.json`
   is not the desired project.
 - `outputDir` relocates run artifacts and eval output (default `.agentv`,
@@ -262,6 +328,93 @@ Runtime dependencies enter through `TrainingSettings`:
 AgentV's `workers` option parallelizes live-trace and candidate evals. Independent
 trainables can be trained concurrently by the application, while the configured
 engine and store remain injectable.
+
+Round and promotion options are grouped on `TrainInput`:
+
+```ts
+import { training, type TrainInput } from "ts-autocode";
+
+declare const base: TrainInput;
+
+await training.train({
+  ...base,
+  rounds: { max: 5, fanOut: 1 },
+  promotion: {
+    minScore: 0.9,
+    minPassRate: 1,
+    gates: [({ candidate }) => candidate.implementation.includes("eval(") ? "no eval" : undefined],
+  },
+});
+```
+
+The flat `maxRounds`, `fanOut`, `minScore`, `minPassRate`, `gates`, and `policy`
+still work and are deprecated. A `policy` was always a gate that returns a
+failure when it refuses, so one `gates` list now expresses both.
+
+### Scoping a runtime
+
+`configureTraining(settings)` configures one process-wide runtime, which the
+exported `training` const delegates to, and **replaces** the current settings.
+Pass `{ merge: true }` to layer onto what is already configured, and
+`resetTraining()` to restore a fresh-import state — useful between tests.
+
+For a runtime that registers nothing globally — a test, or a host serving
+several tenants side by side — use `createTrainingRuntime(settings)`. Provider
+defaults still apply, so it gets the Ax engine and governed loop from
+`import "ts-autocode"` exactly as the shared runtime does.
+
+```ts
+import { createTrainingRuntime } from "ts-autocode";
+
+const tenant = createTrainingRuntime({ outputDir: ".agentv/tenant-a" });
+```
+
+### Choosing a model
+
+`model` selects the provider and model the configured engine uses. Choosing one
+does not mean replacing the engine:
+
+```ts
+import { configureTraining } from "ts-autocode";
+
+configureTraining({
+  model: {
+    provider: "anthropic",
+    name: "claude-sonnet-4-5",
+    // A stronger model for the optimizer's teacher role, if you want one.
+    teacher: { provider: "anthropic", name: "claude-opus-4-1" },
+  },
+});
+```
+
+The descriptor is provider-neutral — `ts-autocode-training` carries it to
+whatever engine is configured, exactly as it carries `secrets` and `variables`
+— and the default Ax engine interprets `provider` as an Ax provider name
+(`openai`, `anthropic`, `google-gemini`, `azure-openai`, `cohere`, `mistral`,
+`deepseek`, `reka`, `grok`, ...).
+
+Credentials resolve in order: an explicit `model.apiKey`, then the configured
+secret provider, then the environment variable conventional for that provider
+(`ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, and so on). With nothing configured the
+default is OpenAI reading `OPENAI_API_KEY`.
+
+For Ax-specific tuning beyond model choice — a prepared `AxAIService`, or
+optimizer options — the `ts-autocode/ax` adapter builds an engine you pass
+through the provider-neutral `engine` slot:
+
+```ts
+import { configureTraining } from "ts-autocode";
+import { createAxEngine } from "ts-autocode/ax";
+import { ai } from "@ax-llm/ax";
+
+configureTraining({
+  engine: createAxEngine({
+    studentAI: ai({ name: "openai", apiKey: process.env.OPENAI_API_KEY ?? "" }),
+    optimize: { verbose: true },
+    executionTimeoutMs: 10_000,
+  }),
+});
+```
 
 Configuration is optional: the exported `training` runtime works out of the
 box, and `configureTraining(settings)` only overrides its settings. The default
@@ -283,6 +436,17 @@ adapter and is passed through the provider-neutral `engine` slot.
 Custom engines return only the new method implementation:
 
 ```ts
+import type { TrainingEngine } from "ts-autocode";
+
+// Your own optimizer call — whatever produces a replacement method body.
+declare function rewrite(request: {
+  signature: string;
+  implementation: string;
+  objective: string;
+  evaluations: unknown;
+  secrets: unknown;
+}): Promise<string>;
+
 const engine: TrainingEngine = {
   id: "acme/optimizer",
   async optimize(request, context) {
@@ -301,6 +465,131 @@ const engine: TrainingEngine = {
 
 The core validates identity, source digests, and the final candidate regardless
 of engine.
+
+## Evaluation arguments
+
+AgentV evaluation is string-in, string-out. By default an eval input is
+`JSON.parse`d and a resulting array is spread as the trainable's arguments,
+which is a guess: a function taking the single string `"[1,2]"` receives two
+numbers instead. Replace it when your arguments are not what the guess
+produces:
+
+```ts
+import { configureTraining } from "ts-autocode";
+
+configureTraining({
+  // Pass the raw eval input through as one string argument.
+  execution: { decodeArgs: (input) => [input] },
+});
+```
+
+## Extending the library
+
+Implementing a custom `TrainingLoop` means returning a `CandidateReview`
+containing a `TrainableEvalRun`. Builders construct both, so extending the
+library never requires a cast:
+
+```ts
+import { createCandidateReview, type CandidatePatch, type TrainingLoop } from "ts-autocode";
+
+const loop: TrainingLoop = async (input) => {
+  const candidate: CandidatePatch = await input.propose({ round: 1, slot: 1, feedback: [] });
+  const review = createCandidateReview({ candidate, failures: ["not tried yet"] });
+  return { outcome: "exhausted", rounds: [{ round: 1, candidate, ...review }] };
+};
+```
+
+`createEvalRun` and `createPromotionDecision` build the parts individually when
+you have real evidence to carry.
+
+## Errors
+
+Every failure this library raises is a `TsAutocodeError` carrying a `code` you
+can switch on, so telling "not enough traces" from "no engine configured" from
+"the gate refused" no longer means matching on message text. Errors that have
+always been `TypeError`s or `SyntaxError`s still are, and every message string
+is unchanged, so existing `catch` blocks keep working.
+
+```ts
+import {
+  InsufficientTracesError,
+  isTsAutocodeError,
+  PromotionRejectedError,
+  training,
+} from "ts-autocode";
+
+declare const input: Parameters<typeof training.train>[0];
+
+try {
+  const run = await training.train(input);
+  await run.activate();
+} catch (error) {
+  if (error instanceof InsufficientTracesError) {
+    console.log(`need ${error.required} traces, have ${error.found}`);
+  } else if (error instanceof PromotionRejectedError) {
+    console.log(error.failures);
+  } else if (isTsAutocodeError(error)) {
+    console.log(error.code);
+  } else {
+    throw error;
+  }
+}
+```
+
+`activate()` throwing is the ergonomic path, not the only one:
+`run.canActivate()` reports the same decision without an exception, which is
+what you want when `"stalled"` and `"exhausted"` are ordinary outcomes rather
+than surprises.
+
+```ts
+import { training } from "ts-autocode";
+
+declare const input: Parameters<typeof training.train>[0];
+
+const run = await training.train(input);
+const readiness = run.canActivate();
+if (readiness.ready) await run.activate();
+else console.log(readiness.outcome, readiness.failures);
+```
+
+## Background events
+
+`TrainingSettings.onEvent` reports everything the runtime does off the call
+path — capture and store failures, and the full evolution lifecycle:
+
+```ts
+import { configureTraining } from "ts-autocode";
+
+configureTraining({
+  onEvent: (event) => {
+    switch (event.type) {
+      case "evolution.started": return console.log("training", event.trainable.id);
+      case "evolution.applied": return console.log("rewrote", event.trainable.id);
+      case "evolution.skipped": return console.log(`${event.traces}/${event.required} traces`);
+      case "evolution.failed": return console.error(event.error);
+      default: return undefined;
+    }
+  },
+});
+```
+
+`onError` still works and is a projection of the same stream: it receives every
+event carrying an `error`, with the phase it always did.
+
+## Import surface
+
+| Import | For |
+|---|---|
+| `ts-autocode` | Everything an application needs: the directive, `@trainable`, `training`, settings, errors. |
+| `ts-autocode/internal` | Author-level seams: building an engine, loop, executor, store, or instrumentation mechanism. |
+| `ts-autocode/ax` | Tuning the default Ax engine. |
+| `ts-autocode/grounding` | Grounding decorators and ambient-class scanning. |
+| `ts-autocode/register` | The zero-config runtime patch (`node --import`). |
+| `npx ts-autocode` | `discover` and `status` from the command line. |
+
+Everything on `/internal` is still exported from the root, so no existing
+import breaks; the subpath exists so that what an application imports is only
+what an application needs.
 
 ## Official telemetry types
 

@@ -7,7 +7,7 @@ export type { ActionGate, JudgeDecision } from "./dispatch.js";
 export { agentBusEntry, agentMessage } from "./schema.js";
 export type { AbsolutePath, AgentBusEntry, AgentMessage } from "./schema.js";
 
-export { defaultMaxRounds, defineTrainingHarness } from "./harness.js";
+export { defaultHarnessRounds, defaultMaxRounds, defineTrainingHarness, inferringHarness } from "./harness.js";
 export type {
 	AdversaryConfig,
 	AdversaryResult,
@@ -17,6 +17,7 @@ export type {
 	HarnessRound,
 	HarnessRun,
 	HarnessSettings,
+	InferringTrainingHarness,
 	JudgeRequest,
 	RubricRevision,
 	RubricRevisionTurn,

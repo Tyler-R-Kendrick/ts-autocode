@@ -4,12 +4,11 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { discoverInSource } from "ts-autocode-training";
+import { createCandidateReview, createEvalRun, discoverInSource } from "ts-autocode-training";
 
 import type {
 	CandidatePatch,
 	CandidateReview,
-	TrainableEvalRun,
 } from "../src/index.js";
 import { defineTrainable } from "../src/index.js";
 import { createHarnessLoop } from "../src/providers/harness.js";
@@ -28,10 +27,14 @@ function candidate(id: string): CandidatePatch {
 }
 
 function review(promote: boolean, failures: readonly string[] = []): CandidateReview {
-	return {
-		verification: { token, run: {}, evaluations: [] } as unknown as TrainableEvalRun,
-		decision: { candidateId: "irrelevant", promote, failures, meanScore: Number(promote), passRate: Number(promote) },
-	};
+	// No cast: `createCandidateReview` builds the TrainableEvalRun a custom
+	// loop must return but could not previously construct.
+	return createCandidateReview({
+		candidate: candidate("irrelevant"),
+		promote,
+		failures,
+		verification: createEvalRun({ trainable: token }),
+	});
 }
 
 async function outputDir(): Promise<string> {

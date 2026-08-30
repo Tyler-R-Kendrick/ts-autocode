@@ -28,10 +28,19 @@ npm install ts-autocode-harness
 
 ## Run the loop
 
-The minimal loop is two callbacks:
+The minimal loop is two callbacks. `inferringHarness()` types itself from them;
+`defineTrainingHarness<Candidate, Assessment, Feedback>()` is the explicit form:
 
 ```ts
-import { defineTrainingHarness } from "ts-autocode-harness";
+import { defineTrainingHarness, type StudentTurn, type TeacherResult } from "ts-autocode-harness";
+
+// Your own candidate and assessment shapes, and the roles that produce them.
+interface Candidate { readonly id: string }
+interface Assessment { readonly score: number }
+declare const objective: string;
+declare const target: string;
+declare const myStudent: (turn: StudentTurn<string>) => Promise<Candidate>;
+declare const myTeacher: (candidate: Candidate, turn: StudentTurn<string>) => Promise<TeacherResult<Assessment, string>>;
 
 const result = await defineTrainingHarness<Candidate, Assessment, string>().run({
   task: { objective, target },
@@ -46,9 +55,35 @@ and a bespoke rubric revision:
 
 ```ts
 import { join } from "node:path";
-import { defineTrainingHarness, WriteAheadAgentBus } from "ts-autocode-harness";
+import {
+  defineTrainingHarness,
+  WriteAheadAgentBus,
+  type AdversaryResult,
+  type AdversaryTurn,
+  type JudgeDecision,
+  type JudgeRequest,
+  type RubricRevision,
+  type RubricRevisionTurn,
+  type StudentTurn,
+  type TeacherResult,
+} from "ts-autocode-harness";
 import { createStorage } from "unstorage";
 import fsDriver from "unstorage/drivers/fs";
+
+// Your own candidate and assessment shapes, and the roles that produce them.
+interface Candidate { readonly id: string }
+interface Assessment { readonly score: number }
+declare const objective: string;
+declare const target: string;
+declare const root: string;
+declare const myStudent: (turn: StudentTurn<string>) => Promise<Candidate>;
+declare const myTeacher: (candidate: Candidate, turn: StudentTurn<string>) => Promise<TeacherResult<Assessment, string>>;
+declare const myJudge: (request: JudgeRequest<Candidate, Assessment, string, Assessment>) => JudgeDecision;
+declare const myAdversary: (candidate: Candidate, turn: AdversaryTurn) => Promise<AdversaryResult<Assessment, string>>;
+declare const myRubricRevision: (
+  challenge: AdversaryResult<Assessment, string>,
+  turn: RubricRevisionTurn<Candidate, Assessment>,
+) => RubricRevision<string>;
 
 const harness = defineTrainingHarness<Candidate, Assessment, string>({
   maxRounds: 3,
@@ -130,7 +165,16 @@ must lie outside every writable sandbox path. Add `allowedHosts` only when a
 sandboxed tool genuinely needs outbound access.
 
 ```ts
-import { HarnessSandbox, WriteAheadAgentBus } from "ts-autocode-harness";
+import {
+  HarnessSandbox,
+  WriteAheadAgentBus,
+  type ActionGate,
+  type JudgeDecision,
+} from "ts-autocode-harness";
+
+declare const workspace: string;
+declare const bus: WriteAheadAgentBus;
+declare const myJudge: (request: { subject: "action"; action: Parameters<ActionGate>[0]; context: Parameters<ActionGate>[1] }) => JudgeDecision;
 
 const sandbox = new HarnessSandbox({
   id: "student",
