@@ -117,7 +117,11 @@ export async function evaluatePromotionGate(input: PromotionGateInput): Promise<
 	return Object.freeze({
 		candidateId: input.candidate.id,
 		promote: failures.length === 0,
-		failures,
+		// Frozen, like the rest of the decision: `createPromotionDecision`
+		// already froze it, so the real gate and the builder produced values
+		// that differed in mutability. A decision is a verdict, not a scratch
+		// pad.
+		failures: Object.freeze(failures),
 		meanScore: context.meanScore,
 		passRate: context.passRate,
 	});

@@ -61,6 +61,7 @@
 		"typecheck": "npm run build:grounding && npm run build:harness && npm run build:rewrite && npm run build:training && tsc --noEmit -p tsconfig.test.json && tsc --noEmit -p packages/grounding/tsconfig.test.json && tsc --noEmit -p packages/harness/tsconfig.test.json && tsc --noEmit -p packages/rewrite/tsconfig.test.json && tsc --noEmit -p packages/training/tsconfig.test.json",
 		"test": "node test/run.mjs",
 		"test:coverage": "node test/run.mjs --coverage",
+		"test:mutation": "stryker run",
 		"check": "npm run typecheck && npm run test:coverage && npm run build:core",
 		"prepublishOnly": "npm run check",
 		"build:training": "node -e \"require('node:fs').rmSync('packages/training/dist', { recursive: true, force: true })\" && tsc -p packages/training/tsconfig.json",
@@ -74,6 +75,8 @@
 		"rewriter"
 	],
 	"devDependencies": {
+		"@stryker-mutator/core": "^10.0.0",
+		"@stryker-mutator/vitest-runner": "^10.0.0",
 		"@types/node": "^22.15.3",
 		"@vitest/coverage-v8": "^4.1.11",
 		"fast-check": "^4.9.0",
