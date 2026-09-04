@@ -50,3 +50,12 @@ What follows from this:
   to its list or its snippets silently go unchecked.
 - Root tests and docs resolve sibling packages through their built `dist/`;
   rebuild the sibling before concluding a new type "doesn't exist".
+
+<!-- antislop:start -->
+## antislop
+For UI, copy, people, mobile layout, or code comments work, load the antislop skill for the task:
+- Core filter, always on: `antislop`
+- Code comments: `antislop-code`
+- Copy & text: `antislop-copywriting`
+Before starting, ask the user when antislop applies: during the work, or after it is done.
+<!-- antislop:end -->
