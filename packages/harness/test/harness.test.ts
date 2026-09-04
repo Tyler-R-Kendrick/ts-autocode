@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -272,6 +272,78 @@ describe("training harness", () => {
 		const { version } = createRequire(import.meta.url)("@microsoft/mxc-sdk/package.json") as { version: string };
 		expect(createSandboxPolicy({ workspace: tmpdir() }).version).toBe(version);
 		expect(createSandboxPolicy({ workspace: tmpdir(), version: "0.6.0-alpha" }).version).toBe("0.6.0-alpha");
+	});
+
+	// The policy builder is the whole of the default confinement story, and only
+	// its `version` field was ever asserted. Every other branch -- the outbound
+	// allowlist above all -- decides what a model-driven agent can reach.
+	describe("the default policy it builds", () => {
+		it("confines writes to the workspace and denies the network outright", () => {
+			const policy = createSandboxPolicy({ workspace: tmpdir() });
+			expect(policy.filesystem).toEqual({ readwritePaths: [tmpdir()] });
+			expect(policy.network).toEqual({ allowOutbound: false, allowLocalNetwork: false });
+			expect(policy.ui).toEqual({ allowWindows: false, clipboard: "none", allowInputInjection: false });
+			expect(policy.timeoutMs).toBeUndefined();
+		});
+
+		it("adds readonly paths only when some were given", () => {
+			const readonlyPaths = [tmpdir(), resolve(tmpdir(), "vendor")];
+			expect(createSandboxPolicy({ workspace: tmpdir(), readonlyPaths }).filesystem?.readonlyPaths)
+				.toEqual(readonlyPaths);
+			expect(createSandboxPolicy({ workspace: tmpdir(), readonlyPaths: [] }).filesystem)
+				.not.toHaveProperty("readonlyPaths");
+		});
+
+		it("copies the readonly paths rather than aliasing the caller's array", () => {
+			const readonlyPaths = [resolve(tmpdir(), "vendor")];
+			const policy = createSandboxPolicy({ workspace: tmpdir(), readonlyPaths });
+			readonlyPaths.push(resolve(tmpdir(), "smuggled"));
+			expect(policy.filesystem?.readonlyPaths).toEqual([resolve(tmpdir(), "vendor")]);
+		});
+
+		it("opens outbound access only for the hosts it was given, never the local network", () => {
+			const policy = createSandboxPolicy({ workspace: tmpdir(), allowedHosts: ["api.openai.com"] });
+			expect(policy.network).toEqual({
+				allowOutbound: true,
+				allowLocalNetwork: false,
+				allowedHosts: ["api.openai.com"],
+			});
+		});
+
+		it("copies the allowed hosts rather than aliasing the caller's array", () => {
+			const allowedHosts = ["api.openai.com"];
+			const policy = createSandboxPolicy({ workspace: tmpdir(), allowedHosts });
+			allowedHosts.push("evil.example");
+			expect(policy.network).toMatchObject({ allowedHosts: ["api.openai.com"] });
+		});
+
+		it("keeps the network closed when the allowlist is empty or only blanks", () => {
+			// An allowlist that filters down to nothing must fail closed. Reading
+			// it as "no restrictions" would open the network on a typo.
+			for (const allowedHosts of [[], ["", "   "]]) {
+				expect(createSandboxPolicy({ workspace: tmpdir(), allowedHosts }).network)
+					.toEqual({ allowOutbound: false, allowLocalNetwork: false });
+			}
+		});
+
+		it("drops blank entries from an otherwise real allowlist", () => {
+			expect(createSandboxPolicy({ workspace: tmpdir(), allowedHosts: ["api.openai.com", "  "] }).network)
+				.toMatchObject({ allowedHosts: ["api.openai.com"] });
+		});
+
+		it("carries a timeout only when one was configured", () => {
+			expect(createSandboxPolicy({ workspace: tmpdir(), timeoutMs: 30_000 }).timeoutMs).toBe(30_000);
+			expect(createSandboxPolicy({ workspace: tmpdir() })).not.toHaveProperty("timeoutMs");
+		});
+
+		it.each([
+			["a relative workspace", { workspace: "relative/path" }],
+			["a relative readonly path", { workspace: tmpdir(), readonlyPaths: ["relative/path"] }],
+			["a zero timeout", { workspace: tmpdir(), timeoutMs: 0 }],
+			["a fractional timeout", { workspace: tmpdir(), timeoutMs: 1.5 }],
+		])("refuses %s rather than building a policy around it", (_label, settings) => {
+			expect(() => createSandboxPolicy(settings as Parameters<typeof createSandboxPolicy>[0])).toThrow();
+		});
 	});
 
 	it("refuses symlinked paths that resolve outside the workspace", async () => {

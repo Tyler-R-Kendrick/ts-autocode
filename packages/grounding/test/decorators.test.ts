@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	composeOptions,
+	defineGrounding,
 	finalizeTrainableClass,
 	granularOptionsFor,
 	intent,
@@ -100,5 +101,72 @@ describe("granular grounding decorators", () => {
 			},
 		});
 		expect(refs.sort()).toEqual(["Bare.one", "Bare.two"]);
+	});
+});
+
+describe("defineGrounding", () => {
+	// The runtime entry point every emitted registration calls, and the only
+	// thing standing between generated source and a grounding that names no
+	// method, describes no intent, or points at no contract. Nothing exercised
+	// its validation: `scan.test.ts` checks that codegen *emits* a
+	// `defineGrounding(...)` call, never that calling it rejects anything.
+
+	const valid: GroundingOptions = {
+		methodRef: "Router.route",
+		intent: "Route the input",
+		contract: { ref: "decl://Router.route" },
+	};
+
+	it("returns the options it was given for a complete grounding", () => {
+		expect(defineGrounding(valid)).toEqual(valid);
+	});
+
+	it("freezes the result and its contract, so a registry cannot be edited through it", () => {
+		const grounding = defineGrounding({ ...valid, params: { input: param("The input") } });
+		expect(Object.isFrozen(grounding)).toBe(true);
+		expect(Object.isFrozen(grounding.contract)).toBe(true);
+	});
+
+	it("keeps the optional params and output it was given", () => {
+		const grounding = defineGrounding({
+			...valid,
+			params: { input: param("The input") },
+			output: { returns: { description: "The route" } },
+		});
+		expect(grounding.params).toEqual({ input: { description: "The input" } });
+		expect(grounding.output).toEqual({ returns: { description: "The route" } });
+	});
+
+	it.each([
+		["undefined", undefined],
+		["empty", ""],
+		["only whitespace", "   "],
+	])("rejects a methodRef that is %s", (_label, methodRef) => {
+		expect(() => defineGrounding({ ...valid, methodRef: methodRef as string }))
+			.toThrow(new TypeError("grounding methodRef must be a non-empty string"));
+	});
+
+	it.each([
+		["undefined", undefined],
+		["empty", ""],
+		["only whitespace", "\t "],
+	])("rejects an intent that is %s, naming the method", (_label, intentText) => {
+		expect(() => defineGrounding({ ...valid, intent: intentText as string }))
+			.toThrow(/grounding intent must be a non-empty string for Router\.route/);
+	});
+
+	it.each([
+		["absent", undefined],
+		["blank", { ref: "  " }],
+		["an empty ref", { ref: "" }],
+	])("rejects a contract that is %s, naming the method", (_label, contract) => {
+		expect(() => defineGrounding({ ...valid, contract: contract as GroundingOptions["contract"] }))
+			.toThrow(/grounding contract ref must be a non-empty string for Router\.route/);
+	});
+
+	it("checks the methodRef before the message that would interpolate it", () => {
+		// A grounding missing everything must not report a blank method name.
+		expect(() => defineGrounding({} as GroundingOptions))
+			.toThrow("grounding methodRef must be a non-empty string");
 	});
 });
