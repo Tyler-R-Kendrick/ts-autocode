@@ -38,8 +38,10 @@ export async function orphanedSnapshots() {
 }
 
 async function approvedSnapshots() {
-	const entries = await readdir(snapshotDirectory, { withFileTypes: true, recursive: true }).catch(() => []);
+	// Recursive string mode rather than `withFileTypes`: `Dirent.parentPath`
+	// only arrived in Node 20.12, and `engines` declares Node 20.
+	const entries = await readdir(snapshotDirectory, { recursive: true }).catch(() => []);
 	return entries
-		.filter((entry) => entry.isFile() && entry.name.includes(".verified."))
-		.map((entry) => join(entry.parentPath, entry.name));
+		.filter((entry) => entry.includes(".verified."))
+		.map((entry) => join(snapshotDirectory, entry));
 }
