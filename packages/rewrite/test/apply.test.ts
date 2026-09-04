@@ -115,16 +115,59 @@ describe("body reindentation", () => {
 		expect(result).not.toContain('  return "b";');
 	});
 
-	it("preserves blank lines inside the body", () => {
+	it("preserves blank lines inside the body, and leaves them empty", () => {
+		// Indenting a blank line would write trailing whitespace into the user's
+		// source file, which their own lint step then rejects.
 		const result = rewriteWith(spaceSource, 'const a = 1;\n\nreturn "b";');
-		expect(result).toContain('\n    const a = 1;\n');
-		expect(result).toContain('\n    return "b";\n  }');
+		expect(result).toContain('\n    const a = 1;\n\n    return "b";\n  }');
+		expect(result).not.toMatch(/[ \t]+\n/);
 	});
 
 	it("handles a body that is only whitespace without collapsing the method", () => {
 		const result = rewriteWith(spaceSource, "   ");
 		expect(result).toContain("class T {");
 		expect(result.endsWith("}\n")).toBe(true);
+	});
+
+	// The mutants that survived the previous round all lived in the de-dent:
+	// every case above uses either a single-line body or a multi-line one with
+	// no leading indent, so `Math.min` returned 0 whatever the filter did. A
+	// model returns indented, blank-line-separated code, which is exactly the
+	// shape that tells the decisions apart.
+	it("measures the de-dent from the code lines, ignoring the blank ones between them", () => {
+		// Every code line is indented four; dropping the blank-line filter would
+		// measure zero and leave the whole body double-indented.
+		const result = rewriteWith(spaceSource, '    const a = 1;\n\n    return "b";');
+		expect(result).toContain('\n    const a = 1;\n\n    return "b";\n  }');
+	});
+
+	it("treats a whitespace-only line as blank, not as the shallowest indent", () => {
+		// The separator here is two spaces rather than empty. Filtering on the
+		// raw line instead of its trimmed form would measure it as an indent of
+		// two and de-dent every other line by two instead of four.
+		const result = rewriteWith(spaceSource, '    const a = 1;\n  \n    return "b";');
+		expect(result).toContain('\n    const a = 1;\n\n    return "b";\n  }');
+		expect(result).not.toContain('\n      const a = 1;');
+	});
+
+	it("uses tabs when the file is tab-indented even where the method's own indent is not", () => {
+		// A method at column zero -- a top-level function, or the first method of
+		// a class written flush left -- has no indent of its own to copy, so the
+		// file decides. Nothing exercised this arm before: every tab fixture also
+		// had a tab-indented method.
+		const mixed = 'class T {\n\tother(): void {}\n}\nfunction m(): string {\n  "use audit";\n  return "a";\n}\n';
+		const bodyStart = mixed.indexOf('"use audit";') + '"use audit";'.length;
+		const closing = "\n}";
+		const target: RewriteTarget = {
+			id: "m",
+			artifactRef: "memory://mixed.ts",
+			bodyStart,
+			bodyEnd: mixed.lastIndexOf(closing) + closing.length - 1,
+			bodyDigest: digest(mixed.slice(bodyStart, mixed.lastIndexOf(closing) + closing.length - 1)),
+			indentation: "",
+		};
+		const result = applyCandidate(mixed, { id: "mixed", target, implementation: 'return "b";' });
+		expect(result).toContain('\n\treturn "b";\n}');
 	});
 
 	it("always opens with a newline and closes at the method's indent", () => {

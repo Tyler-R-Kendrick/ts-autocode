@@ -70,14 +70,23 @@ export function revertRewrite(source: string, snapshot: RewriteSnapshot): string
 }
 
 function formatImplementation(implementation: string, methodIndent: string, source: string): string {
-	// Match the method's own indentation style rather than the whole file's,
-	// so a tab-indented method in a mostly-spaces file still gets tabs.
-	const indentUnit = methodIndent.includes("\t") ? "\t" : source.includes("\t") ? "\t" : "  ";
+	// The method's own indentation style wins, so a tab-indented method in a
+	// mostly-spaces file still gets tabs; the file is the fallback for a method
+	// whose own indent says nothing, as a top-level function's does not.
+	const indentUnit = methodIndent.includes("\t") || source.includes("\t") ? "\t" : "  ";
 	const bodyIndent = `${methodIndent}${indentUnit}`;
 	const lines = implementation.split("\n");
-	const minimumIndent = Math.min(
-		...lines.filter((line) => line.trim()).map((line) => /^\s*/.exec(line)?.[0].length ?? 0),
-	);
-	const normalized = lines.map((line) => `${bodyIndent}${line.slice(Number.isFinite(minimumIndent) ? minimumIndent : 0)}`);
+	// Blank lines carry no indentation to measure, and a blank line counted as
+	// zero would cancel the de-dent for every other line. `Math.min()` of
+	// nothing is Infinity, which is the all-blank body: de-dent by nothing.
+	const minimumIndent = Math.min(...lines.filter((line) => line.trim()).map(leadingWhitespace));
+	// A blank line is emitted empty rather than indented: trailing whitespace in
+	// a file this library wrote is a lint failure in the user's own repository.
+	const normalized = lines.map((line) =>
+		line.trim() ? `${bodyIndent}${line.slice(Number.isFinite(minimumIndent) ? minimumIndent : 0)}` : "");
 	return `\n${normalized.join("\n")}\n${methodIndent}`;
+}
+
+function leadingWhitespace(line: string): number {
+	return line.length - line.trimStart().length;
 }
