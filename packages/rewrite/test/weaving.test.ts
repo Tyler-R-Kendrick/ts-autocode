@@ -24,6 +24,7 @@ describe("rewrite weaving", () => {
 		restoreImplementation("Router.fallback");
 		restoreImplementation("Static.echo");
 		restoreImplementation("free.normalize");
+		restoreImplementation("free.malformed");
 	});
 
 	it("weaves annotated methods and leaves sibling methods untouched", () => {
@@ -130,7 +131,43 @@ describe("rewrite weaving", () => {
 		swapImplementation("free.normalize", (input) => String(input).trim().toUpperCase());
 		expect(call("  x  ")).toBe("X");
 		restoreImplementation("free.normalize");
+		restoreImplementation("free.malformed");
 		expect(call("  x  ")).toBe("x");
+	});
+
+	it("ignores a method the class does not declare, rather than throwing at load time", () => {
+		// Weaving is driven by parsed source and by decorators, so a name that
+		// resolves to nothing means the caller's discovery disagreed with the
+		// class. Throwing here would take down module load for the whole
+		// application; the method simply is not woven.
+		class Router {
+			route(input: string): string { return input; }
+		}
+		expect(() => annotateRewrite(Router, "missing", "Router.missing", MARKER)).not.toThrow();
+
+		const seen: string[] = [];
+		configureRewrite({ marker: MARKER, intercept: (invocation) => { seen.push(invocation.id); return invocation.proceed(); } });
+		expect(new Router().route("abc")).toBe("abc");
+		expect(seen).toEqual([]);
+	});
+
+	it("dispatches under a marker that is not a well-formed directive without throwing", () => {
+		// `normalizeMarker` rejects anything that is not `"use <name>"`. Dispatch
+		// must not inherit that rejection: a malformed marker has no registered
+		// configuration, so the call runs its original implementation.
+		const original = vi.fn((input: string) => `original:${input}`);
+		expect(dispatchRewrite("free.malformed", "not a directive", "normalize", original as never, undefined, ["abc"]))
+			.toBe("original:abc");
+		expect(original).toHaveBeenCalledOnce();
+
+		// A swap still applies: the swap registry is keyed by id, not by marker.
+		swapImplementation("free.malformed", (input) => `swapped:${String(input)}`);
+		try {
+			expect(dispatchRewrite("free.malformed", "not a directive", "normalize", original as never, undefined, ["abc"]))
+				.toBe("swapped:abc");
+		} finally {
+			restoreImplementation("free.malformed");
+		}
 	});
 
 	it("routes each marker to its own configured interceptor", () => {

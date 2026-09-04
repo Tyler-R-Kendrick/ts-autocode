@@ -302,10 +302,22 @@ function contentText(content: unknown): string | undefined {
 	return content === undefined ? undefined : JSON.stringify(content);
 }
 
+/** Shapes one captured argument as the Ax field declared for its parameter.
+ *
+ * This derives from {@link fieldType} rather than substring-matching the
+ * declared type a second time. Matching independently made the two disagree
+ * wherever a type merely *contains* a primitive name: `Record<string, unknown>`
+ * and `string[]` were declared as a `json` field and a string array, then
+ * handed a JSON string, because both contain "string". Ax then received a value
+ * of a different shape than the signature it was given. */
 function inputValue(value: unknown, type: string): unknown {
-	if (type.includes("string")) return typeof value === "string" ? value : JSON.stringify(value);
-	if (type.includes("number")) return Number(value);
-	if (type.includes("boolean")) return Boolean(value);
+	const field = fieldType(type);
+	// A captured argument that is not an array where one is declared is wrapped
+	// rather than dropped, matching how `argsFromContent` reads a bare JSON value.
+	if (field.isArray) return Array.isArray(value) ? value : value === undefined ? [] : [value];
+	if (field.name === "string") return typeof value === "string" ? value : JSON.stringify(value);
+	if (field.name === "number") return Number(value);
+	if (field.name === "boolean") return Boolean(value);
 	return value ?? null;
 }
 

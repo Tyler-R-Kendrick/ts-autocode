@@ -1,10 +1,28 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { describeTrainables, run, usage } from "../src/cli.js";
 import { discoverInSource } from "ts-autocode-training";
+
+// Discovery is the CLI's only failure surface, and the one behavior nothing
+// covered is what happens when it fails in a way the library does not model.
+// The rule the code states -- library errors are printed, anything else is a
+// real crash and must not be swallowed into a tidy exit code -- needs a
+// discovery that throws something else, which only a stub can produce.
+const discovery = vi.hoisted(() => ({ crash: undefined as Error | undefined }));
+
+vi.mock("ts-autocode-training", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("ts-autocode-training")>();
+	return {
+		...actual,
+		discoverTrainables: (settings: Parameters<typeof actual.discoverTrainables>[0]) => {
+			if (discovery.crash) throw discovery.crash;
+			return actual.discoverTrainables(settings);
+		},
+	};
+});
 
 // Inspecting what is trainable required writing a script that imports
 // discoverTrainables. That matters more here than in most libraries, because
@@ -85,6 +103,25 @@ describe("ts-autocode status", () => {
 		expect(result.stdout).toContain("0 successful / 0 captured");
 	});
 
+	it("renders the counts as a table when --json is not asked for", async () => {
+		// The table path only ever ran with no records at all, so the counting
+		// loop behind it -- the whole of what `status` reports -- was unexecuted.
+		const artifacts = join(directory, "table-artifacts");
+		await rm(artifacts, { recursive: true, force: true });
+		await mkdir(artifacts, { recursive: true });
+		await writeFile(join(artifacts, "records.json"), JSON.stringify([
+			{ trainableId: "Router.route", succeeded: true },
+			{ trainableId: "Router.route", succeeded: true },
+			{ trainableId: "Router.route", succeeded: false },
+		]), "utf8");
+		const result = await run(["status", "--file", await project(), "--output-dir", artifacts]);
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("Router.route   2 successful / 3 captured");
+		// A trainable with no records still appears, at zero.
+		expect(result.stdout).toContain("Router.enrich  0 successful / 0 captured");
+	});
+
 	it("counts captured traces per trainable", async () => {
 		const artifacts = join(directory, "artifacts");
 		await rm(artifacts, { recursive: true, force: true });
@@ -123,6 +160,18 @@ describe("ts-autocode argument handling", () => {
 		const result = await run(["discover", "--project", "no-such-tsconfig.json"]);
 		expect(result.code).toBe(1);
 		expect(result.stderr).not.toContain("    at ");
+	});
+
+	describe("a failure the library does not model", () => {
+		afterEach(() => { discovery.crash = undefined; });
+
+		it.each(["discover", "status"])("propagates out of %s rather than becoming an exit code", async (command) => {
+			// Swallowing this would report "nothing found" for a broken install,
+			// which is the least debuggable outcome available.
+			discovery.crash = new TypeError("something the library does not model");
+			await expect(run([command, "--file", await project()]))
+				.rejects.toThrow("something the library does not model");
+		});
 	});
 });
 
