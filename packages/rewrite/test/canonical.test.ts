@@ -5,7 +5,7 @@ import { check, digest } from "../src/canonical.js";
 // The digest is a cross-package protocol: guarded rewriting refuses a candidate
 // whose target body digest no longer matches, so training and rewrite must hash
 // identical content identically. `isRecord`'s prototype check is the subtle
-// part -- class instances must NOT be key-sorted into `{}`.
+// part: class instances must NOT be key-sorted into `{}`.
 
 describe("digest", () => {
 	it("is stable for the same value", () => {
@@ -43,7 +43,7 @@ describe("digest", () => {
 	it("hashes undefined rather than throwing on it", () => {
 		// `isRecord`'s `typeof` guard is what keeps `undefined` away from
 		// `Object.getPrototypeOf`, which throws on it. Optional fields reach the
-		// digest undefined -- candidate `metadata` is one -- so this is the
+		// digest undefined (candidate `metadata` is one), so this is the
 		// ordinary case, not a hostile input.
 		expect(digest(undefined)).toMatch(/^sha256:[0-9a-f]{64}$/);
 		expect(digest({ metadata: undefined })).toBe(digest({}));

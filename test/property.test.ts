@@ -164,7 +164,7 @@ describe("evaluation argument decoding", () => {
 	it("round-trips a JSON array of arguments", () => {
 		// `-0` is excluded because JSON cannot represent it: JSON.stringify(-0)
 		// is "0", so no decoder could return it. That is a property of the wire
-		// format, not something this library can or should fix -- but it is
+		// format, not something this library can or should fix, but it is
 		// worth having stated, since eval inputs are JSON strings.
 		fc.assert(fc.property(fc.array(fc.jsonValue(), { maxLength: 6 }), (args) => {
 			fc.pre(!JSON.stringify(args).includes("-0") && !hasNegativeZero(args));

@@ -31,7 +31,7 @@ export function configureRewriteCapture(): void {
 /** Promotion through ts-autocode-rewrite: writes the digest-guarded source
  * rewrite, hot-swaps async targets live, and returns the exact undo. The
  * rewrite package is training-agnostic, so the promotion gate is enforced
- * here — where training's decision meets the guarded rewrite. Only async
+ * here, where training's decision meets the guarded rewrite. Only async
  * targets swap: the executor returns a promise, so swapping a synchronous
  * method would change its calling convention. */
 export const rewritePromotion: PromotionApplier = async (candidate, decision, executor) => {

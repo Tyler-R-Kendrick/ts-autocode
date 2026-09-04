@@ -11,7 +11,7 @@ import {
 } from "../src/index.js";
 
 // The rule this suite states: every injected seam ships a default, so
-// zero-config lacks exactly one thing -- a credential. A seam without a
+// zero-config lacks exactly one thing: a credential. A seam without a
 // default is configuration a user is responsible for, which is the situation
 // the provider-neutral design exists to avoid. If a future change unwires a
 // default, the error below stops being MissingSecretError and becomes the

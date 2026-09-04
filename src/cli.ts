@@ -14,7 +14,7 @@ import {
 // Inspecting what is trainable, what has been captured, or what a run would
 // change previously meant writing a script that imports discoverTrainables.
 // The identities the library asks for are strings a user has to guess exactly
-// -- `defineTrainable("Router.route")` -- so `discover` is the tool that makes
+// (`defineTrainable("Router.route")`), so `discover` is the tool that makes
 // the marker-based design usable without reading the source scanner.
 
 export const usage = `ts-autocode <command> [options]

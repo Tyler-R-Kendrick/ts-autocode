@@ -28,7 +28,7 @@ export function createRewriter(
 }
 
 /** Renders the registration statement for the targets. Built entirely from
- * ts.factory nodes and rendered with the TypeScript printer — syntactic validity
+ * ts.factory nodes and rendered with the TypeScript printer: syntactic validity
  * by construction, no string templates. The statement binds nothing (a single
  * optional call), so it cannot collide with names in the instrumented module:
  *
@@ -52,7 +52,7 @@ export function emitInstrumentation(targets: readonly InstrumentTarget[]): strin
 // The printer and the source file it prints against. Every node here is
 // synthesized, so the container's name, text and parent linkage never reach the
 // output, and the explicit LineFeed only pins what TypeScript's default already
-// resolves to -- belt and braces, so instrumentation appended to an LF file
+// resolves to, belt and braces, so instrumentation appended to an LF file
 // stays LF. None of it is observable from the emitted string, so it is excluded
 // from mutation rather than pinned by a test that could not tell the
 // difference. What the emitted text *is* has its own approved snapshot.
@@ -111,7 +111,7 @@ function accessor(expression: ts.Expression): ts.ArrowFunction {
 	);
 }
 
-/** `(__fn) => { <name> = __fn; }` — `__fn` is a parameter, so its own scope. */
+/** `(__fn) => { <name> = __fn; }`: `__fn` is a parameter, so its own scope. */
 function setter(name: string): ts.ArrowFunction {
 	return factory.createArrowFunction(
 		undefined,

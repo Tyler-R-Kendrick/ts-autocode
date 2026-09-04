@@ -10,7 +10,7 @@ const src = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 // thresholds would fail on every partial run).
 //
 // This is defined standalone rather than merged with vitest.config.ts, because
-// mergeConfig concatenates `include` instead of replacing it -- which silently
+// mergeConfig concatenates `include` instead of replacing it, which silently
 // ran the whole suite per mutant.
 export default defineConfig({
 	resolve: {

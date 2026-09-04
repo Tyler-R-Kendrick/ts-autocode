@@ -18,7 +18,7 @@ import {
 // The shipped promotion applier, on its own.
 //
 // `rewritePromotion` does two things at once: it writes the guarded source
-// rewrite, and -- for an async target -- it hot-swaps the live implementation
+// rewrite and, for an async target, it hot-swaps the live implementation
 // so a long-running process picks the candidate up without a restart. The
 // second half had no test at all. It is the half that changes the behavior of
 // an application that is already serving traffic, and the half a rollback has

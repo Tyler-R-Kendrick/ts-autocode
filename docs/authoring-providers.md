@@ -17,7 +17,7 @@ This guide is for writing one. Two things before you do:
   contextual typing; the named types exist for implementations that live in
   their own package. An engine can be a bare function returning the new body,
   and `[input, expected]` pairs stand in for hand-built eval cases. An identity
-  is **never a plain string** — that is an ADR, enforced at compile time: the
+  is **never a plain string**. That is an ADR, enforced at compile time: the
   key is a `unique symbol` the application declares, put on the code by
   `@trainable(symbol)` and reused at `train(symbol)`.
 
@@ -53,7 +53,7 @@ the API.
 
 | You want to | Write |
 |---|---|
-| Use a different model or provider | **Nothing** — set `model`, see below |
+| Use a different model or provider | **Nothing**: set `model`, see below |
 | Add a rule a candidate must clear | A [`PromotionGate`](#promotiongate) |
 | Call your own optimizer instead of Ax | A [`TrainingEngine`](#trainingengine) |
 | Run candidate code somewhere safer | An [`ImplementationExecutor`](#implementationexecutor) |
@@ -72,13 +72,13 @@ configureTraining({
 });
 ```
 
-`apiKey` is optional there — it falls back to the configured `SecretProvider`,
+`apiKey` is optional there: it falls back to the configured `SecretProvider`,
 then the environment. `teacher` names an optional stronger model for the
 optimizer's teacher role. The `provider` string is handed to Ax's own provider
 registry, not a list this library maintains.
 
-When the descriptor does not fit — a self-hosted endpoint, a proxy, a client
-you have already built — supply the client itself. The library then holds no
+When the descriptor does not fit (a self-hosted endpoint, a proxy, a client
+you have already built), supply the client itself. The library then holds no
 opinion about providers at all:
 
 ```ts
@@ -98,7 +98,7 @@ anything else with an error naming the setting.
 ## PromotionGate
 
 The smallest thing most people write. A gate reads the decision context and
-returns a failure reason — or `undefined` to allow. Returning a string is what
+returns a failure reason, or `undefined` to allow. Returning a string is what
 refuses; the strings land in `decision.failures` and in `PromotionRejectedError`.
 
 ```ts
@@ -117,7 +117,7 @@ await training.train(route, {
 });
 ```
 
-**`promotion.gates` extends the standard set** — the standard gates always run
+**`promotion.gates` extends the standard set**: the standard gates always run
 first, then the configured policy, then yours, so a configured gate can only
 ever make promotion stricter. (An earlier revision of this guide claimed the
 opposite; spreading `defaultPromotionGates` into `gates` runs the defaults
@@ -125,15 +125,15 @@ twice.) Rules never mutate and never see each other; the context carries
 `candidate`, `evaluations`, `results`, `conformance`, `meanScore`, `passRate`,
 and the resolved `minScore` / `minPassRate` thresholds.
 
-A gate may be async. `policy` is the deprecated spelling of the same idea — it
+A gate may be async. `policy` is the deprecated spelling of the same idea: it
 was always a gate that returned a boolean.
 
 ## TrainingEngine
 
-**Default: the Ax engine — including any model or service chosen through
+**Default: the Ax engine, including any model or service chosen through
 `model` above.** Proposes a replacement body. The only required output is a
 string, and a bare `(request, context) => body` function is accepted anywhere
-an engine is — the `{ id, optimize }` object form below is for engines with an
+an engine is. The `{ id, optimize }` object form below is for engines with an
 identity worth publishing.
 
 The root README has [a complete worked example](../README.md#custom-engines).
@@ -165,8 +165,8 @@ of engine, so an engine that returns nonsense is refused rather than applied.
 
 Runs a proposed body against arguments, in isolation you own. **Default: a
 sandboxed executor with a 5s timeout.** For tests and trusted local loops the
-package also ships `directExecutor` — the no-isolation `new Function` runner
-that every test double used to reimplement by hand — so the only reason to
+package also ships `directExecutor` (the no-isolation `new Function` runner
+that every test double used to reimplement by hand), so the only reason to
 write one is real isolation you own:
 
 ```ts
@@ -189,7 +189,7 @@ Rules the conformance suite enforces:
 - `options.receiver` is the live `this` when a hot-swapped instance method is
   invoked. A sandboxed executor may ignore it.
 
-The example above is deliberately the *unsafe* one — it is what a test double
+The example above is deliberately the *unsafe* one: it is what a test double
 looks like. A real executor runs the body in a worker, a VM context, or a
 container.
 
@@ -221,7 +221,7 @@ The one rule no type expresses:
 > candidate instead.
 
 Also honor `input.signal`, and treat `maxRounds` and `fanOut` as budgets rather
-than suggestions — `sequentialLoop` supports fan-out; the default governed
+than suggestions. `sequentialLoop` supports fan-out; the default governed
 harness loop reviews one candidate per round and refuses more.
 
 ## Promoter
@@ -231,7 +231,7 @@ harness loop reviews one candidate per round and refuses more.
 Applies a gate-approved candidate, undoably. **Default: guarded source
 rewriting from `ts-autocode-rewrite`, which refuses to write over a body that
 changed since discovery.** How it applies is the provider's
-concern — the shipped one rewrites the source file; yours could open a pull
+concern: the shipped one rewrites the source file; yours could open a pull
 request or patch a running process. Training requires only that it be reversible.
 
 ```ts
@@ -319,9 +319,9 @@ configureTraining({ engine });
 ```
 
 The third is `provideTrainingDefaults`, which supplies *lazy fallbacks* rather
-than settings. It is for provider packages — `ts-autocode` itself calls it to
+than settings. It is for provider packages (`ts-autocode` itself calls it to
 wire the Ax engine, its sandbox executor, the harness loop, and the rewrite
-applier — not for applications. Explicit settings always win over it.
+applier), not for applications. Explicit settings always win over it.
 
 `resetTraining()` discards the process-wide runtime and its settings, restoring
 the state of a fresh import. Without it, one test's `configureTraining` call is
@@ -348,9 +348,9 @@ for (const check of trainingStoreContract) {
 Deliberately framework-agnostic: a check is `{ name, run(subject) }` and throws
 on violation, so it works under Vitest, Jest, `node:test`, or a bare loop.
 
-One suite per seam — `trainingEngineContract`,
+One suite per seam (`trainingEngineContract`,
 `implementationExecutorContract`, `trainingLoopContract`,
-`promoterContract`, `trainingStoreContract` — plus `conformanceSuites`,
+`promoterContract`, `trainingStoreContract`), plus `conformanceSuites`,
 which bundles all five. Fixtures let you build a subject without a checkout of
 this repo:
 
@@ -367,5 +367,5 @@ const candidate = conformanceCandidate("return input.toUpperCase();");
 
 These suites are also how this repo checks its own providers: `test/contract.test.ts`
 runs every shipped implementation through them, alongside a deliberately
-different second store — a suite that only ever sees one shape is describing
+different second store: a suite that only ever sees one shape is describing
 that shape rather than a contract.

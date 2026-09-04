@@ -6,7 +6,7 @@ import { defined, optional } from "../src/optional.js";
 // optional property, so the distinction these helpers exist for is "key absent"
 // versus "key present with value undefined". Asserting only deep equality would
 // miss that entirely, since `{a: undefined}` and `{}` compare equal under
-// toEqual — so these check key presence directly.
+// toEqual, so these check key presence directly.
 
 describe("optional", () => {
 	it("includes the key when the value is defined", () => {

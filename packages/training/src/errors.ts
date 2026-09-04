@@ -5,7 +5,7 @@ import type { PromotionDecision } from "./promotion.js";
 // Before this module every failure was a bare Error, TypeError or SyntaxError
 // carrying a good message and nothing else, so the only way to tell "not enough
 // traces" from "no engine configured" from "gate rejected" was to match on
-// message text -- which is exactly what the tests had to do.
+// message text, which is exactly what the tests had to do.
 //
 // The message strings are preserved byte for byte, so existing catch blocks and
 // substring assertions keep working; `code` and `instanceof` are added on top.
@@ -260,7 +260,7 @@ export class InvalidSettingsError extends TsAutocodeTypeError {
 /** A positive-integer setting whose message holds however the value is wrong.
  * `z.number().int().positive(message)` attaches `message` to the positivity
  * check alone, so a fractional or non-numeric value failed with zod's generic
- * "Invalid input: expected int, received number" -- which never says what the
+ * "Invalid input: expected int, received number", which never says what the
  * setting actually needs. Every constraint carries the same message instead.
  *
  * Deliberately duplicated in packages/harness/src/schema.ts rather than shared

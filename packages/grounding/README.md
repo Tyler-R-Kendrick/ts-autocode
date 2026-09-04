@@ -5,7 +5,7 @@ deterministic text helpers for trainable TypeScript codegen.
 
 This package is **host-agnostic**: it never imports a training runtime. It
 composes what a class declares into provider-neutral `GroundingOptions`, and a
-host — `ts-autocode`, or any other — registers those against its own registry.
+host (`ts-autocode`, or any other) registers those against its own registry.
 
 Most applications do not need it. Reach for it when you want an implementation
 described one fact at a time, or when trainables are declared ambiently and
@@ -34,8 +34,8 @@ ride the options object as `params: { name: description("…") }` values.
 ## Ambient declarations and codegen
 
 An `export declare class` is erased at compile time, so no decorator ever runs.
-`scanDeclaredTrainables` reads the declaration statically — a real TypeScript
-AST walk, never a regex — and `generateDeclaredRegistrations` emits registration
+`scanDeclaredTrainables` reads the declaration statically (a real TypeScript
+AST walk, never a regex), and `generateDeclaredRegistrations` emits registration
 source for it:
 
 ```ts

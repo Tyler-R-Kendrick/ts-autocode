@@ -159,8 +159,8 @@ describe("model selection", () => {
 	});
 
 	// The provider/name descriptor is sugar over Ax's registry. The library is
-	// responsible for no provider list: a user-built service -- any client with
-	// a chat method -- passes straight through, keys and endpoints included.
+	// responsible for no provider list: a user-built service (any client with
+	// a chat method) passes straight through, keys and endpoints included.
 	it("uses a supplied service directly, consulting no provider or key", async () => {
 		const supplied = { chat: vi.fn() };
 		const engine = createAxEngine();
@@ -204,12 +204,12 @@ describe("model selection", () => {
 	});
 });
 
-// ---------------------------------------------------------------- examples
+// Examples.
 //
 // What the engine hands Ax to optimize against is the whole substance of the
 // default engine: everything else is provider plumbing. The suites above only
 // ever pass one AgentV evaluation, so the branch that turns *captured traffic*
-// into examples -- the zero-config path the README leads with -- was never
+// into examples (the zero-config path the README leads with) was never
 // executed, and neither was any of the content decoding underneath it.
 
 function trace(messages: ReadonlyArray<{ role: string; content: unknown }>): TrainingRecord["trace"] {
@@ -426,12 +426,12 @@ describe("examples the engine optimizes against", () => {
 	});
 });
 
-// ------------------------------------------------------------------ metric
+// The metric.
 //
 // The metric is what the optimizer actually optimizes: it runs each candidate
 // body and scores it against what the captured or evaluated call produced. It
 // was only ever asserted through one inline expectation on the happy path, so
-// none of the ways a candidate fails to earn a point were checked -- and a
+// none of the ways a candidate fails to earn a point were checked, and a
 // metric that scores everything 1 optimizes nothing.
 
 /** The scoring function the engine handed the optimizer for this request. */
@@ -546,7 +546,7 @@ describe("typing example values from the method signature", () => {
 			methodArgumentIndex: 7,
 			methodArgumentDeep: true,
 			// Declared `json` and `string[]`, so they arrive as an object and an
-			// array -- not as the JSON strings a second substring match produced.
+			// array, not as the JSON strings a second substring match produced.
 			methodArgumentExtra: { a: 1 },
 			methodArgumentTags: ["x", "y"],
 		});

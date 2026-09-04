@@ -16,7 +16,7 @@ class Router {
 	}
 }
 
-// `@trainable(route)` without decorator syntax -- this example also runs under
+// `@trainable(route)` without decorator syntax: this example also runs under
 // `node --experimental-strip-types`, which cannot lower TC39 decorators. The
 // durable id is derived from the class and method, never typed.
 instrumentTrainable(Router, "route", route);
@@ -26,7 +26,7 @@ const tests = [
 	{ id: "fallback", input: "Reset my password", assert: [{ type: "equals", value: "fallback" }] },
 ] satisfies EvalTestInput[];
 
-/** Runs the example. Pass an engine to run it offline — the default Ax engine
+/** Runs the example. Pass an engine to run it offline: the default Ax engine
  * needs a provider key, which a CI typecheck must not require. */
 export async function optimizeRouter(engine?: TrainingEngine) {
 	const router = new Router();

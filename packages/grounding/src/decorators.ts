@@ -1,5 +1,5 @@
 // Granular grounding decorators: @intent / @returns on methods annotate an
-// implementation one fact at a time — every decorator optional, every
+// implementation one fact at a time: every decorator optional, every
 // missing grounding inferred. A class-level finalizer (see component.ts)
 // composes whatever was declared into GroundingOptions and registers each
 // method with a host-provided registry.
@@ -38,7 +38,7 @@ export interface GroundingOptions {
 
 /** Validate and freeze one composed grounding. Generated registration source
  * calls this, so what codegen emits typechecks against a real API in the
- * package that owns the concept -- this package never imports a training
+ * package that owns the concept: this package never imports a training
  * runtime, and a host registers the results against its own registry. */
 export function defineGrounding(options: GroundingOptions): GroundingOptions {
 	if (!options.methodRef?.trim()) {
@@ -84,7 +84,7 @@ function pendingEntry(context: MethodContext): PendingGrounding | undefined {
 	return created;
 }
 
-/** `@intent("…")` — the method's generation intent. Optional; inferred when absent. */
+/** `@intent("…")`: the method's generation intent. Optional; inferred when absent. */
 export function intent(text: string) {
 	return <Method>(method: Method, context: MethodContext): Method => {
 		const entry = pendingEntry(context);
@@ -93,7 +93,7 @@ export function intent(text: string) {
 	};
 }
 
-/** `@returns("…")` — describes the output. Optional; lowers to output field metadata. */
+/** `@returns("…")`: describes the output. Optional; lowers to output field metadata. */
 export function returns(text: string) {
 	return <Method>(method: Method, context: MethodContext): Method => {
 		const entry = pendingEntry(context);
@@ -103,7 +103,7 @@ export function returns(text: string) {
 }
 
 /**
- * `description("…")` / `param("…")` — a `FieldDescription` value for the
+ * `description("…")` / `param("…")`: a `FieldDescription` value for the
  * `params:`/`output:` maps of grounding options; one expression per
  * parameter (stage-3 has no parameter decorators).
  */

@@ -17,8 +17,8 @@ import { run, usage } from "../src/cli.js";
 import { verify, verifyJson } from "./support/verify.js";
 
 // Characterization tests over everything this library *generates*. For a
-// library whose product is rewritten source, the generated text is the product
-// -- and a diff of it is the only review that shows what actually changed.
+// library whose product is rewritten source, the generated text is the
+// product, and a diff of it is the only review that shows what actually changed.
 // Assertions like `toContain("return input")` say almost nothing about the
 // emitted module; an approved file says all of it.
 //

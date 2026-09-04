@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 //
 // `test/docs.test.ts` (snippets compile) and `test/adr.test.ts` (no snippet
 // teaches the banned identity form) both worked from a hand-maintained list,
-// and both lists had drifted: `AGENTS.md` -- the file that *states* the
-// identity ADR, and carries the snippet demonstrating it -- was in neither, so
+// and both lists had drifted: `AGENTS.md` (the file that *states* the
+// identity ADR, and carries the snippet demonstrating it) was in neither, so
 // the document defining the rule was exempt from the check enforcing it.
 // `docs/dx-review.md` and `docs/testing.md` were missing too.
 //

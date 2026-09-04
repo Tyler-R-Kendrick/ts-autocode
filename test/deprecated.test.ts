@@ -174,7 +174,7 @@ describe("resolved name collisions", () => {
 
 	it("distinguishes the two digests that share a prefix", () => {
 		// They were both called `digest` and both emit `sha256:`, but they hash
-		// different things — swapping them silently changes every hash.
+		// different things: swapping them silently changes every hash.
 		expect(groundingDigest).toBe(textDigest);
 		expect(textDigest("a\r\nb")).toBe(textDigest("a\nb"));
 		expect(rewriteDigest("a\nb")).not.toBe(textDigest("a\nb"));

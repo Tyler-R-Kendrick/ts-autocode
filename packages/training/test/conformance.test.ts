@@ -83,7 +83,7 @@ describe("the conformance suite itself", () => {
 
 
 describe("the abort check specifically", () => {
-	// This check was written vacuously at first -- it asserted
+	// This check was written vacuously at first: it asserted
 	// `rejected || resolved`, which is always true. It now counts proposals, so
 	// it must reject a loop that ignores the signal.
 	it("rejects a loop that keeps proposing after an abort", async () => {
@@ -162,7 +162,7 @@ describe("the fixtures the kit publishes", () => {
 	//
 	// A stale copy of the fixture source used to sit at the bottom of this file
 	// under a comment saying it kept the two tied together. Nothing referenced
-	// it, so nothing did -- and it had already drifted, describing one method
+	// it, so nothing did, and it had already drifted, describing one method
 	// where the kit publishes two.
 
 	it("describes the synchronous fixture method", () => {

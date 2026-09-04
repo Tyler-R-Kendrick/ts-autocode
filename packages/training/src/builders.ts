@@ -20,7 +20,7 @@ export interface EvalRunInput {
 	readonly run?: EvalRunResult;
 }
 
-/** Builds a {@link TrainableEvalRun} — the shape a custom `TrainingLoop` must
+/** Builds a {@link TrainableEvalRun}, the shape a custom `TrainingLoop` must
  * return inside its reviews. */
 export function createEvalRun(input: EvalRunInput): TrainableEvalRun {
 	const token = toTrainableToken(input.trainable);

@@ -74,7 +74,7 @@ class Router {
 
 describe("parameter types inferred from literal defaults", () => {
 	// A defaulted parameter has no type annotation, and reporting it as
-	// `unknown` reached the Ax field mapper as `json` -- so the optimizer was
+	// `unknown` reached the Ax field mapper as `json`, so the optimizer was
 	// told a plainly numeric argument had an opaque shape. Found by the
 	// characterization snapshot of the generated program signature.
 	const declare = (parameters: string) => discoverInSource(`class Fixture {

@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 // a diff in one is how a reviewer sees what a generator's output became. That
 // only holds while every approved file is still compared against. Rename a
 // subject and the old file stays behind, unread and indistinguishable from a
-// current one -- which is worse than having no snapshot, because a reviewer
+// current one, which is worse than having no snapshot, because a reviewer
 // reads it as current. Vitest tracks obsolete `.snap` blobs but not file
 // snapshots, so `verify()` drops a marker per comparison and this reconciles
 // the two.

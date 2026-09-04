@@ -15,7 +15,7 @@ import { defineTrainable, type TrainableId } from "./token.js";
 // claim about anyone else's.
 //
 // These ship in the package so an implementer can run them against their own
-// provider. They are framework-agnostic on purpose -- a list of named checks
+// provider. They are framework-agnostic on purpose, a list of named checks
 // that throw on violation, driven by whatever test runner the consumer has:
 //
 //   import { trainingStoreContract } from "ts-autocode-training";
@@ -56,7 +56,6 @@ function check<T>(name: string, run: (subject: T) => Promise<void>): Conformance
 	return { name, run };
 }
 
-// ---------------------------------------------------------------- fixtures
 
 const fixtureSource = `class Fixture {
 	route(input: string): string {
@@ -100,7 +99,6 @@ export function conformanceCandidate(implementation = "return input;"): Candidat
 	};
 }
 
-// ------------------------------------------------------------ TrainingStore
 
 /** What every {@link TrainingStore} must do. Captures are appended off the hot
  * path and read back to build eval cases, so ordering, filtering and isolation
@@ -175,7 +173,6 @@ export const trainingStoreContract: readonly ConformanceCheck<Factory<TrainingSt
 	}),
 ];
 
-// ----------------------------------------------------------- TrainingEngine
 
 /** What every {@link TrainingEngine} must do. The runtime composes a strategy
  * into its own validating pipeline, so an engine's obligations are narrow --
@@ -236,7 +233,6 @@ export const trainingEngineContract: readonly ConformanceCheck<Factory<TrainingE
 	}),
 ];
 
-// --------------------------------------------------- ImplementationExecutor
 
 /** What every {@link ImplementationExecutor} must do. Candidate verification
  * runs entirely through this seam, so a divergence here silently changes what
@@ -282,7 +278,6 @@ export const implementationExecutorContract: readonly ConformanceCheck<Factory<I
 	}),
 ];
 
-// -------------------------------------------------------------- TrainingLoop
 
 /** What every {@link TrainingLoop} must do. The loop owns iteration and
  * stopping; proposing and reviewing stay with the runtime, and the runtime
@@ -410,10 +405,9 @@ function promotingInput(promote: boolean) {
 	};
 }
 
-// ---------------------------------------------------------- PromotionApplier
 
 /** What every {@link PromotionApplier} must do. Training requires only that an
- * application be undoable -- but it requires that absolutely, because it is the
+ * application be undoable, but it requires that absolutely, because it is the
  * only thing standing between a bad candidate and a permanently edited file. */
 export const promoterContract: readonly ConformanceCheck<Factory<PromotionApplier>>[] = [
 	check("refuses a candidate the gate did not pass", async (factory) => {

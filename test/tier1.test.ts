@@ -137,7 +137,7 @@ describe("ts-autocode/register on older Node", () => {
 	// CI on Node 20.20.2 surfaced `TypeError: registerHooks is not a function`
 	// from src/register.ts. `module.registerHooks` is the synchronous in-thread
 	// loader API and Node 20 does not have it, so the documented zero-config
-	// entry point -- `node --import ts-autocode/register` -- crashed on the
+	// entry point (`node --import ts-autocode/register`) crashed on the
 	// minimum version `engines` declares. Nothing imported that module in a
 	// test before, which is why it went unnoticed.
 	it("installs the hook when the runtime provides it", () => {

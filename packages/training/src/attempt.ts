@@ -11,7 +11,7 @@ export function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-/** Runs `fn`, mapping a throw to `fallback(error)` — a sync error-to-value
+/** Runs `fn`, mapping a throw to `fallback(error)`, a sync error-to-value
  * boundary. The fallback receives the raw thrown value. */
 export function attempt<T>(fn: () => T, fallback: (error: unknown) => T): T {
 	try {

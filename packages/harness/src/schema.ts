@@ -17,7 +17,7 @@ export type MessageId = z.output<typeof messageId>;
 /** A positive-integer setting whose message holds however the value is wrong.
  * `z.number().int().positive(message)` attaches `message` to the positivity
  * check alone, so a fractional or non-numeric value failed with zod's generic
- * "Invalid input: expected int, received number" -- which never says what the
+ * "Invalid input: expected int, received number", which never says what the
  * setting actually needs. Every constraint carries the same message instead.
  *
  * Deliberately duplicated in packages/training/src/errors.ts rather than shared

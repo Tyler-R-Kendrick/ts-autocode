@@ -8,7 +8,7 @@ import type { BoundEvaluation, CandidatePatch } from "../src/engine.js";
 // Each standard promotion gate, pinned individually.
 //
 // Mutation testing showed 30 surviving mutants in promotion.ts: replacing an
-// entire gate with `() => undefined` -- so that rule never fails -- left the
+// entire gate with `() => undefined` (so that rule never fails) left the
 // suite green. The tests asserted that a bad candidate was refused, but not
 // *which* rule refused it, so any single rule could be deleted undetected.
 //
@@ -106,8 +106,8 @@ describe("each rule refuses on its own", () => {
 
 	it("pass rate: refuses when too few cases passed, naming both numbers", async () => {
 		// A case counts as passed when its own score clears `minScore`. Scores
-		// of 1 and 0.3 against a 0.5 threshold give a mean of 0.65 -- which
-		// clears it -- and a pass rate of 0.5, which does not. Only the
+		// of 1 and 0.3 against a 0.5 threshold give a mean of 0.65 (which
+		// clears it) and a pass rate of 0.5, which does not. Only the
 		// pass-rate rule fires.
 		const decision = await evaluatePromotionGate(passing({
 			evaluations: [bound(1), bound(0.3)], minScore: 0.5,

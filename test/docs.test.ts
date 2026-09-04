@@ -48,7 +48,7 @@ const snippets = docs.flatMap((doc) => typescriptSnippets(doc, readDoc(doc)));
 
 // Snippets compile inside the repo (under the git-ignored test output tree) so
 // NodeNext resolution sees the real node_modules and the root package's
-// "type": "module" — top-level await in the docs is then legal, as it is for a
+// "type": "module". Top-level await in the docs is then legal, as it is for a
 // consumer.
 const directory = join(repoRoot, "test", "output", "docs");
 

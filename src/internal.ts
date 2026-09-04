@@ -1,5 +1,5 @@
 // Author-level API: the seams for building an engine, a loop, an executor, a
-// store, or an instrumentation mechanism -- not for using the library.
+// store, or an instrumentation mechanism, not for using the library.
 //
 // CONTRIBUTING asks that the root export surface stay small and that internal
 // helpers stay internal. These are neither internal nor application-facing:

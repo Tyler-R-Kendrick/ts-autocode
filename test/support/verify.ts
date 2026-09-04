@@ -54,7 +54,7 @@ export async function verify(name: string, value: string, scrubbers?: Scrubbers)
 }
 
 // Orphan detection. A renamed subject leaves its old `.verified.*` file on
-// disk, where nothing compares against it any more -- and an approved artifact
+// disk, where nothing compares against it any more, and an approved artifact
 // nobody checks is worse than none, because a reviewer reads it as current.
 // Vitest tracks obsolete `.snap` blobs but not file snapshots, so each
 // comparison drops a marker and `snapshot-manifest.mjs` reconciles the markers

@@ -1,4 +1,4 @@
-// Generated from an ambient trainable declaration — do not edit by hand.
+// Generated from an ambient trainable declaration: do not edit by hand.
 import { defineGrounding } from "ts-autocode/grounding";
 
 export const greet = defineGrounding({

@@ -37,7 +37,7 @@ npx ts-autocode discover
 ```
 
 `discover` lists every method the project marks and prints the exact identity
-to bind evals to — the one place this otherwise type-safe design falls back to
+to bind evals to, the one place this otherwise type-safe design falls back to
 a string, where a typo yields a different symbol with no error:
 
 ```text
@@ -86,7 +86,7 @@ unchanged because the directive is the marker; there is no runtime proxy.
 Runtime capture comes with marking, not as a separate opt-in: whether a method
 carries the `"use training"` directive or the `@trainable()` decorator, its
 calls route through the same runtime-capture interceptor. What is optional is
-the decorator itself — it is an alternative marker to the directive. Identity
+the decorator itself, an alternative marker to the directive. Identity
 is inferred from the decorated class and method, so nothing is declared twice;
 global configuration controls how captures are serialized, redacted, and
 traced. The decorated method is the source target, so callers never provide
@@ -103,12 +103,12 @@ class Router {
 }
 ```
 
-Declare your own `unique symbol` and hand it to the decorator — the symbol is
+Declare your own `unique symbol` and hand it to the decorator. The symbol is
 the key. `@trainable(route)` registers the method under it, and every training
 API reuses the *same* symbol, so discovery is plain symbol-key indexing and
 the symbol's object identity is the uniqueness guarantee. The durable string
 id the machinery needs (for stores and source rewriting) is derived from the
-declaring class and method — you never type a name anywhere:
+declaring class and method, so you never type a name anywhere:
 
 ```ts
 import { trainable } from "ts-autocode";
@@ -124,7 +124,7 @@ class Router {
 ```
 
 The same symbol binds the method, its captures, AgentV results, optimizer
-candidate, and promotion decision — evals, tests, and training all key off it
+candidate, and promotion decision. Evals, tests, and training all key off it
 to target exactly this trainable. The binding registers at first construction
 of the class.
 
@@ -133,7 +133,7 @@ of the class.
 AgentV owns eval definitions, graders, traces, scores, and result types. The
 `training` export is ready to use without any setup call.
 
-`train` takes the same symbol `@trainable(route)` put on the code — never a
+`train` takes the same symbol `@trainable(route)` put on the code, never a
 raw string. Symbol in the decorator, symbol at the call: one key, indexed.
 
 ```ts
@@ -168,7 +168,7 @@ const activation = await run.activate();
 await activation.rollback();
 ```
 
-The identity is never a plain string — that is an ADR, enforced at compile
+The identity is never a plain string. That is an ADR, enforced at compile
 time: a string is not a sufficient identity to guarantee uniqueness. The key
 is the symbol you declared (as above); the marked method itself also works,
 since instrumentation stamps it with the identity it registered:
@@ -188,7 +188,7 @@ input/expected equality.
 
 Activating a training run writes the gated source rewrite and, for async
 targets, hot-swaps the running implementation through `ts-autocode-rewrite`'s
-AspectJS advice — woven methods dispatch to the promoted candidate immediately,
+AspectJS advice: woven methods dispatch to the promoted candidate immediately,
 no restart required. `activate()` throws unless the final candidate passed the
 promotion gate, and the returned activation's `rollback()` restores both the
 source and the live implementation.
@@ -196,7 +196,7 @@ source and the live implementation.
 ## Zero-config evolution
 
 Load the runtime patch once and directive-marked functions evolve from live
-traffic with no further code — capture, training, verification, gating, and the
+traffic with no further code: capture, training, verification, gating, and the
 guarded source rewrite all apply automatically:
 
 ```bash
@@ -210,14 +210,14 @@ node --import ts-autocode/register ./dist/server.js
 
 The register hook instruments every `"use training"` function at module load.
 Once a trainable accumulates `evolution.minTraces` successful traces (default
-3), it is trained against those traces, verified candidate-bound, gated, and —
-only when the gate passes — its source body is rewritten. Failures surface
+3), it is trained against those traces, verified candidate-bound, and gated.
+Its source body is rewritten only when the gate passes. Failures surface
 through `TrainingSettings.onEvent` (and the deprecated `onError` with the
 `"evolve"` phase) and never block or alter application calls. Loading the hook is itself the opt-in, so evolution is on unless you turn it
 off: set `TS_AUTOCODE_EVOLVE` to `0`, `false`, `off`, `no`, or `disabled` (or
 configure `evolution: { enabled: false }`) to capture without rewriting, and use
 `evolution.onEvolved` to observe applied rewrites. Because the feature rewrites
-your source, the switch fails closed — an unrecognized value throws rather than
+your source, the switch fails closed: an unrecognized value throws rather than
 being read as consent.
 
 ## Train from live traces
@@ -258,8 +258,8 @@ configured promotion policy.
 Training rounds run through the provider-neutral `TrainingLoop` contract.
 This package registers `createHarnessLoop()` as the default, so
 `ts-autocode-harness` owns bounded rounds, feedback, cancellation, and stall
-detection. By default, training reviews serve as the harness's evidence — a
-configured judge may decide differently: a candidate
+detection. By default, training reviews serve as the harness's evidence,
+though a configured judge may decide differently: a candidate
 passes exactly when its review reports no gate failures, accepted candidates
 are re-reviewed by an isolated adversary, and a standing challenge tightens
 the rubric before the next round. Baseline results are never treated as proof
@@ -270,7 +270,7 @@ promotion primitives also remain available.
 The built-in loop is an observable round sequence (`trainingRounds()`
 pushes each reviewed round to a subscriber; `sequentialLoop` collects the
 subscription into one run). `TrainInput.rounds.fanOut` caps how many candidates a
-round proposes and reviews concurrently — the best gated candidate wins the
+round proposes and reviews concurrently. The best gated candidate wins the
 round. Fan-out belongs to `sequentialLoop`: the default governed harness loop
 reviews exactly one candidate per round, because its judge, adversary and
 rubric-revision sequence is serial, so it **rejects** a `fanOut` above 1 rather
@@ -292,7 +292,7 @@ Runtime dependencies enter through `TrainingSettings`:
 - `model` selects the provider and model the engine uses; see below.
 - `secrets` and `variables` are passed to engine factories without entering traces.
 - `store`, `capture`, and `tracing` configure recording globally.
-- `resilience` attaches named timeout/retry policies to runtime operations —
+- `resilience` attaches named timeout/retry policies to runtime operations:
   `propose` (the engine/LLM call), `evaluate` (each candidate execution inside
   an eval run), and `store` (capture writes). A policy composes a per-attempt
   `timeoutMs` (surfacing as a typed `OperationTimeoutError`) with jittered
@@ -311,7 +311,7 @@ Runtime dependencies enter through `TrainingSettings`:
   ```
 
 - `execution` shapes each candidate run inside the executor. `timeoutMs` caps a
-  single execution (default 5 seconds) — distinct from
+  single execution (default 5 seconds), distinct from
   `resilience.evaluate.timeoutMs`, which bounds the whole attempt and may retry
   it. `decodeArgs` turns an eval case's string input into the trainable's
   argument list; see below.
@@ -324,7 +324,7 @@ Runtime dependencies enter through `TrainingSettings`:
   a run's write-ahead bus with any driver (unset, the fs driver under
   `<outputDir>/harness-actions`), `judge` gates every harness action and
   verdict, and `contextProvider` replaces the default rolling-window context
-  management (`windowedContext`) — for example with a rolling-summary reducer.
+  management (`windowedContext`), for example with a rolling-summary reducer.
 
 AgentV's `workers` option parallelizes live-trace and candidate evals. Independent
 trainables can be trained concurrently by the application, while the configured
@@ -357,10 +357,10 @@ failure when it refuses, so one `gates` list now expresses both.
 `configureTraining(settings)` configures one process-wide runtime, which the
 exported `training` const delegates to, and **replaces** the current settings.
 Pass `{ merge: true }` to layer onto what is already configured, and
-`resetTraining()` to restore a fresh-import state — useful between tests.
+`resetTraining()` to restore a fresh-import state, useful between tests.
 
-For a runtime that registers nothing globally — a test, or a host serving
-several tenants side by side — use `createTrainingRuntime(settings)`. Provider
+For a runtime that registers nothing globally (a test, or a host serving
+several tenants side by side), use `createTrainingRuntime(settings)`. Provider
 defaults still apply, so it gets the Ax engine and governed loop from
 `import "ts-autocode"` exactly as the shared runtime does.
 
@@ -388,20 +388,20 @@ configureTraining({
 });
 ```
 
-The descriptor is provider-neutral — `ts-autocode-training` carries it to
-whatever engine is configured, exactly as it carries `secrets` and `variables`
-— and the default Ax engine interprets `provider` as an Ax provider name
-(`openai`, `anthropic`, `google-gemini`, `azure-openai`, `cohere`, `mistral`,
-`deepseek`, `reka`, `grok`, ...).
+The descriptor is provider-neutral (`ts-autocode-training` carries it to
+whatever engine is configured, exactly as it carries `secrets` and
+`variables`), and the default Ax engine interprets `provider` as an Ax
+provider name (`openai`, `anthropic`, `google-gemini`, `azure-openai`,
+`cohere`, `mistral`, `deepseek`, `reka`, `grok`, ...).
 
 Credentials resolve in order: an explicit `model.apiKey`, then the configured
 secret provider, then the environment variable conventional for that provider
 (`ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, and so on). With nothing configured the
 default is OpenAI reading `OPENAI_API_KEY`.
 
-The descriptor is sugar, not a support matrix. When it does not fit — a
+The descriptor is sugar, not a support matrix. When it does not fit (a
 self-hosted endpoint, a proxy with its own auth, a client you have already
-built — supply the client itself as `model.service` and the library holds no
+built), supply the client itself as `model.service` and the library holds no
 opinion about providers at all. The default Ax engine accepts any
 `AxAIService`, or a factory returning one:
 
@@ -416,8 +416,8 @@ configureTraining({
 });
 ```
 
-For Ax-specific tuning beyond model choice — optimizer options, a separate
-teacher service — the `ts-autocode/ax` adapter builds an engine you pass
+For Ax-specific tuning beyond model choice (optimizer options, a separate
+teacher service), the `ts-autocode/ax` adapter builds an engine you pass
 through the provider-neutral `engine` slot:
 
 ```ts
@@ -456,7 +456,7 @@ Custom engines return only the new method implementation:
 ```ts
 import type { TrainingEngine } from "ts-autocode";
 
-// Your own optimizer call — whatever produces a replacement method body.
+// Your own optimizer call, whatever produces a replacement method body.
 declare function rewrite(request: {
   signature: string;
   implementation: string;
@@ -521,7 +521,7 @@ const loop: TrainingLoop = async (input) => {
 you have real evidence to carry.
 
 [docs/authoring-providers.md](docs/authoring-providers.md) covers all five
-injected seams — engine, executor, loop, promotion applier and store — with the
+injected seams (engine, executor, loop, promotion applier and store) with the
 rules each one must satisfy and the conformance suites that check them.
 
 ## Errors
@@ -577,7 +577,7 @@ else console.log(readiness.outcome, readiness.failures);
 ## Background events
 
 `TrainingSettings.onEvent` reports everything the runtime does off the call
-path — capture and store failures, and the full evolution lifecycle:
+path. That is capture and store failures, and the full evolution lifecycle:
 
 ```ts
 import { configureTraining } from "ts-autocode";

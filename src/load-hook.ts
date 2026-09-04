@@ -1,8 +1,8 @@
 import module from "node:module";
 
 // `module.registerHooks` is the synchronous in-thread loader API. Node 20 does
-// not provide it, so `ts-autocode/register` -- the documented zero-config entry
-// point, `node --import ts-autocode/register` -- threw
+// not provide it, so `ts-autocode/register` (the documented zero-config entry
+// point, `node --import ts-autocode/register`) threw
 // `TypeError: registerHooks is not a function` there, despite `engines`
 // declaring Node 20 support. Nothing imported that module in a test, so it went
 // unnoticed until CI ran the suite on 20.20.2.

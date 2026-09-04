@@ -21,7 +21,7 @@ export type TrainableDecorator = <This, Args extends unknown[], Result>(
 const wrappedMarker = Symbol.for("ts-autocode.wrapped");
 
 /** Decorator form: `@trainable(symbol)`. The symbol is the application's own
- * key -- declare a `unique symbol` (`const route = Symbol("route")`), put it
+ * key: declare a `unique symbol` (`const route = Symbol("route")`), put it
  * on the trainable code here, and reuse the same symbol at
  * `training.train(route)`: discovery is then plain symbol-key indexing, and
  * the symbol's object identity is the uniqueness guarantee. The durable id
@@ -32,7 +32,7 @@ const wrappedMarker = Symbol.for("ts-autocode.wrapped");
  * `Symbol.for` registry symbol is also accepted for the zero-config directive
  * flow, where ids come from parsed source. The method is woven through the
  * rewrite engine at first construction, so promoted candidates can hot-swap
- * it -- which is also when the symbol binding registers. */
+ * it, which is also when the symbol binding registers. */
 export function trainable(identity?: symbol): TrainableDecorator {
 	if (identity !== undefined && typeof identity !== "symbol") {
 		throw new InvalidTrainableIdentityError("trainable identity must be a symbol; omit it to infer from the decorated method");
@@ -58,7 +58,7 @@ export function trainable(identity?: symbol): TrainableDecorator {
 			annotateRewrite(owner, name, token.id, trainingMarker);
 			// Stamp both the original method and whatever weaving installed in its
 			// slot, so `train({ trainable: Router.prototype.route })` resolves the
-			// identity the marking machinery declared -- never a retyped string.
+			// identity the marking machinery declared, never a retyped string.
 			stampTrainable(method, token);
 			const container = (context.static ? owner : owner.prototype) as Record<string, unknown> | undefined;
 			if (container && typeof container[name] === "function") stampTrainable(container[name], token);
@@ -85,7 +85,7 @@ export function wrapTrainable<F extends (...args: never[]) => unknown>(fn: F, id
 /** Weaves a directive-marked class method through the rewrite engine.
  *
  * With a **symbol**, this is exactly `@trainable(symbol)` without decorator
- * syntax -- for runtimes whose transforms cannot lower TC39 decorators yet:
+ * syntax, for runtimes whose transforms cannot lower TC39 decorators yet:
  * the method registers under the application's own unique symbol, and the
  * durable id is derived from the class and method names, never typed. With a
  * **string**, it is the load-time machinery (`ts-autocode/register`) supplying

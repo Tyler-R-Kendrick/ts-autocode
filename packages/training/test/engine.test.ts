@@ -60,7 +60,7 @@ describe("provider-neutral engine", () => {
 	// `#validateRequest` is what keeps one trainable's evidence out of another's
 	// optimization. A request assembled with the wrong records trains a method
 	// on traffic it never served, and the resulting candidate is scored against
-	// the wrong behavior -- so these guards fail the request rather than
+	// the wrong behavior, so these guards fail the request rather than
 	// proposing from it. Only the objective guard was covered.
 	describe("request validation", () => {
 		const engine: TrainingEngine = { id: "guard", async optimize() { return { implementation: "return input;" }; } };

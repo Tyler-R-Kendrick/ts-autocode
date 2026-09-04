@@ -10,13 +10,13 @@ required:
 - **teacher** assesses objective evidence and reports feedback against the candidate.
 
 Every other role has a default, and all defaults follow one evidence
-convention — feedback is the verdict:
+convention. Feedback is the verdict:
 
 - **judge** accepts any input and returns only `pass` or `fail`. Unset, a candidate passes when the teacher reports no feedback, a challenge stands when the adversary reports evidence, and actions are logged ungated.
-- **adversary** is a config of its own: its required `challenge` callback receives only the artifact under test and its own prior messages, and reports `{ challenge, feedback }`; its optional `reviseRubric` callback tightens the rubric after a standing challenge — unset, the challenge evidence is appended as new criteria. With no adversary at all, a passing candidate is accepted without adversarial review.
+- **adversary** is a config of its own: its required `challenge` callback receives only the artifact under test and its own prior messages, and reports `{ challenge, feedback }`; its optional `reviseRubric` callback tightens the rubric after a standing challenge. Unset, the challenge evidence is appended as new criteria. With no adversary at all, a passing candidate is accepted without adversarial review.
 - **bus** defaults to an in-memory write-ahead bus, returned on the run result for auditing.
 
-The harness does not create, configure, or select agents — no models, prompts,
+The harness does not create, configure, or select agents: no models, prompts,
 or agent frameworks appear in its API. Callbacks are the whole contract: bring
 agents from any pipeline (or plain functions) and inject them.
 
@@ -50,8 +50,8 @@ const result = await defineTrainingHarness<Candidate, Assessment, string>().run(
 });
 ```
 
-Every default is replaceable — a durable bus, a gating judge, an adversary,
-and a bespoke rubric revision:
+Every default is replaceable (a durable bus, a gating judge, an adversary,
+and a bespoke rubric revision):
 
 ```ts
 import { join } from "node:path";
@@ -112,13 +112,13 @@ the next round.
 `WriteAheadAgentBus` is an ordered append-only message log. It knows nothing
 about any actor: `append({ actor, kind, payload })` records a message with
 identity, ordering, and time, and `read(actor?)` returns the full history.
-`agent(actor)` binds one actor to the bus and returns a writer — `write(kind,
-payload?)` — so a caller that always writes as the same agent states the actor
-once. An optional `allow` hook decides whether a given append or read may
-proceed.
+`agent(actor)` binds one actor to the bus and returns a writer
+(`write(kind, payload?)`), so a caller that always writes as the same agent
+states the actor once. An optional `allow` hook decides whether a given append
+or read may proceed.
 Configure `redact` when payloads may contain sensitive application data.
 
-Storage is [unstorage](https://unstorage.unjs.io) — the bus owns no storage
+Storage is [unstorage](https://unstorage.unjs.io): the bus owns no storage
 logic of its own. Pass any unstorage instance through
 `AgentBusSettings.storage` and pick the driver that fits the deployment:
 memory (the default when unset), fs, redis, http, cloud KV, and the rest of
@@ -128,7 +128,7 @@ rather than pointing two writers at the same keys. Messages and entries are
 parsed at the boundary with zod schemas (`agentMessage`, `agentBusEntry`), so
 malformed values never enter the log.
 
-The bus does **no context management** — no trailing windows, no truncation.
+The bus does **no context management**: no trailing windows, no truncation.
 Shaping history into actor context is the consumer's job through
 `HarnessInput.contextProvider`, which can window, summarize (in the style of
 Semantic Kernel's chat-history reduction), or filter before each turn. The
@@ -139,8 +139,8 @@ kind, payload, gate, execute)`:
 
 1. append the intent;
 2. ask the gate for an exact `pass` or `fail`;
-3. append the verdict — the judge is just another actor, and its decision is
-   an ordinary `agent.decision` message on the bus;
+3. append the verdict (the judge is just another actor, and its decision is
+   an ordinary `agent.decision` message on the bus);
 4. execute only after a pass;
 5. append the outcome (`<kind>.completed` or `<kind>.failed`).
 
@@ -158,7 +158,7 @@ given, the sandbox builds the harness's default policy with
 `createSandboxPolicy`: writes confined to the workspace; network,
 local-network, UI, clipboard, and input access all denied; and the policy
 schema version taken from the installed `@microsoft/mxc-sdk`. The default is
-a starting point, not a requirement — pass any `SandboxPolicy` as `policy`
+a starting point, not a requirement. Pass any `SandboxPolicy` as `policy`
 (including one built by spreading over `createSandboxPolicy`'s result) to
 grant different access. `protectedPaths` (for example a file-backed bus log)
 must lie outside every writable sandbox path. Add `allowedHosts` only when a
