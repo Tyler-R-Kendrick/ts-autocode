@@ -1,7 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, it } from "vitest";
 
 import {
 	conformanceSuites,
@@ -19,6 +19,13 @@ import { executeImplementation } from "../src/execution.js";
 
 // Contract tests: every implementation this repo ships, run against the same
 // conformance suite a third party would use.
+//
+// This is the positive half. That the suites also *reject* a violating
+// implementation -- which is what makes them a contract rather than a
+// formality -- is proved in packages/training/test/conformance.test.ts, against
+// stores, engines, executors, loops and appliers built to break one named rule
+// each. Three such stores were once copied here too and left unreferenced;
+// they belong in one place.
 //
 // The provider-neutral design says any structurally compatible implementation
 // works. That was only ever checked against these implementations informally,
@@ -105,7 +112,7 @@ describe("PromotionApplier conformance", () => {
 	const applier: PromotionApplier = async (candidate, decision, executor) => {
 		await mkdir(directory, { recursive: true });
 		const artifact = join(directory, "fixture.ts");
-		await writeFile(artifact, await readFile("packages/training/src/conformance.ts", "utf8").then(() => fixtureSource), "utf8");
+		await writeFile(artifact, fixtureSource, "utf8");
 		return rewritePromotion(
 			{ ...candidate, target: { ...candidate.target, artifactRef: artifact } },
 			decision,
@@ -119,22 +126,6 @@ describe("PromotionApplier conformance", () => {
 		},
 	);
 });
-
-/** Names of the checks a subject fails. */
-async function failing<T>(
-	suite: ReadonlyArray<{ readonly name: string; run(subject: T): Promise<void> }>,
-	factory: T,
-): Promise<readonly string[]> {
-	const names: string[] = [];
-	for (const check of suite) {
-		try {
-			await check.run(factory);
-		} catch {
-			names.push(check.name);
-		}
-	}
-	return names;
-}
 
 const fixtureSource = `class Fixture {
 	route(input: string): string {
@@ -153,29 +144,6 @@ class ArrayStore implements TrainingStore {
 	async list(trainableId?: Parameters<TrainingStore["list"]>[0]): Promise<readonly Parameters<TrainingStore["append"]>[0][]> {
 		const parsed = this.entries.map((entry) => JSON.parse(entry) as Parameters<TrainingStore["append"]>[0]);
 		return trainableId === undefined ? parsed : parsed.filter((entry) => entry.trainableId === trainableId);
-	}
-}
-
-class ReversingStore extends ArrayStore {
-	override async list(trainableId?: Parameters<TrainingStore["list"]>[0]) {
-		return [...await super.list(trainableId)].reverse();
-	}
-}
-
-class AliasingStore implements TrainingStore {
-	private readonly records: Parameters<TrainingStore["append"]>[0][] = [];
-	async append(record: Parameters<TrainingStore["append"]>[0]): Promise<void> {
-		this.records.push(record);
-	}
-	async list(trainableId?: Parameters<TrainingStore["list"]>[0]) {
-		// Hands back the live array: one caller's mutation corrupts every other.
-		return trainableId === undefined ? this.records : this.records.filter((entry) => entry.trainableId === trainableId);
-	}
-}
-
-class UnfilteredStore extends ArrayStore {
-	override async list() {
-		return super.list();
 	}
 }
 

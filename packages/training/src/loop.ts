@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 import type { CandidatePatch } from "./engine.js";
 import { parseSetting, positiveIntegerSetting } from "./errors.js";
 import type { TrainableEvalRun } from "./evaluation.js";

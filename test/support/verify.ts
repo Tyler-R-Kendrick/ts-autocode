@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { expect } from "vitest";
@@ -45,7 +48,31 @@ export function scrub(value: string, scrubbers: Scrubbers = {}): string {
 
 /** Compare `value` against the approved snapshot named `name`. */
 export async function verify(name: string, value: string, scrubbers?: Scrubbers): Promise<void> {
-	await expect(scrub(value, scrubbers)).toMatchFileSnapshot(fileFor(name));
+	const file = fileFor(name);
+	recordVerified(file);
+	await expect(scrub(value, scrubbers)).toMatchFileSnapshot(file);
+}
+
+// Orphan detection. A renamed subject leaves its old `.verified.*` file on
+// disk, where nothing compares against it any more -- and an approved artifact
+// nobody checks is worse than none, because a reviewer reads it as current.
+// Vitest tracks obsolete `.snap` blobs but not file snapshots, so each
+// comparison drops a marker and `snapshot-manifest.ts` reconciles the markers
+// against the directory after the run. One file per marker rather than one
+// shared list: test files run in separate workers, and concurrent appends to a
+// single manifest would interleave.
+const markerDirectory = fileURLToPath(new URL("../output/verified/", import.meta.url));
+
+function recordVerified(file: string): void {
+	try {
+		mkdirSync(markerDirectory, { recursive: true });
+		// Named by digest, holding the path: a snapshot name contains separators,
+		// and re-encoding them into a filename is a round trip to get wrong.
+		writeFileSync(join(markerDirectory, createHash("sha256").update(file).digest("hex")), file, "utf8");
+	} catch {
+		// Recording is diagnostic. A failure to write a marker must never turn a
+		// passing characterization into a failing one.
+	}
 }
 
 /** Approved-snapshot path for a subject name. `a/b.ts` keeps its extension so

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+	conformanceAsyncTarget,
 	conformanceCandidate,
 	conformanceSuites,
 	conformanceTarget,
 } from "../src/conformance.js";
+import { directExecutor } from "../src/engine.js";
 import { sequentialLoop } from "../src/loop.js";
 import type { ImplementationExecutor } from "../src/engine.js";
 import type { TrainingStore } from "../src/records.js";
@@ -118,14 +120,6 @@ async function failing<T>(
 	return names;
 }
 
-const fixtureSource = `class Fixture {
-	route(input: string): string {
-		"use training";
-		return input;
-	}
-}
-`;
-
 /** A store that is not MemoryTrainingStore, to keep the suite honest. */
 class ArrayStore implements TrainingStore {
 	private readonly entries: string[] = [];
@@ -161,5 +155,54 @@ class UnfilteredStore extends ArrayStore {
 	}
 }
 
-// Referenced so the fixture target stays tied to the exported one.
+describe("the fixtures the kit publishes", () => {
+	// `conformanceTarget`, `conformanceAsyncTarget` and `conformanceCandidate`
+	// are exported so an implementer can build their own tests on them, which
+	// makes a silent change here a break in suites this repo cannot see.
+	//
+	// A stale copy of the fixture source used to sit at the bottom of this file
+	// under a comment saying it kept the two tied together. Nothing referenced
+	// it, so nothing did -- and it had already drifted, describing one method
+	// where the kit publishes two.
 
+	it("describes the synchronous fixture method", () => {
+		expect(conformanceTarget).toMatchObject({
+			id: "Fixture.route",
+			methodName: "route",
+			className: "Fixture",
+			signature: "route(input: string): string",
+			returnType: "string",
+			async: false,
+		});
+		expect(conformanceTarget.parameters.map((parameter) => parameter.name)).toEqual(["input"]);
+		expect(conformanceTarget.implementation).toBe("return input;");
+	});
+
+	it("describes the asynchronous fixture method, which executors distinguish", () => {
+		expect(conformanceAsyncTarget).toMatchObject({
+			id: "Fixture.slow",
+			methodName: "slow",
+			async: true,
+		});
+		expect(conformanceAsyncTarget.id).not.toBe(conformanceTarget.id);
+	});
+
+	it("binds the default candidate to the synchronous target", () => {
+		const candidate = conformanceCandidate();
+		expect(candidate.trainableId).toBe(conformanceTarget.id);
+		expect(candidate.target).toBe(conformanceTarget);
+		expect(candidate.implementation).toBe("return input;");
+	});
+
+	it("takes an implementation for a check that needs a different body", () => {
+		expect(conformanceCandidate("return input.trim();").implementation).toBe("return input.trim();");
+	});
+
+	it("publishes a body the shipped executor can actually run", async () => {
+		// Every executor check runs this pairing, so a target and default body
+		// that do not fit together would fail every implementer's suite at once.
+		await expect(directExecutor(conformanceTarget, conformanceCandidate().implementation, ["hello"]))
+			.resolves.toBe("hello");
+		await expect(directExecutor(conformanceAsyncTarget, "return input;", ["hello"])).resolves.toBe("hello");
+	});
+});

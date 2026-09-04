@@ -8,8 +8,12 @@ import { Around, Aspect, getWeaver, on, type AroundContext, type JoinPoint } fro
 const Rewrite = new AnnotationFactory("ts-autocode").create(
 	AnnotationKind.METHOD,
 	"Rewrite",
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	function Rewrite(id: string, marker: string) {},
+	// The body is empty by construction: AspectJS reads this function for the
+	// annotation's call signature only, and the arguments are recovered from
+	// `context.annotations(Rewrite).find()` at dispatch. The parameters are
+	// named for the underscore convention `noUnusedParameters` recognizes; the
+	// names a caller sees are `Rewrite(id, marker)` in the doc comment above.
+	function Rewrite(_id: string, _marker: string) {},
 );
 
 export interface RewriteInvocation {
