@@ -243,7 +243,7 @@ describe("a failing executor", () => {
 			loop: sequentialLoop,
 		});
 		// The run completes; the candidate simply does not promote. A typed
-		// rejection is also acceptable -- silently promoting is not.
+		// rejection is also acceptable: silently promoting is not.
 		const settled = await training.train({ ...trainInput(`${directory}/executor-throws`), rounds: { max: 1 } })
 			.then((run) => ({ ok: true as const, run }))
 			.catch((error: unknown) => ({ ok: false as const, error }));

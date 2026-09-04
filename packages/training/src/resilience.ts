@@ -39,7 +39,7 @@ export interface ResiliencePolicy {
 /** Named policies for the operations the training runtime performs, in the
  * style of a resilience-pipeline registry. Unnamed operations run bare. */
 export interface ResilienceSettings {
-	/** Candidate proposal — the engine/LLM call. */
+	/** Candidate proposal: the engine/LLM call. */
 	readonly propose?: ResiliencePolicy;
 	/** Each candidate execution inside an evaluation run. Retries apply per
 	 * eval case, which suits flaky sandboxes. */

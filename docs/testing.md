@@ -1,7 +1,7 @@
 # Testing strategy
 
 The suite is organized by what each layer can actually catch. Coverage is
-enforced as a ratchet in `vitest.config.ts` — raise the thresholds as suites
+enforced as a ratchet in `vitest.config.ts`: raise the thresholds as suites
 land, never lower them to get a build green.
 
 | Layer | Where | Catches |
@@ -15,10 +15,10 @@ land, never lower them to get a build green.
 | Property | `test/property.test.ts` | A law that holds for chosen examples but not in general |
 | Fuzz | `test/fuzz.test.ts` | A parser crashing, hanging, or corrupting source it did not write |
 | Contract | `test/contract.test.ts` | A provider implementation that satisfies the types but not the contract |
-| Chaos | `test/chaos.test.ts` | A dependency failing, hanging, or racing — and the damage that leaves behind |
+| Chaos | `test/chaos.test.ts` | A dependency failing, hanging, or racing, and the damage that leaves behind |
 | Behavior | `test/behavior.test.ts` | A documented promise that stopped being true even though every unit still passes |
 | Mutation | `stryker.config.json` | A test that runs the code without actually pinning its decisions |
-| Characterization | `test/characterization*.test.ts` | A change to anything this library *generates* — rewritten source, emitted instrumentation, prompts, CLI output, the export surface |
+| Characterization | `test/characterization*.test.ts` | A change to anything this library *generates*: rewritten source, emitted instrumentation, prompts, CLI output, the export surface |
 
 ## Running
 
@@ -51,7 +51,7 @@ test/snapshots/surface/ts-autocode.verified.txt
 
 A file per subject makes the diff readable, but on its own it does not solve
 the orphan: rename the subject and the old `.verified.*` file stays on disk,
-unread and indistinguishable from a current one — which is worse than having no
+unread and indistinguishable from a current one, which is worse than having no
 snapshot, because a reviewer reads it as current. Vitest tracks obsolete
 `.snap` blobs but not file snapshots, so `verify()` records each comparison and
 `test/run.mjs` reconciles the records against `test/snapshots/` afterwards. A
@@ -59,7 +59,7 @@ full `npm test` fails and names any approved file nothing compared against.
 A filtered run (`npm test -- test/cli.test.ts`) skips the check, because it
 legitimately touches almost none of them.
 
-Approve a deliberate change with `npm test -- -u`, and **read the diff** — that
+Approve a deliberate change with `npm test -- -u`, and **read the diff**: that
 is the entire value. `scrub()` removes digests, UUIDs, timestamps and absolute
 paths first, because a snapshot that churns is one everyone learns to
 re-approve without reading.
@@ -77,7 +77,7 @@ regression is reproducible rather than "it failed once on CI".
 Properties target the pure, total functions where examples can only sample:
 identity round-trips, digest canonicalization, gate aggregation, and the spread
 helpers. Fuzzing targets the parsers, because every one of them runs against
-code this library did not write — `augmentSource` sees every module a user
+code this library did not write: `augmentSource` sees every module a user
 loads.
 
 **A fuzz corpus must reach the code.** An early version used random punctuation;
@@ -85,21 +85,21 @@ instrumenting it showed **1 input in 3000** produced a discovered target, so
 every property about offsets and rewriting was passing vacuously.
 `test/support/sources.ts` now generates structurally plausible marked modules
 and then damages them, and `test/fuzz.test.ts` asserts the corpus still reaches
-real work — so the suite cannot quietly decay back into theatre.
+real work, so the suite cannot quietly decay back into theatre.
 
 ## Mutation testing
 
 `stryker.config.json` mutates the modules where a surviving mutant is alarming
 rather than merely untidy: each decides something the library *does to a user's
-machine* — whether generated code is written to a source file, whether it lands
+machine*: whether generated code is written to a source file, whether it lands
 on the body it was verified against, whether the library may rewrite that
 source at all, what the sandbox may reach, and what gets appended to a user's
 own module. Mutating everything would take hours and mostly re-measure line
 coverage, which `vitest` already enforces.
 
 The `break` threshold is a ratchet like the coverage thresholds. A genuinely
-equivalent mutant — one no test could distinguish, verified rather than assumed
-— is excluded at the line with `// Stryker disable next-line <mutator>:
+equivalent mutant (one no test could distinguish, verified rather than assumed)
+is excluded at the line with `// Stryker disable next-line <mutator>:
 <reason>`, which a reviewer can see and argue with. Lowering the threshold is
 not the answer.
 
@@ -114,7 +114,7 @@ finding that it already had:
   tests actually live. Nothing flagged them.
 - **Discovered documentation, not a list.** `test/docs.test.ts` and
   `test/adr.test.ts` each worked from a hand-maintained list of documents, and
-  both had drifted — `AGENTS.md`, which *states* the identity ADR and carries
+  both had drifted: `AGENTS.md`, which *states* the identity ADR and carries
   the snippet demonstrating it, was in neither. `test/support/docs.ts`
   discovers them instead.
 - **Orphaned snapshot detection**, described above.

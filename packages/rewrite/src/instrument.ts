@@ -11,7 +11,7 @@ export interface InstrumentTarget {
 
 /** Runtime payload delivered by generated registrations: identifier accessors in
  * place of identifier names. Method entries carry `owner`; free-function entries
- * carry `get`/`set` — the discriminator is structural, mirroring InstrumentTarget. */
+ * carry `get`/`set`: the discriminator is structural, mirroring InstrumentTarget. */
 export type InstrumentEntry =
 	| { readonly id: string; readonly name: string; readonly owner: () => unknown }
 	| { readonly id: string; readonly get: () => unknown; readonly set: (fn: unknown) => void };

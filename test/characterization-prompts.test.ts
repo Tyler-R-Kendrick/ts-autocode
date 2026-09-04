@@ -24,8 +24,8 @@ vi.mock("@ax-llm/ax", async (importOriginal) => ({
 //   - the Ax program signature derived from the TypeScript method, which is
 //     the prompt an optimizer actually receives.
 //
-// Neither has a natural assertion -- they are prose and field descriptors --
-// so an approved file is the only review that shows a change to them.
+// Neither has a natural assertion (they are prose and field descriptors), so
+// an approved file is the only review that shows a change to them.
 
 const directory = "test/output/prompts";
 const source = `class Router {

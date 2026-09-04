@@ -35,7 +35,7 @@ before introducing it.
 
 `packages/grounding/src/scan.ts` emitted
 `export const <method> = training.define({ ... })`. `Training` has `records`, `evaluate`,
-`train`, and `flush` — no `define`. Every generated registration file failed to typecheck.
+`train`, and `flush`, but no `define`. Every generated registration file failed to typecheck.
 The scan test asserted only the emitted *string*, so nothing caught it.
 
 ### A3. `"sideEffects": false` was a false declaration
@@ -47,9 +47,9 @@ The field is a promise to bundlers that dropping an unused module changes nothin
 and that promise was untrue.
 
 **Scope, honestly:** this is a correctness fix, not a demonstrated failure. The
-hazard it licenses — a bundler eliding the module, leaving a consumer with
+hazard it licenses (a bundler eliding the module, leaving a consumer with
 `no training engine is configured; import "ts-autocode"` after importing
-`ts-autocode` — depends on the bundler and on how the package is consumed.
+`ts-autocode`) depends on the bundler and on how the package is consumed.
 Bundling a trivial consumer with `esbuild --tree-shaking=true` produced
 byte-identical output with the flag either way, so esbuild does not act on it in
 that configuration. Declaring the truth is still right: the field exists so that
@@ -70,7 +70,7 @@ The README documented `trainingRounds()` and `sequentialLoop`; neither was expor
 set), `trainableTokenFromSymbol`, `discoverInSource`, `candidateDeclaration`,
 `defaultFanOut`, `defaultMaxRounds`, and the `ProposalTurn` and `ReviewContext` types
 required to implement a custom `TrainingLoop`. Only 5 of `ts-autocode-rewrite`'s 15 values
-reached the root, and **nothing at all** from `ts-autocode-harness` — even though the root's
+reached the root, and **nothing at all** from `ts-autocode-harness`, even though the root's
 own `HarnessLoopOptions` is typed in terms of that package's `ContextProvider`,
 `JudgeRequest`, and `JudgeDecision`. Configuring the default loop therefore required taking
 a second, undocumented dependency.
@@ -91,7 +91,7 @@ that edits the user's source files, fail-open is the wrong default.
 ### A8. Two unrelated candidate-execution timeouts, and the one that matters was unreachable
 
 `AxEngineOptions.executionTimeoutMs` affects only scoring inside the engine. The default
-*executor* — `executeImplementation`, registered with no options — fell back to a hardcoded
+*executor* (`executeImplementation`, registered with no options) fell back to a hardcoded
 5s with no configuration path through `TrainingSettings` at all.
 
 ### A9. `ts-autocode/register` crashed on the minimum supported Node
@@ -102,7 +102,7 @@ test that imports `src/register.ts`, and it threw
 
 `module.registerHooks` is the synchronous in-thread loader API, added in Node
 22.15. `engines` declares `node >= 20`, and the README's headline zero-config
-command is `node --import ts-autocode/register ./dist/server.js` — so the
+command is `node --import ts-autocode/register ./dist/server.js`, so the
 flagship feature was broken on the minimum version the package claims to
 support, and failed with an internal `TypeError` rather than anything a user
 could act on.
@@ -119,7 +119,7 @@ here: the bug was not subtle, it was simply never executed.
 
 The default engine hardcoded `openai` plus `OPENAI_API_KEY`/`OPENAI_APIKEY`. Using anything
 else meant importing `createAxEngine` from `ts-autocode/ax`, passing `studentAI`, and
-handing the whole engine to `configureTraining({ engine })` — abandoning the zero-config
+handing the whole engine to `configureTraining({ engine })`, abandoning the zero-config
 path. That subpath was mentioned once in the README with no example anywhere in the repo.
 Picking a model is the first thing most users do.
 
@@ -141,7 +141,7 @@ discarded the first. `provideTrainingDefaults(providers): void` **merged**. Alon
 (`createAxEngine`, `createHarnessLoop`, `createSandboxPolicy`, `createRewriter`,
 `createComponentDecorator`), `define*` (`defineTrainable`, `defineTrainingHarness`), and
 global mutators. `defineTrainable` returns a value object while `defineTrainingHarness`
-returns a service — the same verb for different kinds of thing.
+returns a service: the same verb for different kinds of thing.
 
 ### C2. Options-bag naming splits three ways with no rule
 
@@ -158,8 +158,8 @@ polarity inside one config object.
 ### C4. Gate configuration was half-grouped, half-flat, and duplicated
 
 `TrainInput` grouped `evaluation` but flattened `minScore`, `minPassRate`, `policy`,
-`gates`, `maxRounds`, and `fanOut`. `policy` is itself a `PromotionGate` in disguise — the
-gate evaluator wraps it into one — so there were two ways to express one concept.
+`gates`, `maxRounds`, and `fanOut`. `policy` is itself a `PromotionGate` in disguise (the
+gate evaluator wraps it into one), so there were two ways to express one concept.
 `maxRounds` appears on `TrainInput`, `TrainingLoopInput`, *and* `HarnessSettings`.
 
 ### C5. Duplicate public names across packages, some not interchangeable
@@ -168,7 +168,7 @@ gate evaluator wraps it into one — so there were two ways to express one conce
 package's takes `unknown`; grounding's takes `string` and normalizes line endings first.
 Both emit `sha256:…`, so substituting one for the other silently changes hashes. `Marker`
 is defined in both training and rewrite. `defaultMaxRounds = 3` is exported by both training
-and harness, and neither reached the root — presumably because they would collide.
+and harness, and neither reached the root, presumably because they would collide.
 `Activation.rollback` and `AppliedPromotion.rollback` are two names for one shape.
 
 ### C6. Identity typing contradicts its own doctrine
@@ -194,7 +194,7 @@ Promises (`Training`), a cold observable (`RoundSequence.subscribe(observer): ()
 and callback-bundle inversion of control (`HarnessInput`'s student/teacher/judge/adversary).
 `training.train` traverses all three.
 
-### C9. Twelve exported default constants — except the two that mattered
+### C9. Twelve exported default constants, except the two that mattered
 
 `defaultEvolution`, `defaultObjective`, `defaultOutputDir`, `defaultRetry`,
 `defaultTsconfig`, `defaultMaxRounds`, `defaultFanOut`, `defaultContextWindow`,
@@ -210,7 +210,7 @@ Plain `Error`, `TypeError`, and `SyntaxError` at roughly forty sites; `AgentActi
 a hand-rolled class with a `readonly _tag`; and `OperationTimeoutError`, an Effect
 `Data.TaggedError`. Zod errors escaped unwrapped, so `minScore: 1.5` yielded a raw
 `ZodError` rather than a library error. Consumers had no discriminant beyond message text,
-and the tests proved it — they assert on substrings such as
+and the tests proved it: they assert on substrings such as
 `"requires 2 distinct successful runtime traces; found 1"`.
 
 The error *copy* is genuinely good: the provider-missing messages each name the exact
@@ -249,7 +249,7 @@ Testing `@trainable()` required fabricating a `ClassMethodDecoratorContext` cast
 
 `settings` is optional and mentions only `TCandidate`, so a bare call infers
 `unknown, unknown, unknown` and every documented call site writes all three out. A fourth
-parameter, `TChallenge`, is scoped to `run` and *does* infer — showing the others could be
+parameter, `TChallenge`, is scoped to `run` and *does* infer, showing the others could be
 restructured the same way.
 
 ### E4. A real training test needed five pieces of setup, repeated verbatim in six files
@@ -293,25 +293,25 @@ naming its replacement.
 `test/deprecated.test.ts` exercises every legacy path, so the compatibility promise is
 enforced rather than asserted.
 
-### Tier 1 — defects
+### Tier 1: defects
 
 1. Fix the README so its code compiles; define `deploymentPolicy` and order the quickstart.
 2. Declare `sideEffects` accurately.
 3. Export `defaultMinScore` and `defaultMinPassRate`, and make the rubric print resolved
    numbers.
 4. Make `TS_AUTOCODE_EVOLVE` fail closed on an explicit allow-list.
-5. Honor `fanOut` in the harness loop, or reject it loudly — never ignore it.
+5. Honor `fanOut` in the harness loop, or reject it loudly. Never ignore it.
 6. Close the root re-export gap and rename the colliding `defaultMaxRounds`.
 7. Add `TrainingSettings.execution.timeoutMs`, threaded into the default executor.
 8. Make grounding's codegen emit the real API and typecheck its output.
 
-### Tier 2 — additions
+### Tier 2: additions
 
 9. `TrainingSettings.model` as a first-class provider/model slot.
 10. A `ts-autocode` CLI with `discover`, `status`, and `train`.
 11. Runnable examples that import by package name and are checked in CI.
 
-### Tier 3 — consistency
+### Tier 3: consistency
 
 12. `createTraining(settings)` returning an isolated runtime; `configureTraining` merges.
 13. Normalized `enabled` polarity across capture, tracing, and evolution.
@@ -320,13 +320,13 @@ enforced rather than asserted.
 15. One options-bag suffix; duplicate `Marker`, `digest`, and `defaultMaxRounds` resolved.
 16. A smaller root surface, with author-level APIs behind a subpath.
 
-### Tier 4 — errors and observability
+### Tier 4: errors and observability
 
 17. A `TsAutocodeError` hierarchy replacing the string throws, preserving every message.
 18. A non-throwing way to inspect whether a run can be activated.
 19. One `onEvent` discriminated union, with `onError` retained as a shim.
 
-### Tier 5 — boilerplate
+### Tier 5: boilerplate
 
 20. Exported builders for the types that currently force casts.
 21. Inferred harness generics.
@@ -340,8 +340,8 @@ All five tiers landed. Two things were done differently from the plan above,
 both to avoid trading a stated problem for a worse one:
 
 **`configureTraining` still replaces by default.** The plan said to make it
-merge. Merging silently would carry settings between unrelated calls — one
-caller's engine surviving into another's configuration — which is a subtler and
+merge. Merging silently would carry settings between unrelated calls (one
+caller's engine surviving into another's configuration), which is a subtler and
 harder-to-debug surprise than the one it fixes. Instead `createTrainingRuntime`
 gives genuine isolation (the real gap), `resetTraining()` restores a clean
 state, and `{ merge: true }` opts into layering. The replacing default is
@@ -355,7 +355,7 @@ for consistency would be a serious behavioral change. The field is renamed
 `auto`, so the name matches the semantics, and `enabled` still works.
 
 One review claim was also wrong and is corrected here: `packages/training/test/
-wiring.ts` was described as a workaround for the runtime singleton. It is not —
+wiring.ts` was described as a workaround for the runtime singleton. It is not:
 it wires a `PromotionApplier` provider, which is legitimate test setup and
 remains. The singleton gap was real; that file was not evidence of it.
 
@@ -365,8 +365,8 @@ remains. The singleton gap was real; that file was not evidence of it.
   `ts-autocode-training` and `ts-autocode-rewrite` is reachable from
   `ts-autocode`, so A5 cannot recur. It has already caught two regressions
   during this work.
-- **Documentation is typechecked**: TypeScript blocks are extracted from the READMEs and
-  compiled in CI. This is what would have caught A1.
+- TypeScript blocks are extracted from the READMEs and compiled in CI, which
+  is what would have caught A1.
 - Grounding's generated output is typechecked rather than string-matched,
   catching A2. Verified to fail on the original bug rather than pass vacuously.
 - `test/deprecated.test.ts` exercises every legacy spelling, so the

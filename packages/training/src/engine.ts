@@ -42,7 +42,7 @@ export interface OptimizeRequest {
  * Choosing a model previously meant constructing a whole replacement engine,
  * which is a lot of ceremony for the first thing most users want to change. */
 export interface ModelSelection {
-	/** A pre-built client the configured engine should use directly -- the
+	/** A pre-built client the configured engine should use directly, the
 	 * escape hatch that makes the library responsible for *no* provider list.
 	 * Carried opaquely, like `variables`: this package never calls it, and the
 	 * engine defines what it accepts (the default Ax engine takes any
@@ -51,7 +51,7 @@ export interface ModelSelection {
 	readonly service?: unknown;
 	/** Provider id, resolved by the configured engine, e.g. `"openai"`,
 	 * `"anthropic"`, `"google-gemini"`. The default Ax engine hands it to Ax's
-	 * own provider registry, so any provider Ax supports works here -- this
+	 * own provider registry, so any provider Ax supports works here: this
 	 * library maintains no list of its own. For anything beyond that registry,
 	 * supply {@link ModelSelection.service}. */
 	readonly provider?: string;
@@ -129,14 +129,14 @@ export type ImplementationExecutor = (
 
 const AsyncFunction = Object.getPrototypeOf(async function () { /* shape only */ }).constructor as FunctionConstructor;
 
-/** Runs a candidate body directly with `new Function` -- no sandbox, no
+/** Runs a candidate body directly with `new Function`: no sandbox, no
  * timeout, full access to the process. The executor every test double in this
  * repo reimplemented by hand; exported so nobody else has to. Use it only
- * where the candidate is trusted -- tests and local development loops. The
+ * where the candidate is trusted: tests and local development loops. The
  * executor the root package wires by default runs candidates in isolation. */
 export const directExecutor: ImplementationExecutor = async (target, implementation, args, options) => {
-	// An async target's candidates may legitimately contain `await` -- the
-	// engine validates them against an async declaration -- so they must be
+	// An async target's candidates may legitimately contain `await` (the
+	// engine validates them against an async declaration), so they must be
 	// compiled as async functions, not thrown at a sync Function constructor.
 	const compile = target.async ? AsyncFunction : Function;
 	const body = new compile(...target.parameters.map((parameter) => parameter.name), implementation) as (
@@ -158,7 +158,7 @@ const proposedImplementation = z.string({ error: "engine implementation must be 
 /** The engine proper. It owns request validation, implementation cleanup,
  * TypeScript validation, and candidate identity; the proposal itself is
  * delegated to the composed optimizer strategy. Consumers never extend this
- * pipeline — they supply a `TrainingEngine` strategy and the runtime wraps it. */
+ * pipeline: they supply a `TrainingEngine` strategy and the runtime wraps it. */
 export class CandidateEngine {
 	readonly #strategy: TrainingEngine;
 

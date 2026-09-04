@@ -248,8 +248,8 @@ describe("The errors a user meets", () => {
 		scenario.givenAnEngineThatFails("model unavailable");
 		await scenario.whenTrainedAgainst([["abc", "ABC"]]);
 
-		// Not every failure originates here -- an engine's own error propagates
-		// unchanged, by design -- but library failures are always typed.
+		// Not every failure originates here (an engine's own error propagates
+		// unchanged, by design), but library failures are always typed.
 		const scenario2 = await given({ name: "errors-coded-2" });
 		scenario2.whenTheApplicationCalls("one");
 		await scenario2.whenTrainedFromCapturedTraffic(9);

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
-/** Content addressing for discovered bodies and candidates. The algorithm —
- * sha256 over canonical (key-sorted, two-space, newline-terminated) JSON — is a
+/** Content addressing for discovered bodies and candidates. The algorithm,
+ * sha256 over canonical (key-sorted, two-space, newline-terminated) JSON, is a
  * shared protocol with ts-autocode-rewrite: its guarded application refuses any
  * candidate whose target body digest no longer matches, so both packages must
  * digest identical content to identical values. */

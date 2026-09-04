@@ -99,7 +99,7 @@ export function discoverInSource(source: string, artifactRef = inMemoryArtifactR
 /** A parameter's declared type, or one inferred from a literal default.
  *
  * `retries = 2` has no type annotation, and reporting it as `unknown` reached
- * the default engine's field mapper as `json` -- so the optimizer was told a
+ * the default engine's field mapper as `json`, so the optimizer was told a
  * plainly numeric argument had an opaque shape. TypeScript infers these from
  * the initializer and so can we, for the literal forms that cover almost every
  * real default. Anything else stays `unknown`, as before. */
@@ -173,7 +173,7 @@ function targetFor(
 	const body = node.body as ts.Block;
 	const directive = firstDirective(body);
 	// TypeScript's error recovery synthesizes a body for an unterminated block,
-	// whose `end` can sit past EOF -- so a truncated file yielded a target
+	// whose `end` can sit past EOF, so a truncated file yielded a target
 	// claiming offsets outside its own source. Slicing clamps, so nothing was
 	// corrupted, but publishing an out-of-range range is malformed data crossing
 	// a public boundary. Clamp it: a no-op for source that parses.

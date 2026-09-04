@@ -8,8 +8,8 @@ import { discoverInSource } from "ts-autocode-training";
 
 // Discovery is the CLI's only failure surface, and the one behavior nothing
 // covered is what happens when it fails in a way the library does not model.
-// The rule the code states -- library errors are printed, anything else is a
-// real crash and must not be swallowed into a tidy exit code -- needs a
+// The rule the code states (library errors are printed, anything else is a
+// real crash and must not be swallowed into a tidy exit code) needs a
 // discovery that throws something else, which only a stub can produce.
 const discovery = vi.hoisted(() => ({ crash: undefined as Error | undefined }));
 
@@ -105,7 +105,7 @@ describe("ts-autocode status", () => {
 
 	it("renders the counts as a table when --json is not asked for", async () => {
 		// The table path only ever ran with no records at all, so the counting
-		// loop behind it -- the whole of what `status` reports -- was unexecuted.
+		// loop behind it (the whole of what `status` reports) was unexecuted.
 		const artifacts = join(directory, "table-artifacts");
 		await rm(artifacts, { recursive: true, force: true });
 		await mkdir(artifacts, { recursive: true });

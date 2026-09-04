@@ -52,7 +52,7 @@ export function normalizeMarker(marker: string): string {
 
 /** Single configuration entry point: binds a `"use <name>"` marker to its rewrite
  * behavior. After this, marking a method with that directive is all a consumer
- * needs — weaving and swapping happen through the configured behavior, not
+ * needs: weaving and swapping happen through the configured behavior, not
  * through explicit `annotateRewrite`/`swapImplementation` calls. */
 export function configureRewrite(config: RewriteConfig): void {
 	const marker = normalizeMarker(config.marker);

@@ -233,15 +233,15 @@ function suppliedService(value: unknown): AxAIService {
 		return value as AxAIService;
 	}
 	throw new InvalidSettingsError(
-		"model.service must be an AxAIService (an object with a chat method), or a factory returning one -- e.g. ai({ name, apiKey }) from @ax-llm/ax",
+		"model.service must be an AxAIService (an object with a chat method), or a factory returning one, e.g. ai({ name, apiKey }) from @ax-llm/ax",
 	);
 }
 
 /** Builds an Ax service from a provider-neutral {@link ModelSelection}. A
- * user-supplied `service` wins outright -- this library then holds no opinion
+ * user-supplied `service` wins outright: this library then holds no opinion
  * about providers at all. Otherwise `provider` is handed to Ax's own registry;
  * `apiKey` wins over the secret provider, then the environment names known for
- * that provider -- so naming a provider is enough. */
+ * that provider, so naming a provider is enough. */
 async function defaultAI(
 	context: EngineContext,
 	selection: ModelSelection | ModelSelection["teacher"],

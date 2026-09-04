@@ -43,7 +43,7 @@ export interface AppliedRewrite {
 }
 
 /** Apply a candidate and record the snapshot that reverts it exactly. Whether
- * a candidate deserves to be committed is the consumer's call — any gating
+ * a candidate deserves to be committed is the consumer's call: any gating
  * (approval, review, policy) happens before this function is reached. */
 export function commitRewrite(source: string, candidate: RewriteCandidate): AppliedRewrite {
 	const updated = applyCandidate(source, candidate);

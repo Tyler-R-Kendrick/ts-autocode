@@ -33,11 +33,11 @@ npm run check
   means adding both.
 - Provider choices are settings, not code: anything a user picks (a model, a
   timeout, a threshold) belongs on `TrainingSettings`/`TrainInput`, carried
-  opaquely if provider-specific — never a hardcoded registry in this repo.
+  opaquely if provider-specific, never a hardcoded registry in this repo.
 - **A trainable identity is never a plain string (ADR).** A string is not a
   sufficient identity to guarantee uniqueness. The design: the application
   declares a `unique symbol`, `@trainable(symbol)` keys the code with it, and
-  `train(symbol)` is symbol-key indexing — the symbol's object identity is the
+  `train(symbol)` is symbol-key indexing: the symbol's object identity is the
   guarantee. The marked method itself also works (instrumentation stamps it).
   String-typed identity, including `defineTrainable("...")` in examples, is a
   hard failure: `test/adr.test.ts` pins the string form as a compile error and
@@ -56,7 +56,7 @@ Seven kinds of suite, each answering a question the others cannot:
 | --- | --- |
 | unit (`packages/*/test`) | does this function decide correctly? |
 | behavior (`test/behavior.test.ts`) | is the documented promise still true? |
-| contract (`test/contract.test.ts`, `packages/training/test/conformance.test.ts`) | does every implementation satisfy the published seam — and does the suite reject one that does not? |
+| contract (`test/contract.test.ts`, `packages/training/test/conformance.test.ts`) | does every implementation satisfy the published seam, and does the suite reject one that does not? |
 | characterization (`test/characterization*.test.ts`) | what exactly does the generated output look like now? |
 | property and fuzz (`test/property.test.ts`, `test/fuzz.test.ts`) | does the invariant hold across generated input? |
 | chaos (`test/chaos.test.ts`) | what happens when the engine, store, executor or file fails? |
@@ -66,7 +66,7 @@ Three ratchets guard them, and all three are raised as suites improve, never
 lowered to get a build green:
 
 - coverage thresholds in `vitest.config.ts`;
-- the mutation `break` threshold in `stryker.config.json` — a genuinely
+- the mutation `break` threshold in `stryker.config.json`: a genuinely
   equivalent mutant is excluded at the line with `// Stryker disable next-line
   <mutator>: <reason>`, which a reviewer can see;
 - `noUnusedLocals`/`noUnusedParameters`, which is what would have caught the

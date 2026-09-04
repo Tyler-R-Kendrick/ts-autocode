@@ -10,8 +10,8 @@ import { evolutionEnabled } from "../src/evolve.js";
 import { anyModule, damagedModule, markedModule } from "./support/sources.js";
 
 // Fuzzing: feed the parsers arbitrary and deliberately hostile input and assert
-// they fail predictably rather than crashing, hanging, or -- worst for this
-// library -- silently corrupting a user's source file.
+// they fail predictably rather than crashing, hanging, or (worst for this
+// library) silently corrupting a user's source file.
 //
 // Every one of these functions runs against code the library did not write:
 // `augmentSource` sees every module a user loads, and `scanDeclaredTrainables`
@@ -56,8 +56,8 @@ describe("source discovery", () => {
 
 	it("relates the body slice, implementation and digest exactly as documented", () => {
 		// These three fields have subtly different relationships to the source
-		// -- `implementation` is trimmed, `bodyDigest` hashes the raw slice --
-		// and nothing said so until a property test asked. Guarded application
+		// (`implementation` is trimmed, `bodyDigest` hashes the raw slice), and
+		// nothing said so until a property test asked. Guarded application
 		// depends on the digest side, so the distinction is load-bearing.
 		fc.assert(fc.property(hostileSource, (source) => {
 			for (const target of safeDiscover(source)) {
@@ -211,7 +211,7 @@ describe("the fuzz corpus itself", () => {
 	// than the code, so they draw from a fixed seed. Unseeded, each run drew a
 	// different corpus: `markedModule` can emit a class of only unmarked
 	// methods and no marked free function, so the hit rate is a binomial around
-	// 90 in 100 -- measured across seeds it ranges 83 to 95 -- and a threshold
+	// 90 in 100 (measured across seeds it ranges 83 to 95), and a threshold
 	// of 80 sits about three standard deviations out. CI duly drew 79 one run
 	// and failed on a corpus that was doing its job. A seeded draw measures the
 	// same thing every time and on every machine, and still fails loudly if the

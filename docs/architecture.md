@@ -48,9 +48,9 @@ vocabulary: `captureTrainable(...)`, the entry any instrumentation mechanism
 calls to route a marked-method call through runtime capture, and the
 `PromotionApplier` provider, which applies a gate-approved candidate and
 returns how to undo it. The root `ts-autocode` package alone connects rewrite
-to both — its `configureRewriteCapture()` points the rewrite interceptor at
+to both: its `configureRewriteCapture()` points the rewrite interceptor at
 `captureTrainable`, and its `rewritePromotion` applier performs the
-digest-guarded source rewrite and live hot-swap — exactly as it wires the
+digest-guarded source rewrite and live hot-swap, exactly as it wires the
 harness `TrainingLoop`. The decorator and load-time instrumentation helpers
 (`trainable`, `wrapTrainable`, `instrumentTrainable`) live in the root package
 for the same reason: they are where identities meet weaving. Body digests are
@@ -65,8 +65,8 @@ instrumentation to every application module containing a `"use training"`
 directive, wiring each discovered class method or function declaration into the
 same capture path as the decorator. It also enables background evolution by
 default: after `evolution.minTraces` successful captures, the runtime runs the
-same train-and-promote pipeline — replay evals, candidate verification,
-promotion gate, guarded rewrite — off the hot path, reporting its progress and
+same train-and-promote pipeline (replay evals, candidate verification,
+promotion gate, guarded rewrite) off the hot path, reporting its progress and
 failures through `TrainingSettings.onEvent` (and, for the failures,
 `onError("evolve")`). Because it rewrites source files, its environment kill
 switch fails closed: an unrecognized `TS_AUTOCODE_EVOLVE` value throws rather
@@ -92,7 +92,7 @@ trainable id. `TrainingEngine` is a provider-neutral strategy that returns a
 replacement method implementation; the runtime composes it into its internal
 `CandidateEngine`, which owns request validation, implementation cleanup,
 TypeScript validation, and candidate identity. Engine overrides are therefore
-always composition — a strategy slotted into the same pipeline — never
+always composition (a strategy slotted into the same pipeline), never
 inheritance, and none of that pipeline is exposed to consumers.
 
 Ax is the default engine. It builds an Ax signature from the TypeScript method
@@ -100,7 +100,7 @@ signature, creates examples from runtime captures and AgentV results, and scores
 candidate implementations by running them in Ax's sandbox. Applications can
 replace it through the provider-neutral `engine` setting without changing
 capture, evaluation, or promotion. Provider-specific options do not appear in
-the root configuration contract — but choosing a provider and model is not a
+the root configuration contract, but choosing a provider and model is not a
 provider-specific option: `TrainingSettings.model` is a neutral
 `ModelSelection` descriptor that the training runtime carries to whatever
 engine is configured, exactly as it carries `secrets` and `variables`, so
@@ -114,8 +114,8 @@ the original traces and the bound baseline results.
 ## Training loop and the agent harness
 
 `ts-autocode-training` knows nothing about the harness. It defines the
-provider-neutral `TrainingLoop` contract — bounded propose/review rounds over
-its own candidate and promotion types — and ships the default loop as an
+provider-neutral `TrainingLoop` contract (bounded propose/review rounds over
+its own candidate and promotion types), and ships the default loop as an
 observable round sequence: `trainingRounds()` pushes each reviewed round to a
 subscriber as it settles, unsubscribing aborts in-flight work, and
 `sequentialLoop` is simply the subscription collected into one run. Rounds run
@@ -131,12 +131,12 @@ executor.
 The harness is callbacks all the way down: student, teacher, judge, and
 adversary are functions the consumer supplies, and the harness creates no
 agents, selects no models, and carries no prompts. Actors share an ordered
-append-only message bus that knows nothing about any of them — it records
+append-only message bus that knows nothing about any of them: it records
 messages with identity, ordering, and time, an optional access hook decides
 who may append or read, and storage is a pluggable `AgentBusStore` (in-memory
 by default; file-backed JSONL and remote implementations slot in). The bus
 does no context management: shaping history into actor context belongs to the
-consumer's `ContextProvider` — the root package wires a rolling window, and a
+consumer's `ContextProvider`. The root package wires a rolling window, and a
 summarizing provider can replace it. Messages are parsed into constrained
 types at the boundary (zod), never validated downstream. The write-ahead
 convention is layered on top:
@@ -160,10 +160,10 @@ Candidates can replace only the discovered method body. Application verifies the
 body digest before editing. The promotion gate is a rule set, not a procedure:
 each `PromotionGate` is a pure function over one shared `PromotionGateContext`
 (candidate, candidate-bound results, thresholds, aggregates) returning the
-failures it sees. The standard rules — conformance, evaluation binding,
-execution errors, score and pass-rate thresholds — always run;
+failures it sees. The standard rules (conformance, evaluation binding,
+execution errors, score and pass-rate thresholds) always run;
 `PromotionGateInput.gates` (or `TrainInput.promotion.gates`) appends extension
-rules, and the deprecated `policy` participates as one more gate — it always
+rules, and the deprecated `policy` participates as one more gate: it always
 was one, which is why a single list now expresses both. An activation's
 rollback stores only the previous and promoted method body and refuses to
 overwrite subsequent edits.
@@ -171,8 +171,8 @@ overwrite subsequent edits.
 ## Consumer surface
 
 The root package exports what an application needs; `ts-autocode/internal`
-carries the author-level seams — `captureTrainable`, `provideTrainingDefaults`,
-and the rewrite primitives — for building an engine, loop, executor, store, or
+carries the author-level seams (`captureTrainable`, `provideTrainingDefaults`,
+and the rewrite primitives) for building an engine, loop, executor, store, or
 instrumentation mechanism. Everything on the subpath is still exported from the
 root, so the split is organizational rather than a break.
 
@@ -183,11 +183,11 @@ Extension points are constructible: a custom `TrainingLoop` returns a
 
 Every failure the library raises carries a `code` and is recognized by
 `isTsAutocodeError`. Errors that have always been `TypeError`s or
-`SyntaxError`s still are — family membership is decided by a brand rather than
-the prototype chain — and every message string is unchanged.
+`SyntaxError`s still are (family membership is decided by a brand rather than
+the prototype chain), and every message string is unchanged.
 
 `ts-autocode discover` lists the trainables a project marks with their derived
 ids, and its suggested snippet shows the symbol-key flow: declare a
 `unique symbol`, decorate the printed method with `@trainable(symbol)`, and
-train with the same symbol. The printed id is informational — it names which
+train with the same symbol. The printed id is informational: it names which
 method to decorate, and is never something an application types back in.

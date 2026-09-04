@@ -25,7 +25,7 @@ const installedSdkVersion = (
 /** Builds the harness's default sandbox policy: writes confined to the
  * workspace, no local network, outbound only with an explicit `allowedHosts`
  * allowlist, and no UI, clipboard, or input access. This is a convenience
- * default, not a requirement — consumers needing different guarantees can
+ * default, not a requirement. Consumers needing different guarantees can
  * hand `HarnessSandbox` any `SandboxPolicy`, including one built by spreading
  * over this result. */
 export function createSandboxPolicy(input: SandboxPolicySettings): SandboxPolicy {

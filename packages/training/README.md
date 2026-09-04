@@ -14,7 +14,7 @@ optimization strategy, composed into the internal engine), `ImplementationExecut
 injected boundaries, and `captureTrainable(...)` is the entry any external
 instrumentation calls to route a marked call through runtime capture. Supply
 any of them per runtime through `TrainingSettings`, or register
-lazy defaults once with `provideTrainingDefaults(...)` — that is how the
+lazy defaults once with `provideTrainingDefaults(...)`: that is how the
 `ts-autocode` package wires Ax as the default engine and executor, the
 governed `ts-autocode-harness` loop as the default orchestrator, and
 `ts-autocode-rewrite` as capture interception and the promotion applier.

@@ -43,7 +43,7 @@ describe("promotion", () => {
 			conformance: true,
 		});
 		// The gate decides; the training-agnostic rewrite commit is only reached
-		// once the consumer has checked it — mirroring the wired applier.
+		// once the consumer has checked it, mirroring the wired applier.
 		expect(decision.promote).toBe(true);
 		const committed = commitRewrite(source, patch);
 

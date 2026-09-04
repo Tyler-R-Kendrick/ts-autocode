@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 // Deliberately no `./wiring.js` import: this file exercises the runtime with
 // NO process-wide promotion applier registered, which is exactly the state
-// canActivate() lied about -- it reported ready and activate() then threw
+// canActivate() lied about: it reported ready and activate() then threw
 // PromotionApplierNotConfiguredError anyway.
 import {
 	createTrainingRuntime,

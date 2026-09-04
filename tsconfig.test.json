@@ -18,6 +18,6 @@
 	"include": ["src", "test", "examples", "vitest.config.ts"],
 	// Approved snapshots are generated artifacts, not sources. The emitted
 	// instrumentation deliberately references names from the module it is
-	// appended to, so it does not typecheck standalone -- and must not be asked to.
+	// appended to, so it does not typecheck standalone, and must not be asked to.
 	"exclude": ["test/output", "test/snapshots", "test/.agentv", "examples/output"]
 }

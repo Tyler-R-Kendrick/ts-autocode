@@ -28,7 +28,7 @@ export interface HarnessSandboxSettings {
 	/** Gate consulted before every operation runs; without one, operations are
 	 * still written ahead and recorded but execute ungated. */
 	readonly gate?: ActionGate;
-	/** Paths that must remain outside every writable sandbox path — for example
+	/** Paths that must remain outside every writable sandbox path, for example
 	 * a file-backed bus log the sandboxed agent must not be able to tamper with. */
 	readonly protectedPaths?: readonly string[];
 	/** Absolute paths outside the workspace the sandboxed process may read. */

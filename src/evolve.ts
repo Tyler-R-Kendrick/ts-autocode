@@ -1,7 +1,7 @@
 // The evolve kill switch, kept apart from `ts-autocode/register` so it can be
 // read and tested without installing a module load hook. Importing
 // `src/register.ts` runs that installation, which is not something a unit test
-// of a string-parsing rule should require -- and on a Node without
+// of a string-parsing rule should require, and on a Node without
 // `module.registerHooks` it throws outright.
 
 /** Environment switch for zero-config evolution. Loading `ts-autocode/register`

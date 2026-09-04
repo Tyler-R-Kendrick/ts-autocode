@@ -2,7 +2,7 @@ import { WriteAheadAgentBus } from "./bus.js";
 import { dispatchAction, recordDecision, type ActionGate, type JudgeDecision } from "./dispatch.js";
 import { candidateKey, roundLimit, rubricText, type AgentBusEntry } from "./schema.js";
 
-// The run's actors — named for the HarnessInput callbacks they run — and the
+// The run's actors (named for the HarnessInput callbacks they run) and the
 // message kinds they write, spelled once here. Bus entries are serialized to
 // storage, so both must stay plain strings rather than symbols.
 const actors = { student: "student", teacher: "teacher", adversary: "adversary" } as const;
@@ -37,7 +37,7 @@ export interface TeacherResult<TAssessment, TFeedback> {
 
 /** What the adversary reports back: the challenge artifact plus the evidence
  * it gathered against the candidate. Mirrors `TeacherResult`, and the feedback
- * is what the default judge weighs — a challenge without evidence fails. */
+ * is what the default judge weighs: a challenge without evidence fails. */
 export interface AdversaryResult<TChallenge, TFeedback> {
 	readonly challenge: TChallenge;
 	readonly feedback: readonly TFeedback[];
@@ -104,7 +104,7 @@ export interface HarnessRun<TCandidate, TAssessment, TChallenge> {
 	readonly rounds: readonly HarnessRound<TCandidate, TAssessment, TChallenge>[];
 	readonly final: HarnessRound<TCandidate, TAssessment, TChallenge>;
 	readonly rubric: string;
-	/** The run's message bus — the full audit log, even when defaulted. */
+	/** The run's message bus: the full audit log, even when defaulted. */
 	readonly bus: WriteAheadAgentBus;
 }
 
@@ -198,8 +198,8 @@ export function defineTrainingHarness<TCandidate, TAssessment, TFeedback>(
 			const contextOf = async (actor?: string) => provide(await bus.read(actor));
 
 			// Every actor invocation is written ahead; a configured judge also
-			// gates it, and every verdict — the judge's or the evidence
-			// convention's — lands on the bus as an ordinary judge message.
+			// gates it, and every verdict (the judge's or the evidence
+			// convention's) lands on the bus as an ordinary judge message.
 			const gate: ActionGate | undefined = judge === undefined ? undefined : async (action, context) =>
 				judge(Object.freeze({ subject: "action", action, context: await provide(context) }));
 			const dispatch = <T>(actor: string, kind: string, payload: unknown, execute: () => Promise<T> | T) =>

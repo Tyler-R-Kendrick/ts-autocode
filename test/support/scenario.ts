@@ -15,7 +15,7 @@ import {
 //
 // The other suites are organized around units and failure modes. These are
 // organized around what a *user* is trying to do, in the vocabulary the README
-// uses -- mark a method, capture traffic, train, gate, activate, roll back.
+// uses: mark a method, capture traffic, train, gate, activate, roll back.
 // That makes them the suite that fails when the documented promise stops being
 // true, even if every unit still passes.
 //
@@ -65,7 +65,7 @@ export class Scenario {
 		this.#proposal = options.proposal ?? "return input.toUpperCase();";
 	}
 
-	// ------------------------------------------------------------------ given
+	// given
 
 	/** The marked module exists on disk, as a developer's project would. */
 	async givenAMarkedModule(): Promise<this> {
@@ -115,7 +115,7 @@ export class Scenario {
 		return this.#training;
 	}
 
-	// ------------------------------------------------------------------- when
+	// when
 
 	/** The application calls the marked method. */
 	whenTheApplicationCalls(...inputs: readonly string[]): this {
@@ -208,7 +208,7 @@ export class Scenario {
 		return this;
 	}
 
-	// ------------------------------------------------------------------- then
+	// then
 
 	get run(): TrainingRun {
 		if (this.#run === undefined) throw new Error("no training run: the scenario never trained, or training threw");

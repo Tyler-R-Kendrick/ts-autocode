@@ -29,8 +29,8 @@ export type { TrainableDecorator } from "./instrumentation.js";
 // asserts that every runtime value exported by ts-autocode-training and
 // ts-autocode-rewrite is reachable from here. They had drifted, leaving
 // README-documented symbols such as `trainingRounds` and `sequentialLoop`
-// unreachable, and `defaultPromotionGates` -- needed to compose
-// `TrainInput.gates` with the standard set -- unavailable.
+// unreachable, and `defaultPromotionGates` (needed to compose
+// `TrainInput.gates` with the standard set) unavailable.
 export {
 	candidateDeclaration,
 	CandidateSyntaxError,

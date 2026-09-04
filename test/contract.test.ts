@@ -21,15 +21,15 @@ import { executeImplementation } from "../src/execution.js";
 // conformance suite a third party would use.
 //
 // This is the positive half. That the suites also *reject* a violating
-// implementation -- which is what makes them a contract rather than a
-// formality -- is proved in packages/training/test/conformance.test.ts, against
+// implementation (which is what makes them a contract rather than a
+// formality) is proved in packages/training/test/conformance.test.ts, against
 // stores, engines, executors, loops and appliers built to break one named rule
 // each. Three such stores were once copied here too and left unreferenced;
 // they belong in one place.
 //
 // The provider-neutral design says any structurally compatible implementation
 // works. That was only ever checked against these implementations informally,
-// through the paths that happened to exercise them -- which is not the same as
+// through the paths that happened to exercise them, which is not the same as
 // checking they satisfy a stated contract. Running the shipped providers
 // through the published suite also proves the suite is satisfiable, which is
 // what makes it safe to hand to someone else.

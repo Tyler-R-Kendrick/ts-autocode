@@ -50,7 +50,7 @@ describe("wrapping a directive-marked free function", () => {
 	// `wrapTrainable` is the load-time half of the zero-config flow: what
 	// `ts-autocode/register` calls for a `"use training"` function rather than a
 	// class method. Every test of that flow installs a stub `wrap` handler, so
-	// the real wrapper was built but never called -- the capture, the identity
+	// the real wrapper was built but never called: the capture, the identity
 	// stamp and the hot-swap it exists to route through were all unexercised.
 
 	it("returns what the function returns, and captures the call", async () => {

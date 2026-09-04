@@ -122,7 +122,7 @@ describe("trainableIdFromKey", () => {
 describe("registerTrainable", () => {
 	// The symbol index is what makes `train(route)` plain key indexing; every
 	// branch here decides which trainable a symbol resolves to, so each one is
-	// pinned individually -- a surviving mutant in this file is an identity bug.
+	// pinned individually: a surviving mutant in this file is an identity bug.
 	it("binds a unique symbol to the machinery-derived token, keeping the symbol", () => {
 		const key: unique symbol = Symbol("key");
 		const bound = registerTrainable(key, defineTrainable("Derived.method"));

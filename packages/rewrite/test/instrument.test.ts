@@ -108,7 +108,7 @@ describe("instrumentation emission", () => {
 		// The `wrap` handler returns a *different* function on purpose. Returning
 		// the original made the assertions pass whether or not the emitted setter
 		// worked at all, and rebinding the module's own name is the entire reason
-		// the setter is emitted -- it is how a promoted candidate replaces a
+		// the setter is emitted: it is how a promoted candidate replaces a
 		// directive-marked free function.
 		const { handlers, methods, wrapped } = recordingInstrumentation();
 		const replacement = (input: string) => input.toUpperCase();

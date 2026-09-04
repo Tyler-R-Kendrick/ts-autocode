@@ -39,7 +39,7 @@ describe("cross-package digest protocol", () => {
 	});
 
 	it("grounding's text digest is deliberately a different function", () => {
-		// Same `sha256:` prefix, different algorithm -- swapping them silently
+		// Same `sha256:` prefix, different algorithm: swapping them silently
 		// changes every hash, which is why it was renamed `textDigest`.
 		expect(textDigest("a\nb")).not.toBe(rewriteDigest("a\nb"));
 		// And it normalizes line endings, which the value digest does not.

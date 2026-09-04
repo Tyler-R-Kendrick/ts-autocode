@@ -4,7 +4,7 @@ import { composeOptions, PENDING_GROUNDINGS, type PendingGrounding, type Pending
 // granular-declared method (or every own method with fully inferred
 // groundings) against a host-provided registry, and `component`-style
 // metadata records the class's declared intent + operation refs. The
-// registry and metadata symbols are parameters — this package never
+// registry and metadata symbols are parameters: this package never
 // imports a training runtime, so any host (ts-autocode root, HoBo
 // runtime, …) wires its own.
 
@@ -23,7 +23,7 @@ export const REGISTERED_METHODS = Symbol.for("ts-autocode.grounding.registered")
  * Register every granular-declared method of a class (bare class
  * decorator). Methods with pending groundings are registered; when nothing
  * was annotated, every own prototype method is registered with fully
- * inferred groundings — the decorators are all optional. Baselines bind to
+ * inferred groundings: the decorators are all optional. Baselines bind to
  * a lazily constructed instance (DI semantics; falls back to the prototype
  * for non-constructible classes).
  */
@@ -73,7 +73,7 @@ export function finalizeTrainableClass(
 }
 
 export interface ComponentOptions {
-	/** What the component is for — the component-level generation intent. */
+	/** What the component is for: the component-level generation intent. */
 	readonly intent: string;
 }
 

@@ -274,8 +274,8 @@ describe("training harness", () => {
 	});
 
 	// The policy builder is the whole of the default confinement story, and only
-	// its `version` field was ever asserted. Every other branch -- the outbound
-	// allowlist above all -- decides what a model-driven agent can reach.
+	// its `version` field was ever asserted. Every other branch (the outbound
+	// allowlist above all) decides what a model-driven agent can reach.
 	describe("the default policy it builds", () => {
 		it("confines writes to the workspace and denies the network outright", () => {
 			const policy = createSandboxPolicy({ workspace: tmpdir() });

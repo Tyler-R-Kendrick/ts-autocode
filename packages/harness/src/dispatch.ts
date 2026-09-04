@@ -5,11 +5,11 @@ import type { WriteAheadAgentBus } from "./bus.js";
 import type { AgentBusEntry } from "./schema.js";
 
 /** The only verdicts a judge may return. Gates and judges are typed against
- * this union, so their outputs are used as returned — nothing re-parses them. */
+ * this union, so their outputs are used as returned: nothing re-parses them. */
 export type JudgeDecision = "pass" | "fail";
 
 /** Decides whether a proposed action may execute. In this harness the gate is
- * implemented by the judge — an ordinary actor whose verdict is recorded on
+ * implemented by the judge, an ordinary actor whose verdict is recorded on
  * the bus as one more message, with no special standing there. */
 export type ActionGate = (
 	action: AgentBusEntry,
@@ -28,7 +28,7 @@ export class AgentActionDeniedError extends Error {
 }
 
 // The names the write-ahead convention itself writes, spelled once here. Bus
-// entries are serialized to storage, so these must stay plain strings —
+// entries are serialized to storage, so these must stay plain strings:
 // symbols would not survive the round trip.
 const judgeActor = "judge";
 const decisionKind = "agent.decision";
@@ -46,7 +46,7 @@ export function recordDecision(
 /** The write-ahead convention, layered on top of the plain message bus:
  * record the intent, ask the gate, record the verdict as the judge's own
  * message, execute only after a pass, and record the outcome. Without a gate
- * the action is logged and executed. Failure records are best-effort taps —
+ * the action is logged and executed. Failure records are best-effort taps:
  * the gate or execution error stays the outcome, rethrown as itself. */
 export async function dispatchAction<T>(
 	bus: WriteAheadAgentBus,

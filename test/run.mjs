@@ -10,7 +10,7 @@ await resetVerifiedMarkers();
 
 const args = process.argv.slice(2);
 // Anything that is not a flag is a file filter, and a filtered run legitimately
-// compares against almost no approved snapshots -- so the orphan check below
+// compares against almost no approved snapshots, so the orphan check below
 // only applies when the whole suite ran.
 const fullRun = args.every((argument) => argument.startsWith("-"));
 

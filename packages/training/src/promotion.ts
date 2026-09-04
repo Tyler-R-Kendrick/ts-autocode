@@ -4,8 +4,8 @@ import { z } from "zod";
 import type { BoundEvaluation, CandidatePatch } from "./engine.js";
 import { parseSetting } from "./errors.js";
 
-/** A threshold in [0, 1]. Every rejection -- wrong type, NaN, Infinity, or
- * merely out of range -- reports the same message, because a user who passed a
+/** A threshold in [0, 1]. Every rejection (wrong type, NaN, Infinity, or
+ * merely out of range) reports the same message, because a user who passed a
  * bad threshold wants to know the range, not Zod's type vocabulary. Without the
  * base-schema message, `minScore: Infinity` reported "expected number,
  * received number", which says nothing useful. */
@@ -31,7 +31,7 @@ export interface PromotionGateInput {
 	readonly minPassRate?: number;
 	readonly policy?: (candidate: CandidatePatch) => boolean | Promise<boolean>;
 	/** Extra gates run after the standard set; each failure they return blocks
-	 * promotion. The standard invariants always run — extension adds rules, it
+	 * promotion. The standard invariants always run: extension adds rules, it
 	 * cannot waive them. */
 	readonly gates?: readonly PromotionGate[];
 }

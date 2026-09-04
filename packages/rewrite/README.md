@@ -1,18 +1,18 @@
 # ts-autocode-rewrite
 
 Guarded source rewriting and hot-swappable AOP interception, driven by a
-configurable `"use <name>"` marker. The package is general — it knows nothing
+configurable `"use <name>"` marker. The package is general: it knows nothing
 about any consumer domain. A consumer registers a marker and its behavior once, and
 marking a method with that directive is all that's needed after that.
 
 ## Two ways a candidate becomes real
 
-- **Source rewrite** — `applyCandidate` replaces exactly the discovered method
+- **Source rewrite.** `applyCandidate` replaces exactly the discovered method
   body behind a digest guard; `commitRewrite`/`revertRewrite` add snapshots
   that refuse to overwrite subsequent edits. Whether a candidate deserves to
-  be committed is the consumer's decision — any approval or gating logic lives
+  be committed is the consumer's decision: any approval or gating logic lives
   with the consumer, not here.
-- **Hot-swappable advice** — an [AspectJS](https://www.npmjs.com/package/@aspectjs/core)
+- **Hot-swappable advice.** An [AspectJS](https://www.npmjs.com/package/@aspectjs/core)
   `Rewrite` annotation and `@Around` aspect weave marked methods so their live
   implementation dispatches through a swap registry. Swapping changes behavior
   in the running process without touching source.
@@ -21,7 +21,7 @@ marking a method with that directive is all that's needed after that.
 
 `configureRewrite` is the single entry point. It binds a `"use <name>"` marker
 to its rewrite behavior (an optional per-invocation interceptor). After that,
-the `"use <name>"` directive is the shorthand — a consumer's discovery or load
+the `"use <name>"` directive is the shorthand. A consumer's discovery or load
 hook weaves each marked method, and committing a rewrite drives the swap:
 
 ```ts
@@ -57,7 +57,7 @@ and used as the annotation's configuration key.
 `annotateRewrite(owner, method, id, marker)` weaves a method directly, and
 `swapImplementation(id, fn)` / `restoreImplementation(id)` change live behavior
 without touching source. These back the shorthand above and are exported for
-tests and custom orchestration — they are not part of the normal consumer path,
+tests and custom orchestration. They are not part of the normal consumer path,
 which is: configure a marker, mark methods, commit rewrites.
 
 Every AspectJS decorator is applied programmatically, so the package does not

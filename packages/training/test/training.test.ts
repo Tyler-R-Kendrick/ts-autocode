@@ -401,7 +401,7 @@ describe("capture on an isolated runtime", () => {
 describe("promotion applier on an isolated runtime", () => {
 	// Every other seam resolved `settings.X ?? defaultProviders.X`; `promote`
 	// alone read the process-wide provider, so an applier could not be injected
-	// per runtime. `createTrainingRuntime` therefore left one seam global -- the
+	// per runtime. `createTrainingRuntime` therefore left one seam global, the
 	// one that writes generated code into a source file. Found while writing the
 	// provider authoring guide: the wiring example would not compile.
 	async function trained(promote: PromotionApplier, name: string) {
@@ -578,7 +578,7 @@ describe("call-site shorthand", () => {
 describe("review findings pinned", () => {
 	it("directExecutor runs await-bearing candidates for async targets", async () => {
 		// The engine validates async candidates against an async declaration, so
-		// the shipped executor must compile them as async functions -- a sync
+		// the shipped executor must compile them as async functions: a sync
 		// Function constructor throws on `await` before the body ever runs.
 		const { conformanceAsyncTarget } = await import("../src/conformance.js");
 		await expect(
@@ -588,7 +588,7 @@ describe("review findings pinned", () => {
 
 	it("the ambient training.train forwards the positional options", async () => {
 		// The frozen `training` facade wrapped train as (input) => ..., silently
-		// dropping the second argument of train(identity, options) -- the exact
+		// dropping the second argument of train(identity, options), the exact
 		// call the docs advertise. Dropped options mean the run falls back to
 		// replay and fails with InsufficientTracesError before ever looking at
 		// the source; forwarded cases skip replay and reach source discovery.

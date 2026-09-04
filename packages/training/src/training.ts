@@ -110,7 +110,7 @@ export interface ExecutionSettings {
 	 * `JSON.parse`d and a resulting array is spread as arguments. That guess is
 	 * lossy: a function legitimately taking the single string `"[1,2]"`
 	 * receives two numbers instead. Set this when your trainable's arguments
-	 * are not what the guess produces — `(input) => [input]` passes the raw
+	 * are not what the guess produces: `(input) => [input]` passes the raw
 	 * string through unchanged. */
 	readonly decodeArgs?: (input: string) => readonly unknown[];
 }
@@ -127,7 +127,7 @@ export interface TrainingSettings {
 	 * settings before falling back to {@link provideTrainingDefaults}; this one
 	 * did not exist, so an applier could only ever be registered process-wide.
 	 * That left {@link createTrainingRuntime} sharing one applier between
-	 * runtimes -- the component that writes generated code into a source file. */
+	 * runtimes, the component that writes generated code into a source file. */
 	readonly promote?: Promoter;
 	readonly evolution?: EvolutionSettings;
 	/** Default directory for run artifacts and eval output; a run's
@@ -179,7 +179,7 @@ export interface RoundSettings {
 }
 
 /** What a candidate must clear to be promoted. `policy` was always a
- * {@link PromotionGate} in disguise -- the gate evaluator wrapped it into one --
+ * {@link PromotionGate} in disguise (the gate evaluator wrapped it into one),
  * so a single `gates` list now expresses both. */
 export interface PromotionSettings {
 	readonly minScore?: number;
@@ -282,7 +282,7 @@ export interface AppliedPromotion {
 	rollback(): Promise<void>;
 }
 
-/** Applies a gate-approved candidate — to its source artifact and, where the
+/** Applies a gate-approved candidate to its source artifact and, where the
  * wired provider supports it, the running process. How is the provider's
  * concern; training only requires that the application be undoable. The
  * resolved executor is passed along for providers that run candidates live. */
@@ -292,7 +292,7 @@ export type Promoter = (
 	executor?: ImplementationExecutor,
 ) => Promise<AppliedPromotion>;
 
-/** @deprecated Renamed to {@link Promoter} — the agent noun its four sibling
+/** @deprecated Renamed to {@link Promoter}, the agent noun its four sibling
  * seams already use (engine, executor, loop, store). Structurally identical;
  * existing implementations need no change. */
 export type PromotionApplier = Promoter;
@@ -311,8 +311,8 @@ export interface Training {
 	 *
 	 * {@link captureTrainable} does the same thing for the process-wide runtime,
 	 * and is what installed instrumentation calls. A runtime built with
-	 * {@link createTrainingRuntime} is not reachable that way -- it registers
-	 * nothing globally, by design -- so without this an isolated runtime could
+	 * {@link createTrainingRuntime} is not reachable that way (it registers
+	 * nothing globally, by design), so without this an isolated runtime could
 	 * train and evaluate but never capture, which is half a runtime. */
 	capture<This, Args extends unknown[], Result>(
 		trainable: TrainableIdentity,
@@ -765,8 +765,8 @@ export interface ConfigureOptions {
  * delegates to. Replaces the current settings unless `merge` is set; pass
  * `{ merge: true }` to layer onto whatever is already configured.
  *
- * For an isolated runtime that touches no global state — a test, or a host
- * serving several tenants — use {@link createTrainingRuntime}. */
+ * For an isolated runtime that touches no global state (a test, or a host
+ * serving several tenants), use {@link createTrainingRuntime}. */
 export function configureTraining(settings: TrainingSettings = {}, options: ConfigureOptions = {}): Training {
 	configuredSettings = options.merge ? { ...configuredSettings, ...settings } : settings;
 	configuredTraining = new TrainingRuntime(configuredSettings);
@@ -847,8 +847,8 @@ function activationReadiness(run: TrainingRun, hasApplier: () => boolean): Activ
 	const { decision } = run.final;
 	if (decision.promote && hasApplier()) return Object.freeze({ ready: true as const });
 	// Everything #activate would throw for must be visible here, or the
-	// documented contract -- "whether activate() would succeed, without
-	// throwing" -- is false for exactly the runtimes isolation exists for.
+	// documented contract, "whether activate() would succeed, without
+	// throwing", is false for exactly the runtimes isolation exists for.
 	const failures = decision.promote
 		? [new PromotionApplierNotConfiguredError().message]
 		: decision.failures;
@@ -866,8 +866,8 @@ function defaultSerialize(value: unknown): string {
 
 /** The default {@link ExecutionSettings.decodeArgs}: parse the eval input as
  * JSON and spread an array as the argument list, falling back to the raw string.
- * Ambiguous by nature — a trainable taking the literal string `"[1,2]"` gets
- * two numbers — which is why it is replaceable. */
+ * Ambiguous by nature (a trainable taking the literal string `"[1,2]"` gets
+ * two numbers), which is why it is replaceable. */
 export function evaluationArgs(input: string): readonly unknown[] {
 	return attempt(() => {
 		const parsed = JSON.parse(input) as unknown;
@@ -931,7 +931,7 @@ function promotionRubric(input: TrainInput): string {
 	return [
 		"Candidate must pass source conformance checks.",
 		// The judge reads this verbatim, so it must carry the resolved numbers a
-		// candidate is actually held to -- never a placeholder.
+		// candidate is actually held to, never a placeholder.
 		`Minimum evaluation score: ${options.minScore ?? defaultMinScore}.`,
 		`Minimum evaluation pass rate: ${options.minPassRate ?? defaultMinPassRate}.`,
 		input.policy === undefined ? "No additional promotion policy." : "Candidate must pass the configured promotion policy.",

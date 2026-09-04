@@ -17,8 +17,8 @@ export type AgentWriter = (kind: string, payload?: unknown) => Promise<AgentBusE
 const entryPrefix = "entry";
 
 export interface AgentBusSettings {
-	/** Where entries live: any [unstorage](https://unstorage.unjs.io) instance
-	 * — the driver (memory, fs, redis, http, ...) is the consumer's choice.
+	/** Where entries live: any [unstorage](https://unstorage.unjs.io) instance.
+	 * The driver (memory, fs, redis, http, ...) is the consumer's choice.
 	 * In-memory storage when unset. A bus expects sole write access to its
 	 * `entry:*` keys; share a wider storage by mounting or prefixing it. */
 	readonly storage?: Storage;

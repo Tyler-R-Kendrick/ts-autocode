@@ -19,15 +19,15 @@ import {
 
 // Decisions the maintainer has made at the ADR level, pinned so they cannot
 // be undone as a convenience. Each entry states the decision, refuses the
-// rejected spelling at COMPILE time via @ts-expect-error -- if the surface
+// rejected spelling at COMPILE time via @ts-expect-error (if the surface
 // ever admits it again, the suppression becomes unused and `npm run
-// typecheck` fails -- and shows the accepted spellings still work.
+// typecheck` fails), and shows the accepted spellings still work.
 // AGENTS.md states these rules for anyone (or anything) working here.
 
 describe("ADR: trainable identity is never a plain string", () => {
 	it("a string identity does not compile, and does not run", async () => {
 		await expect(
-			// @ts-expect-error -- rejected by ADR: identity is a symbol key, never a string.
+			// @ts-expect-error rejected by ADR: identity is a symbol key, never a string.
 			training.records("Router.route"),
 		).rejects.toThrow("must be a symbol or TrainableToken");
 	});
@@ -35,7 +35,7 @@ describe("ADR: trainable identity is never a plain string", () => {
 	// The intended design, end to end: the application owns a unique symbol,
 	// `@trainable(symbol)` keys the code with it, and `train(symbol)` is plain
 	// symbol-key indexing. The durable id the machinery needs is derived from
-	// the declaration -- the user types no name anywhere.
+	// the declaration: the user types no name anywhere.
 	it("a unique symbol declared by the app keys the trainable end to end", async () => {
 		const route: unique symbol = Symbol("route");
 		class Router {
@@ -95,9 +95,9 @@ describe("ADR: trainable identity is never a plain string", () => {
 	// The declaration-site string is machinery's business, never a pattern the
 	// docs teach. A snippet calling defineTrainable( is a hard failure.
 	it("no documentation snippet teaches defineTrainable(...)", () => {
-		// Discovered, not listed: the list this replaced left out AGENTS.md --
-		// the document that states this very ADR and carries the snippet
-		// demonstrating it -- so the file defining the rule was exempt from the
+		// Discovered, not listed: the list this replaced left out AGENTS.md
+		// (the document that states this very ADR and carries the snippet
+		// demonstrating it), so the file defining the rule was exempt from the
 		// check enforcing it.
 		const offenders = documentationFiles()
 			.filter((doc) => snippets(readDoc(doc)).some((code) => code.includes("defineTrainable(")));
@@ -107,7 +107,7 @@ describe("ADR: trainable identity is never a plain string", () => {
 	it("no example calls defineTrainable(...) either", async () => {
 		// Examples are the other place an application copies from. The review
 		// that added this found examples/optimize.ts still teaching the banned
-		// pattern -- it escaped the snippet scan because it is a .ts file.
+		// pattern: it escaped the snippet scan because it is a .ts file.
 		const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 		const { readdirSync } = await import("node:fs");
 		const offenders = readdirSync(join(repoRoot, "examples"))

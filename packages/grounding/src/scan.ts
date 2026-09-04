@@ -3,7 +3,7 @@ import ts from "typescript";
 import { inferredIntent } from "./decorators.js";
 
 // AST scanner for ambient trainable declarations. An `export declare class`
-// is erased at compile time — no decorator ever runs — so the syntax below
+// is erased at compile time (no decorator ever runs), so the syntax below
 // is honored statically:
 //
 //   @trainable
@@ -17,7 +17,7 @@ import { inferredIntent } from "./decorators.js";
 //   }
 //
 // Every decorator is optional: a bare `@trainable declare class` with
-// undecorated method signatures still scans — intent is inferred and the
+// undecorated method signatures still scans: intent is inferred and the
 // TypeScript signature is the declared shape. The scan result feeds
 // codegen (`generateDeclaredRegistrations` emits registration source).
 // Non-ambient decorated classes scan identically. Parsing is a real
@@ -96,7 +96,7 @@ function scanOperations(
 		if (!ts.isMethodDeclaration(member) || !member.name) continue;
 		const method = memberName(member.name, sourceFile);
 		if (method === "constructor") continue;
-		// Generated registrations become `export const <method> = …` — a
+		// Generated registrations become `export const <method> = …`. A
 		// duplicate (ambient overload signatures) or non-identifier name would
 		// silently corrupt that file, so refuse loudly here instead.
 		if (!/^[A-Za-z_$][\w$]*$/.test(method)) {
@@ -165,7 +165,7 @@ export interface RegistrationEmitOptions {
 }
 
 const defaultHeader: readonly string[] = [
-	"// Generated from an ambient trainable declaration — do not edit by hand.",
+	"// Generated from an ambient trainable declaration: do not edit by hand.",
 ];
 
 /**

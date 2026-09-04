@@ -151,8 +151,8 @@ describe("body reindentation", () => {
 	});
 
 	it("uses tabs when the file is tab-indented even where the method's own indent is not", () => {
-		// A method at column zero -- a top-level function, or the first method of
-		// a class written flush left -- has no indent of its own to copy, so the
+		// A method at column zero (a top-level function, or the first method of
+		// a class written flush left) has no indent of its own to copy, so the
 		// file decides. Nothing exercised this arm before: every tab fixture also
 		// had a tab-indented method.
 		const mixed = 'class T {\n\tother(): void {}\n}\nfunction m(): string {\n  "use audit";\n  return "a";\n}\n';
