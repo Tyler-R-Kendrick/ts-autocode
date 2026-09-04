@@ -257,18 +257,22 @@ export class InvalidSettingsError extends TsAutocodeTypeError {
 	}
 }
 
-/** Parse with a Zod schema, surfacing failures as `InvalidSettingsError`
- * instead of leaking `ZodError` to consumers. The first issue's message is used
- * verbatim, so the schemas' hand-written messages still read as before. */
 /** A positive-integer setting whose message holds however the value is wrong.
  * `z.number().int().positive(message)` attaches `message` to the positivity
  * check alone, so a fractional or non-numeric value failed with zod's generic
  * "Invalid input: expected int, received number" -- which never says what the
- * setting actually needs. Every constraint carries the same message instead. */
+ * setting actually needs. Every constraint carries the same message instead.
+ *
+ * Deliberately duplicated in packages/harness/src/schema.ts rather than shared
+ * through a new package for three lines, as `attempt`/`errorMessage` are; keep
+ * the copies identical. */
 export function positiveIntegerSetting(message: string) {
 	return z.number({ error: message }).int(message).positive(message);
 }
 
+/** Parse with a Zod schema, surfacing failures as `InvalidSettingsError`
+ * instead of leaking `ZodError` to consumers. The first issue's message is used
+ * verbatim, so the schemas' hand-written messages still read as before. */
 export function parseSetting<T>(schema: z.ZodType<T>, value: unknown): T {
 	const result = schema.safeParse(value);
 	if (result.success) return result.data;
