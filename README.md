@@ -577,7 +577,7 @@ else console.log(readiness.outcome, readiness.failures);
 ## Background events
 
 `TrainingSettings.onEvent` reports everything the runtime does off the call
-path, including capture and store failures and the full evolution lifecycle:
+path. That is capture and store failures, and the full evolution lifecycle:
 
 ```ts
 import { configureTraining } from "ts-autocode";
