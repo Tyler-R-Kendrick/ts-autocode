@@ -391,9 +391,8 @@ configureTraining({
 The descriptor is provider-neutral (`ts-autocode-training` carries it to
 whatever engine is configured, exactly as it carries `secrets` and
 `variables`), and the default Ax engine interprets `provider` as an Ax
-provider name
-(`openai`, `anthropic`, `google-gemini`, `azure-openai`, `cohere`, `mistral`,
-`deepseek`, `reka`, `grok`, ...).
+provider name (`openai`, `anthropic`, `google-gemini`, `azure-openai`,
+`cohere`, `mistral`, `deepseek`, `reka`, `grok`, ...).
 
 Credentials resolve in order: an explicit `model.apiKey`, then the configured
 secret provider, then the environment variable conventional for that provider

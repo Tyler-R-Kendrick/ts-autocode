@@ -114,8 +114,8 @@ about any actor: `append({ actor, kind, payload })` records a message with
 identity, ordering, and time, and `read(actor?)` returns the full history.
 `agent(actor)` binds one actor to the bus and returns a writer
 (`write(kind, payload?)`), so a caller that always writes as the same agent
-states the actor once. An optional `allow` hook decides whether a given append or read may
-proceed.
+states the actor once. An optional `allow` hook decides whether a given append
+or read may proceed.
 Configure `redact` when payloads may contain sensitive application data.
 
 Storage is [unstorage](https://unstorage.unjs.io): the bus owns no storage
