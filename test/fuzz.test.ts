@@ -206,10 +206,22 @@ describe("the fuzz corpus itself", () => {
 	// A corpus that never reaches the code under test makes every property
 	// above vacuously true. This asserts the corpus does its job, so the suite
 	// cannot quietly decay into theatre.
+	//
+	// Unlike the properties above, these three measure the *generator* rather
+	// than the code, so they draw from a fixed seed. Unseeded, each run drew a
+	// different corpus: `markedModule` can emit a class of only unmarked
+	// methods and no marked free function, so the hit rate is a binomial around
+	// 90 in 100 -- measured across seeds it ranges 83 to 95 -- and a threshold
+	// of 80 sits about three standard deviations out. CI duly drew 79 one run
+	// and failed on a corpus that was doing its job. A seeded draw measures the
+	// same thing every time and on every machine, and still fails loudly if the
+	// generators change such that the corpus stops reaching real code, which is
+	// the whole point of these three.
+	const corpusSeed = 1;
+
 	it("produces modules that discovery actually finds targets in", () => {
 		let withTargets = 0;
-		const samples = fc.sample(markedModule, 100);
-		for (const source of samples) {
+		for (const source of fc.sample(markedModule, { numRuns: 100, seed: corpusSeed })) {
 			if (discoverInSource(source, "fuzz.ts").length > 0) withTargets += 1;
 		}
 		expect(withTargets).toBeGreaterThan(80);
@@ -217,16 +229,17 @@ describe("the fuzz corpus itself", () => {
 
 	it("produces damaged modules that still often parse", () => {
 		let withTargets = 0;
-		for (const source of fc.sample(damagedModule, 200)) {
+		for (const source of fc.sample(damagedModule, { numRuns: 200, seed: corpusSeed })) {
 			if (safeDiscover(source).length > 0) withTargets += 1;
 		}
 		// Damaged input should be a genuine mix, not all-or-nothing.
 		expect(withTargets).toBeGreaterThan(10);
+		expect(withTargets).toBeLessThan(200);
 	});
 
 	it("produces modules the load hook actually rewrites", () => {
 		let rewritten = 0;
-		for (const source of fc.sample(markedModule, 100)) {
+		for (const source of fc.sample(markedModule, { numRuns: 100, seed: corpusSeed })) {
 			if (augmentSource(source, "fuzz.ts") !== source) rewritten += 1;
 		}
 		expect(rewritten).toBeGreaterThan(80);
