@@ -31,6 +31,10 @@ export default defineConfig({
 			"packages/training/test/builders.test.ts",
 			"packages/rewrite/test/apply.test.ts",
 			"packages/rewrite/test/canonical.test.ts",
+			"packages/rewrite/test/instrument.test.ts",
+			"packages/harness/test/harness.test.ts",
+			"test/tier1.test.ts",
+			"test/register.test.ts",
 		],
 	},
 });

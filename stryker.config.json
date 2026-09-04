@@ -24,7 +24,10 @@
     "packages/training/src/digest.ts",
     "packages/training/src/builders.ts",
     "packages/rewrite/src/apply.ts",
-    "packages/rewrite/src/canonical.ts"
+    "packages/rewrite/src/canonical.ts",
+    "packages/rewrite/src/emit.ts",
+    "packages/harness/src/policy.ts",
+    "src/evolve.ts"
   ],
   "thresholds": {
     "high": 100,
@@ -32,12 +35,19 @@
     "break": 100
   },
   "_comment": [
-    "Scoped to the modules where a surviving mutant is alarming rather than merely untidy:",
-    "the promotion gate decides whether generated code is written to a user's source file,",
-    "and the rewrite guard decides whether it lands on the body it was verified against.",
-    "A mutant that survives in either means a test asserts the happy path without pinning",
-    "the decision. Mutating everything would take hours and mostly re-measure line coverage,",
-    "which vitest already enforces.",
+    "Scoped to the modules where a surviving mutant is alarming rather than merely untidy.",
+    "Each one decides something the library does to a user's machine, not merely something",
+    "it computes: the promotion gate decides whether generated code is written to a source",
+    "file at all; the rewrite guard decides whether it lands on the body it was verified",
+    "against; evolve.ts is the kill switch deciding whether the library may rewrite that",
+    "source without being asked, and must fail closed on a value it does not recognize;",
+    "policy.ts is the sandbox's filesystem and network confinement, where the allowlist",
+    "failing open would be the worst outcome available; emit.ts appends generated code to",
+    "the user's own module, where a name that is not an identifier turns a valid file into",
+    "a syntax error at load time.",
+    "A mutant that survives in any of these means a test asserts the happy path without",
+    "pinning the decision. Mutating everything would take hours and mostly re-measure line",
+    "coverage, which vitest already enforces.",
     "The break threshold is a ratchet, like the coverage thresholds: raise it as suites",
     "improve, never lower it to get a build green. It reached 100 by killing the last",
     "survivors in the rewrite formatter; a genuinely equivalent mutant -- one no test",

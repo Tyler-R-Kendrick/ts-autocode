@@ -3,13 +3,13 @@ import { createRequire } from "node:module";
 import type { SandboxPolicy } from "@microsoft/mxc-sdk";
 import { z } from "zod";
 
-import { absolutePath } from "./schema.js";
+import { absolutePath, positiveIntegerSetting } from "./schema.js";
 
 const policySettings = z.object({
 	workspace: absolutePath,
 	readonlyPaths: z.array(absolutePath).optional(),
 	allowedHosts: z.array(z.string().trim()).optional(),
-	timeoutMs: z.number().int().positive("timeoutMs must be a positive integer").optional(),
+	timeoutMs: positiveIntegerSetting("timeoutMs must be a positive integer").optional(),
 	version: z.string().optional(),
 });
 

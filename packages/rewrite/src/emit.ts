@@ -46,10 +46,20 @@ export function emitInstrumentation(targets: readonly InstrumentTarget[]): strin
 			[factory.createArrayLiteralExpression(targets.map(entryLiteral), true)],
 		),
 	);
-	const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
-	const container = ts.createSourceFile("instrumentation.js", "", ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
-	return printer.printNode(ts.EmitHint.Unspecified, statement, container);
+	return printer.printNode(ts.EmitHint.Unspecified, statement, printContainer);
 }
+
+// The printer and the source file it prints against. Every node here is
+// synthesized, so the container's name, text and parent linkage never reach the
+// output, and the explicit LineFeed only pins what TypeScript's default already
+// resolves to -- belt and braces, so instrumentation appended to an LF file
+// stays LF. None of it is observable from the emitted string, so it is excluded
+// from mutation rather than pinned by a test that could not tell the
+// difference. What the emitted text *is* has its own approved snapshot.
+// Stryker disable all
+const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+const printContainer = ts.createSourceFile("instrumentation.js", "", ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
+// Stryker restore all
 
 function isInstrumentable(target: InstrumentTarget): boolean {
 	return isIdentifierName(target.methodName) && (target.className === undefined || isIdentifierName(target.className));

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	createCandidateReview,
 	createPromotionDecision,
+	defineTrainable,
 	sequentialLoop,
 	trainingRounds,
 	type CandidatePatch,
@@ -113,6 +114,27 @@ describe("training loop fan-out", () => {
 		expect(run.outcome).toBe("stalled");
 		expect(reviews).toBe(1);
 		expect(run.rounds).toHaveLength(1);
+	});
+});
+
+describe("round settings", () => {
+	// A fractional round or fan-out count used to fail with zod's generic
+	// "expected int, received number", naming neither the setting nor its rule.
+	it.each([
+		["maxRounds", { maxRounds: 1.5 }, "maxRounds must be a positive integer"],
+		["maxRounds at zero", { maxRounds: 0 }, "maxRounds must be a positive integer"],
+		["fanOut", { fanOut: 2.5 }, "fanOut must be a positive integer"],
+		["fanOut at zero", { fanOut: 0 }, "fanOut must be a positive integer"],
+	])("refuses a bad %s, naming the setting and its rule", async (_label, overrides, message) => {
+		await expect(sequentialLoop({
+			trainableId: defineTrainable("Router.route").id,
+			objective: "improve",
+			rubric: "must pass",
+			outputDir: "test/output/loop-settings",
+			propose: async () => { throw new Error("never proposed"); },
+			review: async () => { throw new Error("never reviewed"); },
+			...overrides,
+		})).rejects.toThrow(message);
 	});
 });
 

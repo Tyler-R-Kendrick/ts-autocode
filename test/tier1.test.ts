@@ -46,6 +46,26 @@ describe("evolution kill switch", () => {
 		expect(() => evolutionEnabled("nope")).toThrow(evolveVariable);
 		expect(() => evolutionEnabled("maybe")).toThrow(/must be one of/);
 	});
+
+	it("lists every value it would have accepted, and quotes the one it got", () => {
+		// Failing closed is only half of it: a user who typed the wrong thing has
+		// to be told what the right thing is, or the kill switch is a dead end.
+		// Asserting only /must be one of/ let the list itself go unchecked.
+		const message = (() => {
+			try {
+				evolutionEnabled("nope");
+			} catch (error) {
+				return (error as Error).message;
+			}
+			throw new Error("evolutionEnabled accepted an unrecognized value");
+		})();
+
+		for (const accepted of ["1", "true", "on", "yes", "enabled", "0", "false", "off", "no", "disabled"]) {
+			expect(message).toContain(accepted);
+		}
+		expect(message).toContain(", ");
+		expect(message).toContain('received "nope"');
+	});
 });
 
 describe("promotion thresholds", () => {

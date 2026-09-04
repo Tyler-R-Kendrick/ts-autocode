@@ -15,6 +15,7 @@ import {
 	MissingSecretError,
 	OperationInterruptedError,
 	parseSetting,
+	positiveIntegerSetting,
 	PromotionApplierNotConfiguredError,
 	PromotionRejectedError,
 	SourceDiscoveryError,
@@ -178,5 +179,33 @@ describe("parseSetting", () => {
 
 	it("transforms as the schema directs", () => {
 		expect(parseSetting(z.string().transform((value) => value.length), "abcd")).toBe(4);
+	});
+});
+
+describe("positiveIntegerSetting", () => {
+	// `z.number().int().positive(message)` attaches the message to the
+	// positivity check alone, so every setting written that way reported zod's
+	// "Invalid input: expected int, received number" for a fractional value --
+	// a message that names neither the setting nor what it needs. Six settings
+	// across two packages were written that way. This is the shape that fixes
+	// them, so the message has to hold for every way the value can be wrong.
+	const schema = positiveIntegerSetting("minTraces must be a positive integer");
+
+	it("accepts a positive integer", () => {
+		expect(parseSetting(schema, 3)).toBe(3);
+	});
+
+	it.each([
+		["zero", 0],
+		["negative", -1],
+		["fractional", 2.5],
+		["a negative fraction", -0.5],
+		["Infinity", Number.POSITIVE_INFINITY],
+		["NaN", Number.NaN],
+		["a string", "many"],
+		["null", null],
+		["undefined", undefined],
+	])("reports the same message for %s", (_label, value) => {
+		expect(() => parseSetting(schema, value)).toThrow("minTraces must be a positive integer");
 	});
 });

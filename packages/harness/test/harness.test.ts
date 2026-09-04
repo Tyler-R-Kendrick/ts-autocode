@@ -339,10 +339,17 @@ describe("training harness", () => {
 		it.each([
 			["a relative workspace", { workspace: "relative/path" }],
 			["a relative readonly path", { workspace: tmpdir(), readonlyPaths: ["relative/path"] }],
-			["a zero timeout", { workspace: tmpdir(), timeoutMs: 0 }],
-			["a fractional timeout", { workspace: tmpdir(), timeoutMs: 1.5 }],
 		])("refuses %s rather than building a policy around it", (_label, settings) => {
 			expect(() => createSandboxPolicy(settings as Parameters<typeof createSandboxPolicy>[0])).toThrow();
+		});
+
+		it.each([
+			["zero", 0],
+			["negative", -1],
+			["fractional", 1.5],
+		])("refuses a %s timeout, saying what a timeout must be", (_label, timeoutMs) => {
+			expect(() => createSandboxPolicy({ workspace: tmpdir(), timeoutMs }))
+				.toThrow(/timeoutMs must be a positive integer/);
 		});
 	});
 

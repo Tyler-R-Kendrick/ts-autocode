@@ -14,7 +14,20 @@ export type MessageKind = z.output<typeof messageKind>;
 export const messageId = z.string().trim().min(1, "agent message id must be non-empty").brand<"MessageId">();
 export type MessageId = z.output<typeof messageId>;
 
-export const sequenceNumber = z.number().int().positive("sequence must be a positive integer").brand<"SequenceNumber">();
+/** A positive-integer setting whose message holds however the value is wrong.
+ * `z.number().int().positive(message)` attaches `message` to the positivity
+ * check alone, so a fractional or non-numeric value failed with zod's generic
+ * "Invalid input: expected int, received number" -- which never says what the
+ * setting actually needs. Every constraint carries the same message instead.
+ *
+ * Deliberately duplicated in packages/training/src/errors.ts rather than shared
+ * through a new package for three lines, as `attempt`/`errorMessage` are; keep
+ * the copies identical. */
+export function positiveIntegerSetting(message: string) {
+	return z.number({ error: message }).int(message).positive(message);
+}
+
+export const sequenceNumber = positiveIntegerSetting("sequence must be a positive integer").brand<"SequenceNumber">();
 export type SequenceNumber = z.output<typeof sequenceNumber>;
 
 export const agentMessage = z.object({
@@ -39,7 +52,7 @@ export const absolutePath = z.string()
 	.brand<"AbsolutePath">();
 export type AbsolutePath = z.output<typeof absolutePath>;
 
-export const roundLimit = z.number().int().positive("maxRounds must be a positive integer").brand<"RoundLimit">();
+export const roundLimit = positiveIntegerSetting("maxRounds must be a positive integer").brand<"RoundLimit">();
 export type RoundLimit = z.output<typeof roundLimit>;
 
 export const rubricText = z.string().trim().min(1, "judge rubric must be non-empty").brand<"Rubric">();
