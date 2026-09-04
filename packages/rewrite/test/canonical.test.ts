@@ -40,6 +40,16 @@ describe("digest", () => {
 		expect(digest(bare)).toBe(digest({ a: 2, b: 1 }));
 	});
 
+	it("hashes undefined rather than throwing on it", () => {
+		// `isRecord`'s `typeof` guard is what keeps `undefined` away from
+		// `Object.getPrototypeOf`, which throws on it. Optional fields reach the
+		// digest undefined -- candidate `metadata` is one -- so this is the
+		// ordinary case, not a hostile input.
+		expect(digest(undefined)).toMatch(/^sha256:[0-9a-f]{64}$/);
+		expect(digest({ metadata: undefined })).toBe(digest({}));
+		expect(digest([undefined])).toBe(digest([null]));
+	});
+
 	it("does not canonicalize class instances into empty objects", () => {
 		// A Date serializes through JSON.stringify; if isRecord wrongly accepted
 		// it, every Date would hash identically.
