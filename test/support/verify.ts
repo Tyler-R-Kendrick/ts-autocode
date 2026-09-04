@@ -57,7 +57,7 @@ export async function verify(name: string, value: string, scrubbers?: Scrubbers)
 // disk, where nothing compares against it any more -- and an approved artifact
 // nobody checks is worse than none, because a reviewer reads it as current.
 // Vitest tracks obsolete `.snap` blobs but not file snapshots, so each
-// comparison drops a marker and `snapshot-manifest.ts` reconciles the markers
+// comparison drops a marker and `snapshot-manifest.mjs` reconciles the markers
 // against the directory after the run. One file per marker rather than one
 // shared list: test files run in separate workers, and concurrent appends to a
 // single manifest would interleave.

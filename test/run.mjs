@@ -33,7 +33,10 @@ child.on("exit", (code, signal) => {
 
 async function reportOrphans(enabled) {
 	if (!enabled) return;
-	const orphans = await orphanedSnapshots();
+	// Swallowed rather than left to reject: this runs fire-and-forget from the
+	// exit handler, so an unhandled rejection would crash a passing run with a
+	// stack trace. A check that cannot run is not a failing check.
+	const orphans = await orphanedSnapshots().catch(() => []);
 	if (orphans.length === 0) return;
 	process.exitCode = 1;
 	process.stderr.write(

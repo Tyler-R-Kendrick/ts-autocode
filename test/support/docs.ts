@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,7 +26,7 @@ export function documentationFiles(): readonly string[] {
 		...readdirSync(join(repoRoot, "packages"), { withFileTypes: true })
 			.filter((entry) => entry.isDirectory())
 			.map((entry) => `packages/${entry.name}/README.md`)
-			.filter((doc) => exists(doc)),
+			.filter((doc) => existsSync(join(repoRoot, doc))),
 	].sort();
 }
 
@@ -45,13 +45,4 @@ function markdownIn(directory: string): string[] {
 	return readdirSync(join(repoRoot, directory), { withFileTypes: true })
 		.filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
 		.map((entry) => directory === "." ? entry.name : `${directory}/${entry.name}`);
-}
-
-function exists(doc: string): boolean {
-	try {
-		readFileSync(join(repoRoot, doc));
-		return true;
-	} catch {
-		return false;
-	}
 }

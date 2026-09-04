@@ -31,7 +31,10 @@ export async function resetVerifiedMarkers() {
 export async function orphanedSnapshots() {
 	const approved = new Set(await approvedSnapshots());
 	for (const marker of await readdir(markerDirectory).catch(() => [])) {
-		approved.delete(await readFile(join(markerDirectory, marker), "utf8"));
+		// A marker that vanished between listing and reading tells us nothing;
+		// reporting its snapshot as an orphan would be a false alarm, so skip it.
+		const recorded = await readFile(join(markerDirectory, marker), "utf8").catch(() => undefined);
+		if (recorded !== undefined) approved.delete(recorded);
 	}
 	const prefix = fileURLToPath(root);
 	return [...approved].map((file) => file.startsWith(prefix) ? file.slice(prefix.length) : file).sort();
