@@ -16,7 +16,6 @@ import {
 	HarnessSandbox,
 	inferringHarness,
 	WriteAheadAgentBus,
-	type AgentBusEntry,
 } from "../src/index.js";
 
 describe("training harness", () => {

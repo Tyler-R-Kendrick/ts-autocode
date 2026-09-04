@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { documentationFiles, readDoc } from "./support/docs.js";
+
 import {
 	createTrainingRuntime,
 	directExecutor,
@@ -93,18 +95,12 @@ describe("ADR: trainable identity is never a plain string", () => {
 	// The declaration-site string is machinery's business, never a pattern the
 	// docs teach. A snippet calling defineTrainable( is a hard failure.
 	it("no documentation snippet teaches defineTrainable(...)", () => {
-		const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-		const docs = [
-			"README.md",
-			"packages/training/README.md",
-			"packages/harness/README.md",
-			"packages/rewrite/README.md",
-			"packages/grounding/README.md",
-			"docs/architecture.md",
-			"docs/authoring-providers.md",
-		];
-		const offenders = docs.filter((doc) =>
-			snippets(readFileSync(join(repoRoot, doc), "utf8")).some((code) => code.includes("defineTrainable(")));
+		// Discovered, not listed: the list this replaced left out AGENTS.md --
+		// the document that states this very ADR and carries the snippet
+		// demonstrating it -- so the file defining the rule was exempt from the
+		// check enforcing it.
+		const offenders = documentationFiles()
+			.filter((doc) => snippets(readDoc(doc)).some((code) => code.includes("defineTrainable(")));
 		expect(offenders).toEqual([]);
 	});
 

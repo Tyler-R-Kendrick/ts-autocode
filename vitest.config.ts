@@ -31,11 +31,13 @@ export default defineConfig({
 			reporter: ["text", "json-summary", "lcov"],
 			reportsDirectory: "test/output/coverage",
 			// Ratchets: raise these as suites land, never lower them to get green.
+			// A point of headroom under the measured figure absorbs the v8
+			// provider's small run-to-run variance without inviting a slide.
 			thresholds: {
-				statements: 91,
-				branches: 81,
-				functions: 93,
-				lines: 93,
+				statements: 95,
+				branches: 87,
+				functions: 96,
+				lines: 97,
 			},
 		},
 	},

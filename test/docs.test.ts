@@ -1,10 +1,11 @@
-import { readFileSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { documentationFiles, readDoc } from "./support/docs.js";
 
 // The README documented `activation.promotion.snapshot.candidateId` on an
 // `Activation` that has only `run` and `rollback`, and a quickstart that
@@ -13,15 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
-const docs = [
-	"README.md",
-	"packages/training/README.md",
-	"packages/harness/README.md",
-	"packages/rewrite/README.md",
-	"packages/grounding/README.md",
-	"docs/architecture.md",
-	"docs/authoring-providers.md",
-];
+const docs = documentationFiles();
 
 interface Snippet {
 	readonly doc: string;
@@ -49,17 +42,6 @@ export function typescriptSnippets(doc: string, markdown: string): readonly Snip
 		index = cursor;
 	}
 	return snippets;
-}
-
-/** Reads a listed doc, naming it when it is missing. An unguarded read throws
- * at module load for a renamed or misspelled entry, which takes down the whole
- * suite instead of failing one case that says which file it wanted. */
-function readDoc(doc: string): string {
-	try {
-		return readFileSync(join(repoRoot, doc), "utf8");
-	} catch (error) {
-		throw new Error(`documentation file listed for typechecking is unreadable: ${doc}`, { cause: error });
-	}
 }
 
 const snippets = docs.flatMap((doc) => typescriptSnippets(doc, readDoc(doc)));
@@ -137,6 +119,16 @@ afterAll(async () => {
 describe("documentation snippets", () => {
 	it("finds the documented TypeScript blocks", () => {
 		expect(snippets.length).toBeGreaterThan(5);
+	});
+
+	it("covers every document the repository publishes, not a list someone maintains", () => {
+		// The list this replaced had drifted: AGENTS.md, CONTRIBUTING.md,
+		// SECURITY.md, docs/dx-review.md and docs/testing.md were all outside it,
+		// so a snippet added to any of them compiled nowhere.
+		expect(docs).toContain("README.md");
+		expect(docs).toContain("AGENTS.md");
+		expect(docs).toContain("docs/testing.md");
+		expect(docs).toContain("packages/training/README.md");
 	});
 
 	it("compiles every snippet it found", () => {

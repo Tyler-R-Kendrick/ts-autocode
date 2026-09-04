@@ -8,7 +8,7 @@ land, never lower them to get a build green.
 |---|---|---|
 | Atomic unit | `packages/*/test/*.test.ts` | Behavior of one function or class, including every branch of its defaulting and rejection rules |
 | Functional | `test/*.test.ts` | A whole path through the runtime: mark, capture, train, gate, activate, roll back |
-| Documentation | `test/docs.test.ts` | README, architecture and provider-authoring snippets that no longer compile |
+| Documentation | `test/docs.test.ts` | A snippet in any document this repository publishes that no longer compiles |
 | Surface | `test/surface.test.ts` | Re-export drift between the root package and its siblings |
 | Protocol | `test/digest-protocol.test.ts` | Two packages that must agree without importing each other |
 | Compatibility | `test/deprecated.test.ts` | A deprecated spelling that silently stopped working |
@@ -46,8 +46,18 @@ silently orphans it.
 ```
 test/snapshots/rewrite/emitted-instrumentation.verified.ts
 test/snapshots/prompts/ax-program-signature.verified.json
-test/snapshots/surface/ts-autocode.txt
+test/snapshots/surface/ts-autocode.verified.txt
 ```
+
+A file per subject makes the diff readable, but on its own it does not solve
+the orphan: rename the subject and the old `.verified.*` file stays on disk,
+unread and indistinguishable from a current one — which is worse than having no
+snapshot, because a reviewer reads it as current. Vitest tracks obsolete
+`.snap` blobs but not file snapshots, so `verify()` records each comparison and
+`test/run.mjs` reconciles the records against `test/snapshots/` afterwards. A
+full `npm test` fails and names any approved file nothing compared against.
+A filtered run (`npm test -- test/cli.test.ts`) skips the check, because it
+legitimately touches almost none of them.
 
 Approve a deliberate change with `npm test -- -u`, and **read the diff** — that
 is the entire value. `scrub()` removes digests, UUIDs, timestamps and absolute
@@ -77,6 +87,39 @@ every property about offsets and rewriting was passing vacuously.
 and then damages them, and `test/fuzz.test.ts` asserts the corpus still reaches
 real work — so the suite cannot quietly decay back into theatre.
 
+## Mutation testing
+
+`stryker.config.json` mutates the modules where a surviving mutant is alarming
+rather than merely untidy: each decides something the library *does to a user's
+machine* — whether generated code is written to a source file, whether it lands
+on the body it was verified against, whether the library may rewrite that
+source at all, what the sandbox may reach, and what gets appended to a user's
+own module. Mutating everything would take hours and mostly re-measure line
+coverage, which `vitest` already enforces.
+
+The `break` threshold is a ratchet like the coverage thresholds. A genuinely
+equivalent mutant — one no test could distinguish, verified rather than assumed
+— is excluded at the line with `// Stryker disable next-line <mutator>:
+<reason>`, which a reviewer can see and argue with. Lowering the threshold is
+not the answer.
+
+## Keeping the suite honest
+
+Three checks exist because a suite decays quietly, and each was added after
+finding that it already had:
+
+- **`noUnusedLocals` / `noUnusedParameters`.** Three deliberately-broken
+  conformance stores and their driver sat unreferenced in
+  `test/contract.test.ts`, copied from the file where the negative contract
+  tests actually live. Nothing flagged them.
+- **Discovered documentation, not a list.** `test/docs.test.ts` and
+  `test/adr.test.ts` each worked from a hand-maintained list of documents, and
+  both had drifted — `AGENTS.md`, which *states* the identity ADR and carries
+  the snippet demonstrating it, was in neither. `test/support/docs.ts`
+  discovers them instead.
+- **Orphaned snapshot detection**, described above.
+
+## Conventions
 
 - **A test names the defect it prevents.** Where a test exists because
   something was once wrong, the comment says what was wrong. That is what makes

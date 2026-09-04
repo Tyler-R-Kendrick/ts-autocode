@@ -43,7 +43,39 @@ npm run check
   hard failure: `test/adr.test.ts` pins the string form as a compile error and
   scans every doc snippet for the banned pattern. See `AGENTS.md`.
 - Validate settings at the boundary with `parseSetting`, so misconfiguration
-  fails as `InvalidSettingsError` naming the setting, not deep in a run.
+  fails as `InvalidSettingsError` naming the setting, not deep in a run. Use
+  `positiveIntegerSetting` for a count or a duration: attaching the message to
+  `.positive()` alone leaves a fractional value reporting zod's generic
+  "expected int, received number", which names neither the setting nor its rule.
 
-The CI workflow runs type checking, tests, and the package build on supported
-Node.js versions.
+## Tests
+
+Seven kinds of suite, each answering a question the others cannot:
+
+| suite | question |
+| --- | --- |
+| unit (`packages/*/test`) | does this function decide correctly? |
+| behavior (`test/behavior.test.ts`) | is the documented promise still true? |
+| contract (`test/contract.test.ts`, `packages/training/test/conformance.test.ts`) | does every implementation satisfy the published seam — and does the suite reject one that does not? |
+| characterization (`test/characterization*.test.ts`) | what exactly does the generated output look like now? |
+| property and fuzz (`test/property.test.ts`, `test/fuzz.test.ts`) | does the invariant hold across generated input? |
+| chaos (`test/chaos.test.ts`) | what happens when the engine, store, executor or file fails? |
+| mutation (`npm run test:mutation`) | would any test notice if the decision were inverted? |
+
+Three ratchets guard them, and all three are raised as suites improve, never
+lowered to get a build green:
+
+- coverage thresholds in `vitest.config.ts`;
+- the mutation `break` threshold in `stryker.config.json` — a genuinely
+  equivalent mutant is excluded at the line with `// Stryker disable next-line
+  <mutator>: <reason>`, which a reviewer can see;
+- `noUnusedLocals`/`noUnusedParameters`, which is what would have caught the
+  dead conformance stores that sat unreferenced in `test/contract.test.ts`.
+
+Approved snapshots under `test/snapshots/` are reviewed artifacts. A full
+`npm test` fails if one of them is no longer compared against by any test:
+an approved file nobody checks reads as current while meaning nothing.
+Re-approve a deliberate change with `npm test -- -u`.
+
+The CI workflow runs type checking, tests, the package build, and mutation
+testing on supported Node.js versions.
