@@ -12,6 +12,7 @@ import {
 	ExecutorNotConfiguredError,
 	InsufficientTracesError,
 	parseSetting,
+	positiveIntegerSetting,
 	PromotionApplierNotConfiguredError,
 	PromotionRejectedError,
 	TraceNotFoundError,
@@ -52,7 +53,7 @@ import {
 
 const trainableAttribute = "ts_autocode.trainable.id";
 const tracerName = "ts-autocode";
-const traceMinimum = z.number().int().positive("minTraces must be a positive integer");
+const traceMinimum = positiveIntegerSetting("minTraces must be a positive integer");
 const executionTimeout = z.number().positive("execution.timeoutMs must be a positive number of milliseconds").finite("execution.timeoutMs must be a positive number of milliseconds");
 
 export interface CaptureSettings {

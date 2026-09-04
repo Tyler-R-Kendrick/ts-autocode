@@ -105,8 +105,17 @@ describe("instrumentation emission", () => {
 	});
 
 	it("registers working accessors when evaluated in the module's scope", () => {
+		// The `wrap` handler returns a *different* function on purpose. Returning
+		// the original made the assertions pass whether or not the emitted setter
+		// worked at all, and rebinding the module's own name is the entire reason
+		// the setter is emitted -- it is how a promoted candidate replaces a
+		// directive-marked free function.
 		const { handlers, methods, wrapped } = recordingInstrumentation();
-		installInstrumentation(handlers);
+		const replacement = (input: string) => input.toUpperCase();
+		installInstrumentation({
+			...handlers,
+			wrap: (fn, id) => { wrapped.push(id); return replacement as unknown as typeof fn; },
+		});
 		const evaluate = new Function(`class Router { route(input) { return input; } }
 function normalize(input) { return input; }
 ${emitInstrumentation(targets)}
@@ -114,10 +123,34 @@ return { Router, normalize };`) as () => { Router: unknown; normalize: unknown }
 		const scope = evaluate();
 		expect(methods).toEqual([{ owner: scope.Router, methodName: "route", id: "Router.route" }]);
 		expect(wrapped).toEqual(["normalize"]);
+		expect(scope.normalize).toBe(replacement);
 	});
 
-	it("rejects names that are not plain identifiers", () => {
-		expect(() => emitInstrumentation([{ id: "bad", methodName: "not a name" }])).toThrow(TypeError);
+	it("emits the entries one per line, so a rewritten module stays readable", () => {
+		expect(emitInstrumentation(targets).split("\n")).toHaveLength(4);
+	});
+
+	it("appends nothing that would change the file's line endings", () => {
+		// This text is appended to the user's own module. Emitting CRLF into an
+		// LF file is diff noise the library has no business creating.
+		expect(emitInstrumentation(targets)).not.toContain("\r");
+	});
+
+	it("rejects names that are not plain identifiers, naming the offender", () => {
+		expect(() => emitInstrumentation([{ id: "bad", methodName: "not a name" }]))
+			.toThrow(/instrument target must be a plain identifier: not a name/);
+	});
+
+	it.each([
+		["a leading space", " normalize"],
+		["a trailing space", "normalize "],
+		["a reserved word", "class"],
+		["a member expression", "obj.normalize"],
+		["an empty name", ""],
+	])("rejects %s as a target name", (_label, methodName) => {
+		// Anything but a plain identifier would be emitted straight into the
+		// user's module and turn a valid file into a syntax error at load time.
+		expect(() => emitInstrumentation([{ id: "bad", methodName }])).toThrow(TypeError);
 	});
 });
 
@@ -148,6 +181,18 @@ describe("createRewriter", () => {
 		const computed: InstrumentTarget = { id: "weird", methodName: "not a name" };
 		const marked = '"use audit"; function f() {}';
 		expect(createRewriter(() => [computed], "use audit")(marked, "/app/f.js")).toBe(marked);
+	});
+
+	it("skips a target whose class name cannot be referenced, keeping the method's own name valid", () => {
+		// Only the method name was ever checked here. A class name that does not
+		// scan as an identifier would be emitted as `owner: () => Not-A-Class`,
+		// which is a syntax error in the file the library just rewrote.
+		const marked = '"use audit"; class C { m() {} }';
+		const bad: InstrumentTarget = { id: "weird", methodName: "m", className: "Not-A-Class" };
+		expect(createRewriter(() => [bad], "use audit")(marked, "/app/c.js")).toBe(marked);
+
+		const good: InstrumentTarget = { id: "C.m", methodName: "m", className: "C" };
+		expect(createRewriter(() => [good], "use audit")(marked, "/app/c.js")).not.toBe(marked);
 	});
 
 	it("only accepts \"use <name>\" markers", () => {

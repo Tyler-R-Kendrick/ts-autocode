@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import type { CandidatePatch } from "./engine.js";
-import { parseSetting } from "./errors.js";
+import { parseSetting, positiveIntegerSetting } from "./errors.js";
 import type { TrainableEvalRun } from "./evaluation.js";
 import type { PromotionDecision } from "./promotion.js";
 import type { TrainableId } from "./token.js";
@@ -87,8 +87,8 @@ export interface RoundSequence {
  * in order; within a round up to `fanOut` candidate pipelines run
  * concurrently. A round that reviews nothing new (every slot proposed an
  * already-seen candidate) completes the sequence as `"stalled"`. */
-const roundLimit = z.number().int().positive("maxRounds must be a positive integer");
-const fanOutWidth = z.number().int().positive("fanOut must be a positive integer");
+const roundLimit = positiveIntegerSetting("maxRounds must be a positive integer");
+const fanOutWidth = positiveIntegerSetting("fanOut must be a positive integer");
 
 export function trainingRounds(input: TrainingLoopInput): RoundSequence {
 	const maxRounds = parseSetting(roundLimit, input.maxRounds ?? defaultMaxRounds);
