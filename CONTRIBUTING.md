@@ -19,6 +19,16 @@ npm run check
   behavior is not obvious.
 - Do not commit credentials, generated `dist/` files, or `.env` files.
 
+## AI-assisted contributions
+
+Contributions may be built with coding agents when a person directs the work
+and reviews it before it is submitted. The author of the pull request remains
+responsible for the change.
+
+Disclose significant AI-generated content in the pull request. A commit made
+with an agent should name the tool and model in the commit message or in the
+pull request description.
+
 ## Naming and shape conventions
 
 - Factories are `create*`; identity/value constructors are `define*`; nothing

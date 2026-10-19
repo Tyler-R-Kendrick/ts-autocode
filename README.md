@@ -3,6 +3,10 @@
 Train TypeScript functions from AgentV evals and captured runtime traces, then
 safely rewrite the function marked trainable.
 
+## Status
+
+This project is actively maintained experimental open-source software.
+
 The normal path keeps the code primitives and agent loop in separate packages:
 
 ```text
@@ -636,7 +640,15 @@ ignored by Git and excluded from TypeScript compilation.
 See [examples/optimize.ts](examples/optimize.ts),
 [packages/harness/README.md](packages/harness/README.md),
 [docs/architecture.md](docs/architecture.md), [CONTRIBUTING.md](CONTRIBUTING.md),
+[GOVERNANCE.md](GOVERNANCE.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md),
 and [SECURITY.md](SECURITY.md).
+
+## AI usage disclosure
+
+Maintainer changes and outside contributions may be written with coding
+agents under human direction and review. Disclose significant AI-generated
+content in the pull request, and name the tool and model, as described in
+[CONTRIBUTING.md](CONTRIBUTING.md#ai-assisted-contributions).
 
 ## License
 
