@@ -37,7 +37,7 @@
 		"deepagents": "^1.10.7",
 		"effect": "^3.21.4",
 		"unstorage": "^1.17.5",
-		"zod": "^4.4.3"
+		"zod": "^4.6.6"
 	},
 	"keywords": [
 		"agent",
