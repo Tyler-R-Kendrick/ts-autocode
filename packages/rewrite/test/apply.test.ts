@@ -65,14 +65,6 @@ describe("guarded source rewrite", () => {
 });
 
 describe("body reindentation", () => {
-	// Mutation testing left 15 survivors in `formatImplementation`: the whole
-	// indent-detection and normalization block could be broken without any test
-	// noticing, because the existing cases all used a single tab style and a
-	// single-line body. Reindentation is what keeps a rewritten file readable
-	// and diff-able, so it deserves cases that pin each decision.
-	/** Offsets exactly as source discovery computes them: `bodyEnd` is the index
-	 * of the method's closing brace, not the newline before it. Getting this
-	 * wrong produces a stray blank line and looks like a library bug. */
 	function rewriteWith(source: string, implementation: string, indent = "  "): string {
 		const bodyStart = source.indexOf('"use audit";') + '"use audit";'.length;
 		const closing = `\n${indent}}`;
@@ -102,8 +94,6 @@ describe("body reindentation", () => {
 	});
 
 	it("strips a uniform leading indent the engine happened to include", () => {
-		// An engine often returns an already-indented body; the common prefix is
-		// removed so it is not indented twice.
 		const result = rewriteWith(spaceSource, '        return "b";');
 		expect(result).toContain('\n    return "b";\n  }');
 	});
@@ -116,8 +106,6 @@ describe("body reindentation", () => {
 	});
 
 	it("preserves blank lines inside the body, and leaves them empty", () => {
-		// Indenting a blank line would write trailing whitespace into the user's
-		// source file, which their own lint step then rejects.
 		const result = rewriteWith(spaceSource, 'const a = 1;\n\nreturn "b";');
 		expect(result).toContain('\n    const a = 1;\n\n    return "b";\n  }');
 		expect(result).not.toMatch(/[ \t]+\n/);
@@ -129,32 +117,18 @@ describe("body reindentation", () => {
 		expect(result.endsWith("}\n")).toBe(true);
 	});
 
-	// The mutants that survived the previous round all lived in the de-dent:
-	// every case above uses either a single-line body or a multi-line one with
-	// no leading indent, so `Math.min` returned 0 whatever the filter did. A
-	// model returns indented, blank-line-separated code, which is exactly the
-	// shape that tells the decisions apart.
 	it("measures the de-dent from the code lines, ignoring the blank ones between them", () => {
-		// Every code line is indented four; dropping the blank-line filter would
-		// measure zero and leave the whole body double-indented.
 		const result = rewriteWith(spaceSource, '    const a = 1;\n\n    return "b";');
 		expect(result).toContain('\n    const a = 1;\n\n    return "b";\n  }');
 	});
 
 	it("treats a whitespace-only line as blank, not as the shallowest indent", () => {
-		// The separator here is two spaces rather than empty. Filtering on the
-		// raw line instead of its trimmed form would measure it as an indent of
-		// two and de-dent every other line by two instead of four.
 		const result = rewriteWith(spaceSource, '    const a = 1;\n  \n    return "b";');
 		expect(result).toContain('\n    const a = 1;\n\n    return "b";\n  }');
 		expect(result).not.toContain('\n      const a = 1;');
 	});
 
 	it("uses tabs when the file is tab-indented even where the method's own indent is not", () => {
-		// A method at column zero (a top-level function, or the first method of
-		// a class written flush left) has no indent of its own to copy, so the
-		// file decides. Nothing exercised this arm before: every tab fixture also
-		// had a tab-indented method.
 		const mixed = 'class T {\n\tother(): void {}\n}\nfunction m(): string {\n  "use audit";\n  return "a";\n}\n';
 		const bodyStart = mixed.indexOf('"use audit";') + '"use audit";'.length;
 		const closing = "\n}";
@@ -175,7 +149,6 @@ describe("body reindentation", () => {
 		const bodyStart = result.indexOf('"use audit";') + '"use audit";'.length;
 		expect(result[bodyStart]).toBe("\n");
 		expect(result).toContain('\n  }');
-		// No stray blank line before the closing brace.
 		expect(result).not.toContain("\n  \n  }");
 	});
 });

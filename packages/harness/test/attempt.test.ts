@@ -2,10 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { attempt, attemptAsync, errorMessage } from "../src/attempt.js";
 
-// These were Effect-backed and are now plain try/catch. The fallback branch had
-// zero coverage in the root copy, which is the branch that matters: it is the
-// boundary that keeps a capture or serialization failure from breaking a
-// traced application call.
 
 describe("errorMessage", () => {
 	it("uses an Error's message", () => {

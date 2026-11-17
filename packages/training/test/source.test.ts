@@ -73,10 +73,6 @@ class Router {
 });
 
 describe("parameter types inferred from literal defaults", () => {
-	// A defaulted parameter has no type annotation, and reporting it as
-	// `unknown` reached the Ax field mapper as `json`, so the optimizer was
-	// told a plainly numeric argument had an opaque shape. Found by the
-	// characterization snapshot of the generated program signature.
 	const declare = (parameters: string) => discoverInSource(`class Fixture {
 	method(${parameters}): void {
 		"use training";
@@ -116,9 +112,6 @@ describe("parameter types inferred from literal defaults", () => {
 });
 
 describe("offsets on source TypeScript could not fully parse", () => {
-	// Error recovery synthesizes a body for an unterminated block whose `end`
-	// can sit past EOF, so a truncated file produced a target claiming offsets
-	// outside its own source. Found by fuzzing generated-then-damaged modules.
 	const truncated = 'class Router {\n\troute(input: string): string {\n\t\t"use training";\n\t\t// } a brace in a comm';
 
 	it("never reports offsets outside the source", () => {

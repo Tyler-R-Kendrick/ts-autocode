@@ -77,7 +77,6 @@ describe("granular grounding decorators", () => {
 			},
 		});
 
-		// Only the annotated method registers (pending map non-empty).
 		expect([...registered.keys()]).toEqual(["Greeter.greet"]);
 		expect(registered.get("Greeter.greet")?.options.intent).toBe("Say hello");
 		expect(registered.get("Greeter.greet")?.baseline("World")).toBe("Hello, World!");
@@ -105,11 +104,6 @@ describe("granular grounding decorators", () => {
 });
 
 describe("defineGrounding", () => {
-	// The runtime entry point every emitted registration calls, and the only
-	// thing standing between generated source and a grounding that names no
-	// method, describes no intent, or points at no contract. Nothing exercised
-	// its validation: `scan.test.ts` checks that codegen *emits* a
-	// `defineGrounding(...)` call, never that calling it rejects anything.
 
 	const valid: GroundingOptions = {
 		methodRef: "Router.route",
@@ -165,7 +159,6 @@ describe("defineGrounding", () => {
 	});
 
 	it("checks the methodRef before the message that would interpolate it", () => {
-		// A grounding missing everything must not report a blank method name.
 		expect(() => defineGrounding({} as GroundingOptions))
 			.toThrow("grounding methodRef must be a non-empty string");
 	});

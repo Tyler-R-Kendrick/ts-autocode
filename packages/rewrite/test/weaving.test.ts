@@ -14,8 +14,6 @@ import {
 
 const MARKER = "use audit";
 
-// Weaving is exercised entirely in memory: hot-swapped advice, never source
-// edits, so these tests can never rewrite themselves.
 describe("rewrite weaving", () => {
 	beforeEach(() => {
 		configureTesting(WeaverModule);
@@ -136,10 +134,6 @@ describe("rewrite weaving", () => {
 	});
 
 	it("ignores a method the class does not declare, rather than throwing at load time", () => {
-		// Weaving is driven by parsed source and by decorators, so a name that
-		// resolves to nothing means the caller's discovery disagreed with the
-		// class. Throwing here would take down module load for the whole
-		// application; the method simply is not woven.
 		class Router {
 			route(input: string): string { return input; }
 		}
@@ -152,15 +146,11 @@ describe("rewrite weaving", () => {
 	});
 
 	it("dispatches under a marker that is not a well-formed directive without throwing", () => {
-		// `normalizeMarker` rejects anything that is not `"use <name>"`. Dispatch
-		// must not inherit that rejection: a malformed marker has no registered
-		// configuration, so the call runs its original implementation.
 		const original = vi.fn((input: string) => `original:${input}`);
 		expect(dispatchRewrite("free.malformed", "not a directive", "normalize", original as never, undefined, ["abc"]))
 			.toBe("original:abc");
 		expect(original).toHaveBeenCalledOnce();
 
-		// A swap still applies: the swap registry is keyed by id, not by marker.
 		swapImplementation("free.malformed", (input) => `swapped:${String(input)}`);
 		try {
 			expect(dispatchRewrite("free.malformed", "not a directive", "normalize", original as never, undefined, ["abc"]))

@@ -4,11 +4,6 @@ import { z } from "zod";
 import type { BoundEvaluation, CandidatePatch } from "./engine.js";
 import { parseSetting } from "./errors.js";
 
-/** A threshold in [0, 1]. Every rejection (wrong type, NaN, Infinity, or
- * merely out of range) reports the same message, because a user who passed a
- * bad threshold wants to know the range, not Zod's type vocabulary. Without the
- * base-schema message, `minScore: Infinity` reported "expected number,
- * received number", which says nothing useful. */
 const unitInterval = (name: string) => {
 	const message = `${name} must be between 0 and 1`;
 	return z.number({ error: message }).finite(message).min(0, message).max(1, message);
@@ -16,11 +11,8 @@ const unitInterval = (name: string) => {
 const minScoreThreshold = unitInterval("minScore");
 const minPassRateThreshold = unitInterval("minPassRate");
 
-/** Mean AgentV score a candidate must reach when `minScore` is unset. */
 export const defaultMinScore = 0.8;
 
-/** Fraction of evaluation cases a candidate must pass when `minPassRate` is
- * unset; every case, by default. */
 export const defaultMinPassRate = 1;
 
 export interface PromotionGateInput {
@@ -30,9 +22,6 @@ export interface PromotionGateInput {
 	readonly minScore?: number;
 	readonly minPassRate?: number;
 	readonly policy?: (candidate: CandidatePatch) => boolean | Promise<boolean>;
-	/** Extra gates run after the standard set; each failure they return blocks
-	 * promotion. The standard invariants always run: extension adds rules, it
-	 * cannot waive them. */
 	readonly gates?: readonly PromotionGate[];
 }
 
@@ -44,13 +33,9 @@ export interface PromotionDecision {
 	readonly passRate: number;
 }
 
-/** Everything a gate may inspect. Derived once per decision and shared by all
- * gates, so rules stay pure functions over the same facts. */
 export interface PromotionGateContext {
 	readonly candidate: CandidatePatch;
-	/** Every submitted evaluation, including ones bound to other targets. */
 	readonly evaluations: readonly BoundEvaluation[];
-	/** Results proven to be bound to this candidate; only these carry weight. */
 	readonly results: readonly EvaluationResult[];
 	readonly conformance: boolean;
 	readonly minScore: number;
@@ -59,13 +44,10 @@ export interface PromotionGateContext {
 	readonly passRate: number;
 }
 
-/** One promotion rule: inspect the context and return the failure(s) it sees,
- * or `undefined` to pass. Rules never mutate and never see each other. */
 export type PromotionGate = (
 	context: PromotionGateContext,
 ) => string | readonly string[] | undefined | Promise<string | readonly string[] | undefined>;
 
-/** The standard rules every candidate must clear, in reporting order. */
 export const defaultPromotionGates: readonly PromotionGate[] = [
 	({ conformance }) =>
 		conformance ? undefined : "conformance failed",
@@ -89,8 +71,6 @@ export const defaultPromotionGates: readonly PromotionGate[] = [
 		passRate >= minPassRate ? undefined : `AgentV pass rate ${passRate} is below ${minPassRate}`,
 ];
 
-/** Runs the standard gates, the configured policy, and any extension gates
- * over one shared context; the collected failures decide promotion. */
 export async function evaluatePromotionGate(input: PromotionGateInput): Promise<PromotionDecision> {
 	const minScore = parseSetting(minScoreThreshold, input.minScore ?? defaultMinScore);
 	const minPassRate = parseSetting(minPassRateThreshold, input.minPassRate ?? defaultMinPassRate);
@@ -117,10 +97,6 @@ export async function evaluatePromotionGate(input: PromotionGateInput): Promise<
 	return Object.freeze({
 		candidateId: input.candidate.id,
 		promote: failures.length === 0,
-		// Frozen, like the rest of the decision: `createPromotionDecision`
-		// already froze it, so the real gate and the builder produced values
-		// that differed in mutability. A decision is a verdict, not a scratch
-		// pad.
 		failures: Object.freeze(failures),
 		meanScore: context.meanScore,
 		passRate: context.passRate,

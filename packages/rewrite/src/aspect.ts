@@ -1,18 +1,9 @@
 import { AnnotationFactory, AnnotationKind } from "@aspectjs/common";
 import { Around, Aspect, getWeaver, on, type AroundContext, type JoinPoint } from "@aspectjs/core";
 
-/** Marks a method for the weaver. Carries the stable id and the configured
- * marker (e.g. `"use audit"`) so dispatch can look up that marker's config.
- * Applied programmatically by `annotateRewrite`, never with decorator syntax,
- * so it does not depend on any compiler decorator configuration. */
 const Rewrite = new AnnotationFactory("ts-autocode").create(
 	AnnotationKind.METHOD,
 	"Rewrite",
-	// The body is empty by construction: AspectJS reads this function for the
-	// annotation's call signature only, and the arguments are recovered from
-	// `context.annotations(Rewrite).find()` at dispatch. The parameters are
-	// named for the underscore convention `noUnusedParameters` recognizes; the
-	// names a caller sees are `Rewrite(id, marker)` in the doc comment above.
 	function Rewrite(_id: string, _marker: string) {},
 );
 
@@ -22,16 +13,11 @@ export interface RewriteInvocation {
 	readonly methodName: string;
 	readonly thisValue: unknown;
 	readonly args: readonly unknown[];
-	/** Runs the live implementation: the hot-swapped candidate when one is active,
-	 * otherwise the original joinpoint. */
 	readonly proceed: (...args: unknown[]) => unknown;
 }
 
 export type RewriteInterceptor = (invocation: RewriteInvocation) => unknown;
 
-/** A marker's rewrite behavior. Registered once by the consumer (for example
- * an auditing consumer registers `"use audit"` with a logging interceptor);
- * `"use <name>"` in source is the shorthand that selects this configuration. */
 export interface RewriteConfig {
 	readonly marker: string;
 	readonly intercept?: RewriteInterceptor;
@@ -42,27 +28,17 @@ type AnyMethod = (this: unknown, ...args: unknown[]) => unknown;
 const configs = new Map<string, RewriteConfig>();
 const swaps = new Map<string, AnyMethod>();
 
-/** Normalizes a `"use <name>"` directive to its canonical single-spaced form.
- * Package-internal: emit.ts validates rewriter markers with it; not re-exported. */
 export function normalizeMarker(marker: string): string {
 	const trimmed = marker.trim().replace(/\s+/g, " ");
 	if (!/^use \S/.test(trimmed)) throw new TypeError(`rewrite marker must be a "use <name>" directive: ${marker}`);
 	return trimmed;
 }
 
-/** Single configuration entry point: binds a `"use <name>"` marker to its rewrite
- * behavior. After this, marking a method with that directive is all a consumer
- * needs: weaving and swapping happen through the configured behavior, not
- * through explicit `annotateRewrite`/`swapImplementation` calls. */
 export function configureRewrite(config: RewriteConfig): void {
 	const marker = normalizeMarker(config.marker);
 	configs.set(marker, Object.freeze({ ...config, marker }));
 }
 
-/** Hot-swappable advice: replaces the live implementation for a rewrite id.
- * Every woven call dispatches through the swap, without touching source.
- * Consumers typically drive this when they commit a rewrite; it is exported
- * for tests and advanced orchestration, not the default consumer path. */
 export function swapImplementation(id: string, implementation: AnyMethod): void {
 	swaps.set(id, implementation);
 }
@@ -75,8 +51,6 @@ export function swappedImplementation(id: string): AnyMethod | undefined {
 	return swaps.get(id);
 }
 
-/** Shared dispatch for the aspect and for wrapped free functions: hot-swap first,
- * then the marker's configured interceptor, then the original implementation. */
 export function dispatchRewrite(
 	id: string,
 	marker: string,
@@ -115,8 +89,6 @@ class RewriteAspectImpl {
 
 let wovenWeaver: unknown;
 
-/** Idempotent per weaver context; `configureTesting(WeaverModule)` swaps the
- * context, after which the next annotate re-enables the aspect. */
 function enableRewriteWeaving(): void {
 	const weaver = getWeaver();
 	if (weaver === wovenWeaver) return;
@@ -128,10 +100,6 @@ function enableRewriteWeaving(): void {
 
 const annotatedMethods = new WeakMap<object, Set<string>>();
 
-/** Weaves a class (or static) method for hot-swappable rewrite dispatch under a
- * marker. Consumers do not call this directly: the `"use <name>"` directive (via
- * a consumer's discovery/register hook or decorator) is the shorthand that drives
- * it. Walks the prototype chain to the owning container; idempotent per method. */
 export function annotateRewrite(
 	owner: abstract new (...args: never[]) => unknown,
 	methodName: string,
@@ -148,7 +116,6 @@ export function annotateRewrite(
 	decorateMethod(Rewrite(id, marker) as DescriptorDecorator, container, methodName);
 }
 
-/** The prototype (or the constructor itself, for statics) that declares `methodName`. */
 export function declaringContainer(
 	owner: abstract new (...args: never[]) => unknown,
 	methodName: string,
@@ -162,8 +129,6 @@ export function declaringContainer(
 	return undefined;
 }
 
-/** AspectJS annotations decorate through the `(target, propertyKey, descriptor)`
- * calling convention when applied programmatically. */
 type DescriptorDecorator = (
 	target: object,
 	propertyKey: string,

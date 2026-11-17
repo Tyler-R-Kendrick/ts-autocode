@@ -105,11 +105,6 @@ describe("instrumentation emission", () => {
 	});
 
 	it("registers working accessors when evaluated in the module's scope", () => {
-		// The `wrap` handler returns a *different* function on purpose. Returning
-		// the original made the assertions pass whether or not the emitted setter
-		// worked at all, and rebinding the module's own name is the entire reason
-		// the setter is emitted: it is how a promoted candidate replaces a
-		// directive-marked free function.
 		const { handlers, methods, wrapped } = recordingInstrumentation();
 		const replacement = (input: string) => input.toUpperCase();
 		installInstrumentation({
@@ -131,8 +126,6 @@ return { Router, normalize };`) as () => { Router: unknown; normalize: unknown }
 	});
 
 	it("appends nothing that would change the file's line endings", () => {
-		// This text is appended to the user's own module. Emitting CRLF into an
-		// LF file is diff noise the library has no business creating.
 		expect(emitInstrumentation(targets)).not.toContain("\r");
 	});
 
@@ -148,8 +141,6 @@ return { Router, normalize };`) as () => { Router: unknown; normalize: unknown }
 		["a member expression", "obj.normalize"],
 		["an empty name", ""],
 	])("rejects %s as a target name", (_label, methodName) => {
-		// Anything but a plain identifier would be emitted straight into the
-		// user's module and turn a valid file into a syntax error at load time.
 		expect(() => emitInstrumentation([{ id: "bad", methodName }])).toThrow(TypeError);
 	});
 });
@@ -184,9 +175,6 @@ describe("createRewriter", () => {
 	});
 
 	it("skips a target whose class name cannot be referenced, keeping the method's own name valid", () => {
-		// Only the method name was ever checked here. A class name that does not
-		// scan as an identifier would be emitted as `owner: () => Not-A-Class`,
-		// which is a syntax error in the file the library just rewrote.
 		const marked = '"use audit"; class C { m() {} }';
 		const bad: InstrumentTarget = { id: "weird", methodName: "m", className: "Not-A-Class" };
 		expect(createRewriter(() => [bad], "use audit")(marked, "/app/c.js")).toBe(marked);

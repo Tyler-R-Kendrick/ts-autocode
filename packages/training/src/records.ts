@@ -2,7 +2,6 @@ import type { Trace } from "@agentv/core";
 
 import type { TrainableId } from "./token.js";
 
-/** One captured invocation of a trainable method. AgentV owns the trace shape. */
 export interface TrainingRecord {
 	readonly id: string;
 	readonly runId: string;
@@ -18,7 +17,6 @@ export interface TrainingStore {
 	list(trainableId?: TrainableId): Promise<readonly TrainingRecord[]>;
 }
 
-/** Volatile in-memory storage: the default when a runtime gets no store. */
 export class MemoryTrainingStore implements TrainingStore {
 	readonly #records: TrainingRecord[] = [];
 

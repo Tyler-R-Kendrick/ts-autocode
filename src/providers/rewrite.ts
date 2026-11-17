@@ -9,11 +9,6 @@ import {
 } from "ts-autocode-rewrite";
 import { captureTrainable, PromotionRejectedError, trainingMarker, type PromotionApplier } from "ts-autocode-training";
 
-/** The sibling packages never import each other; this package owns the wiring.
- * Every method the rewrite engine weaves under the training marker routes
- * through training's runtime capture, and `proceed` resolves the live
- * (possibly hot-swapped) implementation so captures reflect what ran.
- * Configuring twice is harmless. */
 export function configureRewriteCapture(): void {
 	configureRewrite({
 		marker: trainingMarker,
@@ -28,12 +23,6 @@ export function configureRewriteCapture(): void {
 	});
 }
 
-/** Promotion through ts-autocode-rewrite: writes the digest-guarded source
- * rewrite, hot-swaps async targets live, and returns the exact undo. The
- * rewrite package is training-agnostic, so the promotion gate is enforced
- * here, where training's decision meets the guarded rewrite. Only async
- * targets swap: the executor returns a promise, so swapping a synchronous
- * method would change its calling convention. */
 export const rewritePromotion: PromotionApplier = async (candidate, decision, executor) => {
 	if (!decision.promote || decision.candidateId !== candidate.id) {
 		throw new PromotionRejectedError(candidate.id, decision);
@@ -43,8 +32,6 @@ export const rewritePromotion: PromotionApplier = async (candidate, decision, ex
 	const committed = commitRewrite(source, candidate);
 	await writeFile(artifactRef, committed.source, "utf8");
 	if (candidate.target.async && executor) {
-		// Normal function so the call receiver is captured and forwarded to
-		// executors that can bind it (the sandbox executor ignores it).
 		swapImplementation(candidate.trainableId, function (this: unknown, ...args: unknown[]) {
 			return executor(candidate.target, candidate.implementation, args, { receiver: this });
 		});

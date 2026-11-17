@@ -7,8 +7,6 @@ import { evolutionEnabled, evolveVariable } from "./evolve.js";
 import { registerLoadHook } from "./load-hook.js";
 import { instrumentTrainable, wrapTrainable } from "./instrumentation.js";
 import { augmentSource } from "./register/hook.js";
-// Importing the package entry wires the Ax engine and executor defaults, the
-// harness loop, the promotion applier, and rewrite capture interception.
 import "./index.js";
 
 export { evolutionEnabled, evolveVariable } from "./evolve.js";

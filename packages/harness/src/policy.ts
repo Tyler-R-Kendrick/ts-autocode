@@ -15,19 +15,10 @@ const policySettings = z.object({
 
 export type SandboxPolicySettings = z.input<typeof policySettings>;
 
-// The SDK requires a policy schema version on every policy but exports no
-// constant for it; each release accepts its own package version, so defaulting
-// to that tracks SDK upgrades without a hand-maintained copy here.
 const installedSdkVersion = (
 	createRequire(import.meta.url)("@microsoft/mxc-sdk/package.json") as { version: string }
 ).version;
 
-/** Builds the harness's default sandbox policy: writes confined to the
- * workspace, no local network, outbound only with an explicit `allowedHosts`
- * allowlist, and no UI, clipboard, or input access. This is a convenience
- * default, not a requirement. Consumers needing different guarantees can
- * hand `HarnessSandbox` any `SandboxPolicy`, including one built by spreading
- * over this result. */
 export function createSandboxPolicy(input: SandboxPolicySettings): SandboxPolicy {
 	const settings = policySettings.parse(input);
 	const allowedHosts = settings.allowedHosts?.filter(Boolean);

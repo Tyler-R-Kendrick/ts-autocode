@@ -11,10 +11,6 @@ import {
 } from "../src/index.js";
 import { intent, PENDING_GROUNDINGS } from "../src/decorators.js";
 
-// component.ts is the host seam: it registers a class's methods against a
-// registry the host owns, and records component metadata. It was the least
-// covered file in the workspace (58% statements, 50% branches), and the
-// uncovered half is exactly the fallback behavior a host depends on.
 
 function registry() {
 	const registered = new Map<string, GroundingOptions>();
@@ -64,7 +60,7 @@ describe("finalizeTrainableClass", () => {
 	});
 
 	it("first registration wins, so a re-run does not duplicate", () => {
-		class Twice { method(): void { /* no-op */ } }
+		class Twice { method(): void {   } }
 		const { registry: host, registered } = registry();
 		finalizeTrainableClass(Twice, undefined, host);
 		finalizeTrainableClass(Twice, undefined, host);
@@ -82,11 +78,9 @@ describe("finalizeTrainableClass", () => {
 			has: () => false,
 			register: (baseline, options) => { baselines.push(baseline); return { methodRef: options.methodRef }; },
 		});
-		// Not constructed just by registering.
 		expect(constructed).toBe(0);
 		expect(baselines[0]?.("hi")).toBe("hi");
 		expect(constructed).toBe(1);
-		// Reused, not rebuilt, on a second call.
 		baselines[0]?.("again");
 		expect(constructed).toBe(1);
 	});
@@ -105,7 +99,7 @@ describe("finalizeTrainableClass", () => {
 	});
 
 	it("accumulates registered refs on the metadata record", () => {
-		class Recorded { a(): void { /* no-op */ } b(): void { /* no-op */ } }
+		class Recorded { a(): void {   } b(): void {   } }
 		const metadata: Record<PropertyKey, unknown> = {};
 		const { registry: host } = registry();
 		finalizeTrainableClass(Recorded, metadata, host);
@@ -114,7 +108,7 @@ describe("finalizeTrainableClass", () => {
 
 	it("honors a custom registered-methods symbol", () => {
 		const slot = Symbol("custom");
-		class Custom { a(): void { /* no-op */ } }
+		class Custom { a(): void {   } }
 		const metadata: Record<PropertyKey, unknown> = {};
 		finalizeTrainableClass(Custom, metadata, registry().registry, slot);
 		expect(metadata[slot]).toEqual(["Custom.a"]);
@@ -214,7 +208,7 @@ describe("granular decorators feeding the finalizer", () => {
 		const metadata: Record<PropertyKey, unknown> = {};
 		const context = { name: "route", metadata } as never;
 		intent("Route the request")(vi.fn(), context);
-		class Router { route(): void { /* no-op */ } }
+		class Router { route(): void {   } }
 		const { registry: host, registered } = registry();
 		finalizeTrainableClass(Router, metadata, host);
 		expect(registered.get("Router.route")?.intent).toBe("Route the request");

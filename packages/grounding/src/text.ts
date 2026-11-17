@@ -1,9 +1,6 @@
 import { createHash } from "node:crypto";
 
-// Deterministic text/JSON helpers for codegen pipelines. Outputs are pinned
-// by golden tests so downstream byte-for-byte digest parity holds.
 
-/** Deterministic two-space JSON: keys sorted, arrays/sets/maps normalized. */
 export function stableStringify(value: unknown): string {
 	return `${JSON.stringify(toStableValue(value), null, 2)}\n`;
 }
@@ -40,7 +37,6 @@ function stableCompare(left: unknown, right: unknown): number {
 	return JSON.stringify(left).localeCompare(JSON.stringify(right));
 }
 
-/** LF-only, no trailing intra-line whitespace, exactly one final newline. */
 export function normalizeText(value: string): string {
 	return `${value
 		.replace(/\r\n/g, "\n")
@@ -52,12 +48,6 @@ export function normalizePath(path: string): string {
 	return path.replace(/\\/g, "/");
 }
 
-/** sha256 over line-ending-normalized *text*.
- *
- * Deliberately not the same function as `ts-autocode-rewrite`'s `digest`, which
- * canonicalizes an arbitrary value as key-sorted JSON. Both emit a `sha256:`
- * prefix, so substituting one for the other silently changes every hash. The
- * name now says which one this is. */
 export function textDigest(value: string): string {
 	return `sha256:${createHash("sha256").update(normalizeText(value), "utf8").digest("hex")}`;
 }
@@ -83,7 +73,6 @@ export function camelCase(value: string): string {
 		.join("");
 }
 
-/** A sorted string-literal union type expression, or `never` when empty. */
 export function union(values: readonly string[]): string {
 	const entries = [...values].sort();
 	return entries.length > 0 ? entries.map((value) => JSON.stringify(value)).join(" | ") : "never";

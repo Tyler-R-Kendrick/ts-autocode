@@ -2,10 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { check, digest } from "../src/canonical.js";
 
-// The digest is a cross-package protocol: guarded rewriting refuses a candidate
-// whose target body digest no longer matches, so training and rewrite must hash
-// identical content identically. `isRecord`'s prototype check is the subtle
-// part: class instances must NOT be key-sorted into `{}`.
 
 describe("digest", () => {
 	it("is stable for the same value", () => {
@@ -41,18 +37,12 @@ describe("digest", () => {
 	});
 
 	it("hashes undefined rather than throwing on it", () => {
-		// `isRecord`'s `typeof` guard is what keeps `undefined` away from
-		// `Object.getPrototypeOf`, which throws on it. Optional fields reach the
-		// digest undefined (candidate `metadata` is one), so this is the
-		// ordinary case, not a hostile input.
 		expect(digest(undefined)).toMatch(/^sha256:[0-9a-f]{64}$/);
 		expect(digest({ metadata: undefined })).toBe(digest({}));
 		expect(digest([undefined])).toBe(digest([null]));
 	});
 
 	it("does not canonicalize class instances into empty objects", () => {
-		// A Date serializes through JSON.stringify; if isRecord wrongly accepted
-		// it, every Date would hash identically.
 		expect(digest(new Date("2020-01-01"))).not.toBe(digest(new Date("2021-01-01")));
 		expect(digest(new Map([["a", 1]]))).toBe(digest({}));
 	});

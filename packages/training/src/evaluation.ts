@@ -16,7 +16,6 @@ export interface TrainableEvalRun {
 	readonly evaluations: readonly BoundEvaluation[];
 }
 
-/** Run AgentV and bind every result to the same trainable method. */
 export async function evaluateTrainable(token: TrainableToken, config: EvalConfig): Promise<TrainableEvalRun> {
 	const tests = config.tests?.map((test) => bindTest(test, token));
 	const run = await evaluate({

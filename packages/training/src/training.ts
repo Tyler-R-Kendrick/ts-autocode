@@ -70,12 +70,7 @@ export interface TracingSettings {
 	readonly attributes?: Attributes;
 }
 
-/** Background code evolution driven by captured traffic; disabled unless enabled here
- * or via `ts-autocode/register`. Rewrites still pass the full gate before applying. */
 export interface EvolutionSettings {
-	/** Turn background evolution on. Unlike `capture.enabled` and
-	 * `tracing.enabled`, which are opt-*out* recording switches, this is
-	 * opt-*in*: it rewrites your source files. The name says so. */
 	readonly auto?: boolean;
 	/** @deprecated Renamed to {@link EvolutionSettings.auto}. `enabled` read as
 	 * an opt-out switch like its two siblings while being the only opt-in one.
@@ -87,66 +82,35 @@ export interface EvolutionSettings {
 	readonly onEvolved?: (activation: Activation) => void;
 }
 
-/** What background evolution uses when `EvolutionSettings.minTraces` is unset. */
 export const defaultEvolution: Required<Pick<EvolutionSettings, "minTraces">> = Object.freeze({
 	minTraces: 3,
 });
 
-/** Optimization goal when `TrainInput.objective` is unset. */
 export const defaultObjective = "Preserve behavior demonstrated by the evaluation cases";
 
-/** Where run artifacts and eval output land when neither `EvalConfig.outputDir`
- * nor `TrainingSettings.outputDir` names a directory. */
 export const defaultOutputDir = ".agentv";
 
-/** How proposed candidate bodies are run during verification. Distinct from
- * `resilience.evaluate`, which bounds the whole attempt and may retry it: this
- * is the executor's own per-run limit. */
 export interface ExecutionSettings {
 	readonly timeoutMs?: number;
-	/** How an eval case's string input becomes the trainable's argument list.
-	 *
-	 * AgentV evaluation is string-in, string-out, so by default an input is
-	 * `JSON.parse`d and a resulting array is spread as arguments. That guess is
-	 * lossy: a function legitimately taking the single string `"[1,2]"`
-	 * receives two numbers instead. Set this when your trainable's arguments
-	 * are not what the guess produces: `(input) => [input]` passes the raw
-	 * string through unchanged. */
 	readonly decodeArgs?: (input: string) => readonly unknown[];
 }
 
 export interface TrainingSettings {
-	/** The optimizer. A bare `(request, context) => body` function works; the
-	 * `{ id, optimize }` object form is for engines with a published identity. */
 	readonly engine?: TrainingEngine | EngineFunction;
 	readonly executor?: ImplementationExecutor;
-	/** Options handed to the executor on every candidate run. */
 	readonly execution?: ExecutionSettings;
 	readonly loop?: TrainingLoop;
-	/** Applies a gate-approved candidate. Every other seam resolves from these
-	 * settings before falling back to {@link provideTrainingDefaults}; this one
-	 * did not exist, so an applier could only ever be registered process-wide.
-	 * That left {@link createTrainingRuntime} sharing one applier between
-	 * runtimes, the component that writes generated code into a source file. */
 	readonly promote?: Promoter;
 	readonly evolution?: EvolutionSettings;
-	/** Default directory for run artifacts and eval output; a run's
-	 * `EvalConfig.outputDir` still overrides it. */
 	readonly outputDir?: string;
 	readonly source?: SourceSettings;
 	readonly store?: TrainingStore;
 	readonly secrets?: SecretProvider;
-	/** Which model the configured engine should use. The default Ax engine
-	 * reads it, so choosing a provider does not mean replacing the engine. */
 	readonly model?: ModelSelection;
 	readonly variables?: Readonly<Record<string, string>>;
 	readonly capture?: CaptureSettings;
 	readonly tracing?: TracingSettings;
-	/** Timeout/retry policies for named runtime operations; operations without
-	 * a policy behave exactly as before. */
 	readonly resilience?: ResilienceSettings;
-	/** Every background event, including the failures `onError` reports. There
-	 * was previously no way to observe an evolution starting or being skipped. */
 	readonly onEvent?: (event: TrainingEvent) => void;
 	/** @deprecated Use {@link TrainingSettings.onEvent}, which reports the same
 	 * failures alongside evolution lifecycle events. Still supported: it is
@@ -154,13 +118,8 @@ export interface TrainingSettings {
 	readonly onError?: (error: unknown, phase: ErrorPhase) => void;
 }
 
-/** Where a background failure was routed from: trace capture, store writes,
- * or background evolution. These never fail the traced call itself. */
 export type ErrorPhase = "capture" | "store" | "evolve";
 
-/** Everything the runtime reports about work it does in the background. The
- * failure arms carry the same `(error, phase)` pair `onError` received, so the
- * older callback is a projection of this one rather than a parallel channel. */
 export type TrainingEvent =
 	| Readonly<{ type: "capture.failed"; phase: "capture"; trainable?: TrainableToken; error: unknown }>
 	| Readonly<{ type: "store.failed"; phase: "store"; error: unknown }>
@@ -169,49 +128,27 @@ export type TrainingEvent =
 	| Readonly<{ type: "evolution.skipped"; phase: "evolve"; trainable: TrainableToken; traces: number; required: number }>
 	| Readonly<{ type: "evolution.failed"; phase: "evolve"; trainable: TrainableToken; error: unknown }>;
 
-/** How many rounds a run explores, and how wide each one is. */
 export interface RoundSettings {
 	readonly max?: number;
-	/** Maximum candidates proposed and reviewed concurrently per round. The
-	 * default governed harness loop reviews one per round and refuses more;
-	 * `sequentialLoop` supports it. */
 	readonly fanOut?: number;
 }
 
-/** What a candidate must clear to be promoted. `policy` was always a
- * {@link PromotionGate} in disguise (the gate evaluator wrapped it into one),
- * so a single `gates` list now expresses both. */
 export interface PromotionSettings {
 	readonly minScore?: number;
 	readonly minPassRate?: number;
-	/** Extra gates run after the standard {@link defaultPromotionGates} set.
-	 * Extension adds rules; it cannot waive the standard invariants. */
 	readonly gates?: readonly PromotionGate[];
 }
 
 export interface TrainInput {
 	readonly trainable: TrainableIdentity;
-	/** Optimization goal; defaults to preserving the evaluated behavior. */
 	readonly objective?: string;
-	/** AgentV evaluation. When `tests` are omitted, distinct successful captured
-	 * runtime traces are replayed as equality eval cases instead. */
 	readonly evaluation?: EvalConfig;
-	/** Minimum distinct successful traces required before training from replayed
-	 * captures; ignored when explicit `evaluation.tests` are given. */
 	readonly minTraces?: number;
 	readonly constraints?: readonly string[];
 	readonly engine?: TrainingEngine | EngineFunction;
 	readonly signal?: AbortSignal;
-	/** The shortest way to state evaluation: `[input, expected]` pairs. Each
-	 * becomes an equality eval case, with non-strings JSON-encoded the same way
-	 * outputs are compared, and the baseline task is a lookup over the pairs --
-	 * exactly how replayed live traffic is evaluated. Repeated inputs keep the
-	 * last expected value. `evaluation.tests`, when present, wins; `evaluation`
-	 * still carries options like `outputDir` alongside `cases`. */
 	readonly cases?: ReadonlyArray<readonly [input: unknown, expected: unknown]>;
-	/** Round budget and width. */
 	readonly rounds?: RoundSettings;
-	/** Promotion thresholds and extra gates. */
 	readonly promotion?: PromotionSettings;
 	/** @deprecated Use `rounds.max`. */
 	readonly maxRounds?: number;
@@ -229,8 +166,6 @@ export interface TrainInput {
 	readonly gates?: readonly PromotionGate[];
 }
 
-/** Collapses the grouped and flat forms of one input into the values the
- * runtime uses. The grouped form wins; both are accepted for one release. */
 function resolved(input: TrainInput): {
 	readonly maxRounds: number | undefined;
 	readonly fanOut: number | undefined;
@@ -248,9 +183,6 @@ function resolved(input: TrainInput): {
 	};
 }
 
-/** Whether a run's final candidate can be applied, and if not, why. `outcome`
- * already distinguishes `"stalled"` from `"exhausted"`, so a caller should not
- * have to provoke an exception to learn which happened. */
 export type ActivationReadiness =
 	| Readonly<{ ready: true }>
 	| Readonly<{ ready: false; outcome: TrainingRun["outcome"]; failures: readonly string[] }>;
@@ -260,32 +192,19 @@ export interface TrainingRun {
 	readonly baseline: TrainableEvalRun;
 	readonly rounds: readonly TrainingRound[];
 	readonly final: TrainingRound;
-	/** Whether {@link TrainingRun.activate} would succeed, without throwing.
-	 * Prefer this over a speculative `try`/`catch` around `activate()`. */
 	canActivate(): ActivationReadiness;
-	/** Apply the final candidate through the wired promotion applier. Throws
-	 * {@link PromotionRejectedError} unless the candidate passed the promotion
-	 * gate; {@link TrainingRun.canActivate} reports the same thing without
-	 * throwing. */
 	activate(): Promise<Activation>;
 }
 
-/** An applied training result. */
 export interface Activation {
 	readonly run: TrainingRun;
-	/** Undo the activation: the wired applier restores whatever it changed. */
 	rollback(): Promise<void>;
 }
 
-/** An applied promotion and how to undo it exactly. */
 export interface AppliedPromotion {
 	rollback(): Promise<void>;
 }
 
-/** Applies a gate-approved candidate to its source artifact and, where the
- * wired provider supports it, the running process. How is the provider's
- * concern; training only requires that the application be undoable. The
- * resolved executor is passed along for providers that run candidates live. */
 export type Promoter = (
 	candidate: CandidatePatch,
 	decision: PromotionDecision,
@@ -302,18 +221,8 @@ type CandidateEvalConfig = Omit<EvalConfig, "task"> & { readonly signal?: AbortS
 export interface Training {
 	records(trainable?: TrainableIdentity): Promise<readonly TrainingRecord[]>;
 	evaluate(trainable: TrainableIdentity, config: EvalConfig): Promise<TrainableEvalRun>;
-	/** Train the trainable a symbol keys: `training.train(route)`, the same
-	 * symbol `@trainable(route)` put on the code. Options ride along as the
-	 * second argument; the object form remains for spelling everything out. */
 	train(trainable: TrainableIdentity, input?: Omit<TrainInput, "trainable">): Promise<TrainingRun>;
 	train(input: TrainInput): Promise<TrainingRun>;
-	/** Route one call of a marked trainable through *this* runtime's capture.
-	 *
-	 * {@link captureTrainable} does the same thing for the process-wide runtime,
-	 * and is what installed instrumentation calls. A runtime built with
-	 * {@link createTrainingRuntime} is not reachable that way (it registers
-	 * nothing globally, by design), so without this an isolated runtime could
-	 * train and evaluate but never capture, which is half a runtime. */
 	capture<This, Args extends unknown[], Result>(
 		trainable: TrainableIdentity,
 		methodName: string,
@@ -498,7 +407,6 @@ class TrainingRuntime implements Training {
 				const decision = await evaluatePromotionGate({
 					candidate,
 					evaluations: verification.evaluations,
-					// The engine already validated the candidate source.
 					conformance: true,
 					...optional("minScore", options.minScore),
 					...optional("minPassRate", options.minPassRate),
@@ -521,8 +429,6 @@ class TrainingRuntime implements Training {
 		return run;
 	}
 
-	/** Training from live traffic is the same operation as training from explicit
-	 * tests: distinct successful captured traces become equality eval cases. */
 	async #replayEvaluation(token: TrainableToken, input: TrainInput): Promise<EvalConfig> {
 		const minTraces = parseSetting(traceMinimum, input.minTraces ?? 1);
 		const tests = liveEvalCases(await this.records(token));
@@ -716,8 +622,6 @@ class TrainingRuntime implements Training {
 		}, this.#report("capture"));
 	}
 
-	/** The boundary sink for background failures: every capture, store, and
-	 * evolution error funnels through here into the settings callbacks. */
 	#report(phase: ErrorPhase): (error: unknown) => void {
 		return (error) => {
 			if (phase === "capture") this.#emit({ type: "capture.failed", phase, error });
@@ -726,10 +630,6 @@ class TrainingRuntime implements Training {
 		};
 	}
 
-	/** The single sink for background events. `onError` is a projection of it:
-	 * every arm carrying an `error` is forwarded to the older callback with the
-	 * phase it always received, so both can be configured at once without a
-	 * failure being reported twice to the same handler. */
 	#emit(event: TrainingEvent): void {
 		attempt(() => this.#settings.onEvent?.(event), () => undefined);
 		if ("error" in event) {
@@ -755,37 +655,19 @@ let configuredTraining: TrainingRuntime | undefined;
 let configuredSettings: TrainingSettings = {};
 
 export interface ConfigureOptions {
-	/** Merge into the current settings instead of replacing them. Off by
-	 * default: `configureTraining` has always replaced, and silently carrying
-	 * settings between unrelated calls is worse than the surprise it fixes. */
 	readonly merge?: boolean;
 }
 
-/** Configure the process-wide runtime that the exported `training` const
- * delegates to. Replaces the current settings unless `merge` is set; pass
- * `{ merge: true }` to layer onto whatever is already configured.
- *
- * For an isolated runtime that touches no global state (a test, or a host
- * serving several tenants), use {@link createTrainingRuntime}. */
 export function configureTraining(settings: TrainingSettings = {}, options: ConfigureOptions = {}): Training {
 	configuredSettings = options.merge ? { ...configuredSettings, ...settings } : settings;
 	configuredTraining = new TrainingRuntime(configuredSettings);
 	return configuredTraining;
 }
 
-/** Build a runtime that owns its own settings, store and evolution state, and
- * registers nothing globally. The exported `training` const is unaffected, so
- * several of these can run side by side. Provider defaults registered with
- * {@link provideTrainingDefaults} still apply, so `import "ts-autocode"` gives
- * this the Ax engine and the governed loop exactly as it gives them to the
- * shared runtime. */
 export function createTrainingRuntime(settings: TrainingSettings = {}): Training {
 	return new TrainingRuntime(settings);
 }
 
-/** Discard the process-wide runtime and its settings, restoring the state of a
- * fresh import. Intended for tests: without it, one test's `configureTraining`
- * call is visible to every later one. */
 export function resetTraining(): void {
 	configuredTraining = undefined;
 	configuredSettings = {};
@@ -801,17 +683,10 @@ export interface TrainingProviders {
 
 let defaultProviders: TrainingProviders = {};
 
-/** Provider packages call this to supply lazy fallbacks (ts-autocode wires the
- * Ax engine, its sandbox executor, the governed harness loop, and a promotion
- * applier) without this package depending on any provider. Explicit settings
- * win. */
 export function provideTrainingDefaults(providers: TrainingProviders): void {
 	defaultProviders = { ...defaultProviders, ...providers };
 }
 
-/** Default runtime: the "use training" directive is the only required marker.
- * `configureTraining()` is optional and only overrides settings; each call
- * delegates to the current runtime so later configuration still applies. */
 export const training: Training = Object.freeze<Training>({
 	records: (identity) => runtime().records(identity),
 	evaluate: (identity, config) => runtime().evaluate(identity, config),
@@ -822,11 +697,6 @@ export const training: Training = Object.freeze<Training>({
 	flush: () => runtime().flush(),
 });
 
-/** Routes one call of a marked trainable through runtime capture: the call is
- * recorded against `id`, spans are emitted per the tracing settings, and
- * background evolution may be scheduled. Instrumentation wiring (for example
- * ts-autocode's rewrite integration) calls this from whatever interception
- * mechanism it owns; this package has no knowledge of that mechanism. */
 export function captureTrainable<This, Args extends unknown[], Result>(
 	id: string,
 	methodName: string,
@@ -841,14 +711,9 @@ function runtime(): TrainingRuntime {
 	return configuredTraining ??= new TrainingRuntime({});
 }
 
-/** Why a run's final candidate may not be applied. Mirrors exactly what
- * `activate()` enforces, so the two can never disagree. */
 function activationReadiness(run: TrainingRun, hasApplier: () => boolean): ActivationReadiness {
 	const { decision } = run.final;
 	if (decision.promote && hasApplier()) return Object.freeze({ ready: true as const });
-	// Everything #activate would throw for must be visible here, or the
-	// documented contract, "whether activate() would succeed, without
-	// throwing", is false for exactly the runtimes isolation exists for.
 	const failures = decision.promote
 		? [new PromotionApplierNotConfiguredError().message]
 		: decision.failures;
@@ -864,10 +729,6 @@ function defaultSerialize(value: unknown): string {
 	return attempt(() => JSON.stringify(value) ?? String(value), () => String(value));
 }
 
-/** The default {@link ExecutionSettings.decodeArgs}: parse the eval input as
- * JSON and spread an array as the argument list, falling back to the raw string.
- * Ambiguous by nature (a trainable taking the literal string `"[1,2]"` gets
- * two numbers), which is why it is replaceable. */
 export function evaluationArgs(input: string): readonly unknown[] {
 	return attempt(() => {
 		const parsed = JSON.parse(input) as unknown;
@@ -875,9 +736,6 @@ export function evaluationArgs(input: string): readonly unknown[] {
 	}, () => [input]);
 }
 
-/** `[input, expected]` pairs as an eval config: equality cases plus the same
- * lookup task replayed traffic uses, so `cases` and live replay are one
- * evaluation semantics with two sources. */
 function casesEvaluation(
 	pairs: ReadonlyArray<readonly [unknown, unknown]>,
 	evaluation: TrainInput["evaluation"],
@@ -930,8 +788,6 @@ function promotionRubric(input: TrainInput): string {
 	const options = resolved(input);
 	return [
 		"Candidate must pass source conformance checks.",
-		// The judge reads this verbatim, so it must carry the resolved numbers a
-		// candidate is actually held to, never a placeholder.
 		`Minimum evaluation score: ${options.minScore ?? defaultMinScore}.`,
 		`Minimum evaluation pass rate: ${options.minPassRate ?? defaultMinPassRate}.`,
 		input.policy === undefined ? "No additional promotion policy." : "Candidate must pass the configured promotion policy.",

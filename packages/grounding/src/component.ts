@@ -1,32 +1,13 @@
 import { composeOptions, PENDING_GROUNDINGS, type PendingGrounding, type PendingMap, type GroundingOptions } from "./decorators.js";
 
-// Class-level composition: a bare class decorator registers every
-// granular-declared method (or every own method with fully inferred
-// groundings) against a host-provided registry, and `component`-style
-// metadata records the class's declared intent + operation refs. The
-// registry and metadata symbols are parameters: this package never
-// imports a training runtime, so any host (ts-autocode root, HoBo
-// runtime, …) wires its own.
 
-/** Host registry the class finalizer registers methods against. */
 export interface GroundingRegistry {
-	/** True when methodRef is already registered (first registration wins). */
 	has(methodRef: string): boolean;
-	/** Register a baseline callable under the composed grounding options. */
 	register(baseline: (input: unknown) => unknown, options: GroundingOptions): { readonly methodRef: string };
 }
 
-/** Symbol under which registered methodRefs accumulate on class metadata. */
 export const REGISTERED_METHODS = Symbol.for("ts-autocode.grounding.registered");
 
-/**
- * Register every granular-declared method of a class (bare class
- * decorator). Methods with pending groundings are registered; when nothing
- * was annotated, every own prototype method is registered with fully
- * inferred groundings: the decorators are all optional. Baselines bind to
- * a lazily constructed instance (DI semantics; falls back to the prototype
- * for non-constructible classes).
- */
 export function finalizeTrainableClass(
 	cls: new () => object,
 	metadata: Record<PropertyKey, unknown> | undefined,
@@ -73,32 +54,22 @@ export function finalizeTrainableClass(
 }
 
 export interface ComponentOptions {
-	/** What the component is for: the component-level generation intent. */
 	readonly intent: string;
 }
 
 export interface ComponentMetadata {
 	readonly intent: string;
 	readonly name: string;
-	/** methodRefs of the component's declared operation methods. */
 	readonly operations: readonly string[];
 }
 
 export interface ComponentSymbols {
-	/** Where the finished ComponentMetadata lands on the class metadata. */
 	readonly component: symbol;
-	/** Where operation-method decorators accumulated their methodRefs. */
 	readonly operations: symbol;
 }
 
 export const COMPONENT_METADATA = Symbol.for("ts-autocode.component.metadata");
 
-/**
- * Build a `@component({ intent })` stage-3 class decorator over the given
- * metadata symbols. Operation-method decorators evaluate before the class
- * decorator, so the finished metadata is the component's full declaration:
- * intent + operation refs.
- */
 export function createComponentDecorator(symbols: ComponentSymbols) {
 	return function component(options: ComponentOptions): <
 		C extends abstract new (
@@ -120,7 +91,6 @@ export function createComponentDecorator(symbols: ComponentSymbols) {
 	};
 }
 
-/** Read a decorated class's component metadata (undefined when not one). */
 export function componentMetadataOf(cls: unknown, componentSymbol: symbol = COMPONENT_METADATA): ComponentMetadata | undefined {
 	const metadataSymbol = (Symbol as { metadata?: symbol }).metadata;
 	if (metadataSymbol === undefined) return undefined;

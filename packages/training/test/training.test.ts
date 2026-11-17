@@ -23,8 +23,6 @@ import {
 	type TrainingStore,
 } from "../src/index.js";
 
-/** What instrumentation does when it marks a callable; inlined here because
- * the root package's decorator lives outside this package. */
 function wrapTrainableForTest<F>(fn: F, id: string): F {
 	return stampTrainable(fn, defineTrainable(id));
 }
@@ -39,14 +37,10 @@ describe("trainable identity", () => {
 		}
 
 		expect(new Router().route("billing")).toBe("BILLING");
-		// No wrapper a consumer must call to mark a trainable: the directive is
-		// the marker. `createTrainingRuntime` is a runtime factory, not one of
-		// these, and is deliberately named apart from them.
 		expect("useTraining" in publicApi).toBe(false);
 		expect("createTraining" in publicApi).toBe(false);
 		expect("markTrainable" in publicApi).toBe(false);
 		expect("default" in publicApi).toBe(false);
-		// Weaving and decorators live with the instrumentation wiring, not here.
 		expect("trainable" in publicApi).toBe(false);
 		expect("instrumentTrainable" in publicApi).toBe(false);
 		expect("wrapTrainable" in publicApi).toBe(false);
@@ -59,8 +53,6 @@ describe("trainable identity", () => {
 	});
 
 	it("rejects string identities in training APIs", async () => {
-		// ADR: a plain string is not a sufficient identity. It must not compile
-		// (pinned in test/tier1.test.ts) and must not slip through at runtime.
 		await expect(defaultTraining.records("Router.route" as never)).rejects.toThrow(
 			"must be a symbol or TrainableToken",
 		);
@@ -152,7 +144,6 @@ describe("training execution", () => {
 		expect(await readFile(artifact, "utf8")).toContain("return input.toUpperCase();");
 		expect(await readFile(artifact, "utf8")).toContain('"use training"');
 
-		// Rollback restores the pre-activation source exactly.
 		await activation.rollback();
 		expect(await readFile(artifact, "utf8")).not.toContain("return input.toUpperCase();");
 	});
@@ -346,10 +337,6 @@ describe("training resilience policies", () => {
 const functionExecutor: ImplementationExecutor = directExecutor;
 
 describe("capture on an isolated runtime", () => {
-	// `captureTrainable` routes to the process-wide runtime, so a runtime built
-	// with `createTrainingRuntime` could train and evaluate but never capture --
-	// half a runtime, and exactly the case isolation exists for. Found while
-	// writing fault-injection tests against an isolated runtime.
 	it("records through the runtime it was called on, not the global one", async () => {
 		const isolated = createTrainingRuntime({ tracing: { enabled: false } });
 		const other = createTrainingRuntime({ tracing: { enabled: false } });
@@ -399,11 +386,6 @@ describe("capture on an isolated runtime", () => {
 });
 
 describe("promotion applier on an isolated runtime", () => {
-	// Every other seam resolved `settings.X ?? defaultProviders.X`; `promote`
-	// alone read the process-wide provider, so an applier could not be injected
-	// per runtime. `createTrainingRuntime` therefore left one seam global, the
-	// one that writes generated code into a source file. Found while writing the
-	// provider authoring guide: the wiring example would not compile.
 	async function trained(promote: PromotionApplier, name: string) {
 		const directory = await mkdtemp(join(tmpdir(), `ts-autocode-${name}-`));
 		const artifact = join(directory, "echo.ts");
@@ -461,8 +443,6 @@ describe("promotion applier on an isolated runtime", () => {
 });
 
 describe("call-site shorthand", () => {
-	// The sugar is one semantics with two spellings: each shorthand must behave
-	// exactly as its verbose form, or it is a second API rather than sugar.
 	async function fixture(name: string) {
 		const directory = await mkdtemp(join(tmpdir(), `ts-autocode-${name}-`));
 		const artifact = join(directory, "echo.ts");
@@ -491,7 +471,6 @@ describe("call-site shorthand", () => {
 
 		expect(run.outcome).toBe("ready");
 		expect(run.final.verification.run.summary.passed).toBe(2);
-		// The derived engine id is stable and names the inline form.
 		expect(run.final.candidate.engineId).toBe("inline/engine");
 	});
 
@@ -577,9 +556,6 @@ describe("call-site shorthand", () => {
 
 describe("review findings pinned", () => {
 	it("directExecutor runs await-bearing candidates for async targets", async () => {
-		// The engine validates async candidates against an async declaration, so
-		// the shipped executor must compile them as async functions: a sync
-		// Function constructor throws on `await` before the body ever runs.
 		const { conformanceAsyncTarget } = await import("../src/conformance.js");
 		await expect(
 			directExecutor(conformanceAsyncTarget, "return await Promise.resolve(input.toUpperCase());", ["abc"]),
@@ -587,11 +563,6 @@ describe("review findings pinned", () => {
 	});
 
 	it("the ambient training.train forwards the positional options", async () => {
-		// The frozen `training` facade wrapped train as (input) => ..., silently
-		// dropping the second argument of train(identity, options), the exact
-		// call the docs advertise. Dropped options mean the run falls back to
-		// replay and fails with InsufficientTracesError before ever looking at
-		// the source; forwarded cases skip replay and reach source discovery.
 		configureTraining({ tracing: { enabled: false } });
 		const token = defineTrainable("Wrapper.forwards");
 		await expect(defaultTraining.train(token, { cases: [["a", "b"]] }))

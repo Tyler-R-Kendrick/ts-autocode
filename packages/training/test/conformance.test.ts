@@ -11,17 +11,8 @@ import { sequentialLoop } from "../src/loop.js";
 import type { ImplementationExecutor } from "../src/engine.js";
 import type { TrainingStore } from "../src/records.js";
 
-// The conformance kit's own tests. A suite that passes for everything is not a
-// contract, so each check is run against an implementation that violates
-// exactly the rule it names.
-//
-// These import from `../src/`, unlike test/contract.test.ts at the root, which
-// exercises the shipped providers through the built package. Both matter: this
-// one says the kit is correct, that one says the providers satisfy it.
 
 describe("the conformance suite itself", () => {
-	// A suite that passes for everything is not a contract. These prove each
-	// suite rejects an implementation that violates the rule it names.
 	it("rejects a store that loses append order", async () => {
 		const failures = await failing(conformanceSuites.trainingStore, () => new ReversingStore());
 		expect(failures).toContain("preserves append order");
@@ -83,9 +74,6 @@ describe("the conformance suite itself", () => {
 
 
 describe("the abort check specifically", () => {
-	// This check was written vacuously at first: it asserted
-	// `rejected || resolved`, which is always true. It now counts proposals, so
-	// it must reject a loop that ignores the signal.
 	it("rejects a loop that keeps proposing after an abort", async () => {
 		const deaf = async (input: Parameters<typeof sequentialLoop>[0]) => {
 			for (let round = 1; round <= (input.maxRounds ?? 1); round += 1) {
@@ -104,7 +92,6 @@ describe("the abort check specifically", () => {
 	}, 30_000);
 });
 
-/** Names of the checks a subject fails. */
 async function failing<T>(
 	suite: ReadonlyArray<{ readonly name: string; run(subject: T): Promise<void> }>,
 	factory: T,
@@ -120,7 +107,6 @@ async function failing<T>(
 	return names;
 }
 
-/** A store that is not MemoryTrainingStore, to keep the suite honest. */
 class ArrayStore implements TrainingStore {
 	private readonly entries: string[] = [];
 	async append(record: Parameters<TrainingStore["append"]>[0]): Promise<void> {
@@ -144,7 +130,6 @@ class AliasingStore implements TrainingStore {
 		this.records.push(record);
 	}
 	async list(trainableId?: Parameters<TrainingStore["list"]>[0]) {
-		// Hands back the live array: one caller's mutation corrupts every other.
 		return trainableId === undefined ? this.records : this.records.filter((entry) => entry.trainableId === trainableId);
 	}
 }
@@ -156,14 +141,6 @@ class UnfilteredStore extends ArrayStore {
 }
 
 describe("the fixtures the kit publishes", () => {
-	// `conformanceTarget`, `conformanceAsyncTarget` and `conformanceCandidate`
-	// are exported so an implementer can build their own tests on them, which
-	// makes a silent change here a break in suites this repo cannot see.
-	//
-	// A stale copy of the fixture source used to sit at the bottom of this file
-	// under a comment saying it kept the two tied together. Nothing referenced
-	// it, so nothing did, and it had already drifted, describing one method
-	// where the kit publishes two.
 
 	it("describes the synchronous fixture method", () => {
 		expect(conformanceTarget).toMatchObject({
@@ -199,8 +176,6 @@ describe("the fixtures the kit publishes", () => {
 	});
 
 	it("publishes a body the shipped executor can actually run", async () => {
-		// Every executor check runs this pairing, so a target and default body
-		// that do not fit together would fail every implementer's suite at once.
 		await expect(directExecutor(conformanceTarget, conformanceCandidate().implementation, ["hello"]))
 			.resolves.toBe("hello");
 		await expect(directExecutor(conformanceAsyncTarget, "return input;", ["hello"])).resolves.toBe("hello");

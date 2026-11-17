@@ -28,12 +28,9 @@ type Service = AxAIService | ((context: EngineContext) => AxAIService | Promise<
 
 const defaultEngineId = "@ax-llm/ax";
 const defaultAIProvider = "openai";
-// Secret-provider name first, then environment fallbacks, in order.
 const apiKeySecret = "OPENAI_API_KEY";
 const apiKeyVariables = ["OPENAI_API_KEY", "OPENAI_APIKEY"] as const;
 
-/** Where each Ax provider's key is looked up, so `TrainingSettings.model` can
- * name a provider without also having to name its environment variable. */
 const providerKeyNames: Readonly<Record<string, readonly string[]>> = Object.freeze({
 	"openai": apiKeyVariables,
 	"openai-responses": apiKeyVariables,
@@ -47,8 +44,6 @@ const providerKeyNames: Readonly<Record<string, readonly string[]>> = Object.fre
 	"grok": ["GROK_API_KEY", "XAI_API_KEY"],
 });
 
-/** Key names to try for a provider, falling back to its conventional
- * `<PROVIDER>_API_KEY` so an Ax provider we have not listed still works. */
 export function apiKeyNamesFor(provider: string): readonly string[] {
 	return providerKeyNames[provider] ?? [`${provider.replace(/\W+/g, "_").toUpperCase()}_API_KEY`];
 }
@@ -73,7 +68,6 @@ type RewriteInput = Record<string, AxFieldValue>;
 
 type RewriteOutput = { [field.output]: string };
 
-/** Default engine: the Ax program, examples, and metric come from the trainable method. */
 export function createAxEngine(options: AxEngineOptions = {}): TrainingEngine {
 	const engine: TrainingEngine = {
 		id: options.id ?? defaultEngineId,
@@ -201,7 +195,6 @@ async function scoreImplementation(
 ): Promise<number> {
 	if (!prediction?.[field.output]?.trim()) return 0;
 	const args = JSON.parse(String(exampleValue[field.args] ?? "[]")) as unknown[];
-	// A candidate that fails to run simply scores zero.
 	return attemptAsync(async () => {
 		const actual = await executeImplementation(request.target, prediction[field.output], args, {
 			timeoutMs: timeout,
@@ -216,18 +209,12 @@ async function service(value: Service | undefined, context: EngineContext): Prom
 	return typeof value === "function" ? value(context) : value;
 }
 
-/** An explicit `teacherAI` wins; otherwise `model.teacher` selects one. */
 async function teacherService(options: AxEngineOptions, context: EngineContext): Promise<AxAIService | undefined> {
 	if (options.teacherAI !== undefined) return service(options.teacherAI, context);
 	const teacher = context.model?.teacher;
 	return teacher === undefined ? undefined : defaultAI(context, teacher);
 }
 
-/** Accepts whatever `ModelSelection.service` carries as an Ax service, if it
- * is one. Structural on purpose: the training package carries the value
- * opaquely, so this is the first place that can say what it must look like --
- * and a wrong value should fail here, with a message naming the setting,
- * rather than deep inside an optimization round. */
 function suppliedService(value: unknown): AxAIService {
 	if (value !== null && typeof value === "object" && "chat" in value && typeof (value as { chat: unknown }).chat === "function") {
 		return value as AxAIService;
@@ -237,11 +224,6 @@ function suppliedService(value: unknown): AxAIService {
 	);
 }
 
-/** Builds an Ax service from a provider-neutral {@link ModelSelection}. A
- * user-supplied `service` wins outright: this library then holds no opinion
- * about providers at all. Otherwise `provider` is handed to Ax's own registry;
- * `apiKey` wins over the secret provider, then the environment names known for
- * that provider, so naming a provider is enough. */
 async function defaultAI(
 	context: EngineContext,
 	selection: ModelSelection | ModelSelection["teacher"],
@@ -261,9 +243,6 @@ async function defaultAI(
 	if (!apiKey) {
 		throw new MissingSecretError(secretName, `default optimizer requires ${secretName} or a custom TrainingSettings.engine`);
 	}
-	// Ax types `name` as a closed union. A configured provider string is
-	// validated by Ax itself, which reports an unknown provider better than a
-	// hand-maintained list here could.
 	return ai({
 		name: provider,
 		apiKey,
@@ -302,18 +281,8 @@ function contentText(content: unknown): string | undefined {
 	return content === undefined ? undefined : JSON.stringify(content);
 }
 
-/** Shapes one captured argument as the Ax field declared for its parameter.
- *
- * This derives from {@link fieldType} rather than substring-matching the
- * declared type a second time. Matching independently made the two disagree
- * wherever a type merely *contains* a primitive name: `Record<string, unknown>`
- * and `string[]` were declared as a `json` field and a string array, then
- * handed a JSON string, because both contain "string". Ax then received a value
- * of a different shape than the signature it was given. */
 function inputValue(value: unknown, type: string): unknown {
 	const field = fieldType(type);
-	// A captured argument that is not an array where one is declared is wrapped
-	// rather than dropped, matching how `argsFromContent` reads a bare JSON value.
 	if (field.isArray) return Array.isArray(value) ? value : value === undefined ? [] : [value];
 	if (field.name === "string") return typeof value === "string" ? value : JSON.stringify(value);
 	if (field.name === "number") return Number(value);

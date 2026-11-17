@@ -31,8 +31,6 @@ describe("training harness", () => {
 		expect(result.outcome).toBe("accepted");
 		expect(result.final.round).toBe(2);
 		expect(result.final.adversary).toBeUndefined();
-		// The defaulted in-memory bus still carries the full audit log,
-		// including evidence-convention verdicts as ordinary judge messages.
 		const verdicts = await result.bus.read("judge");
 		expect(verdicts).toHaveLength(2);
 		expect(verdicts.every(({ kind }) => kind === "agent.decision")).toBe(true);
@@ -49,8 +47,6 @@ describe("training harness", () => {
 			adversary: { challenge: () => ({ challenge: "challenge", feedback: evidence.shift() ?? [] }) },
 		});
 
-		// Round one's challenge stood and tightened the rubric by default;
-		// round two's challenge found nothing, so the candidate was accepted.
 		expect(result.outcome).toBe("accepted");
 		expect(result.final.round).toBe(2);
 		expect(result.rounds[0]?.rubric).toBe("Initial rubric\nAdversarial criteria: breaks on unicode");
@@ -76,7 +72,6 @@ describe("training harness", () => {
 		expect(student.mock.calls[1]?.[0].context.length).toBeGreaterThan(0);
 		expect(challenge).toHaveBeenCalledOnce();
 		expect(result.final.adversary).toEqual({ challenge: "counterexample", decision: "fail" });
-		// The judge is just another actor: its verdicts are ordinary messages.
 		const judgeEntries = await callbacks.bus.read("judge");
 		expect(judgeEntries.length).toBeGreaterThan(0);
 		expect(judgeEntries.every(({ kind }) => kind === "agent.decision")).toBe(true);
@@ -173,11 +168,9 @@ describe("training harness", () => {
 	});
 
 	it("accepts any unstorage driver and resumes its sequence numbering", async () => {
-		// The memory driver stands in for fs, redis, or any other driver.
 		const storage = createStorage();
 		const first = new WriteAheadAgentBus({ storage });
 		const initial = await first.append({ actor: "student", kind: "test.first" });
-		// Another writer advanced the shared log; a new bus resumes behind it.
 		await storage.setItem("entry:7", { ...initial, sequence: 7 });
 		const appended = await new WriteAheadAgentBus({ storage }).append({ actor: "student", kind: "test.second" });
 		expect(appended.sequence).toBe(8);
@@ -205,7 +198,6 @@ describe("training harness", () => {
 			},
 		});
 
-		// By round two the bus holds many entries; the provider windowed them to one.
 		expect(contexts).toEqual([0, 1]);
 		expect((await callbacks.bus.read()).length).toBeGreaterThan(1);
 	});
@@ -222,7 +214,6 @@ describe("training harness", () => {
 	it("gates sandbox file actions and keeps the bus outside writable paths", async () => {
 		const workspace = await mkdtemp(join(tmpdir(), "ts-autocode-sandbox-"));
 		const { bus } = await newBus();
-		// No policy configured: the sandbox falls back to the default policy.
 		const sandbox = new HarnessSandbox({
 			id: "files",
 			workspace,
@@ -248,8 +239,6 @@ describe("training harness", () => {
 		const workspace = await mkdtemp(join(tmpdir(), "ts-autocode-sandbox-custom-"));
 		const scratch = await mkdtemp(join(tmpdir(), "ts-autocode-scratch-"));
 		const { bus } = await newBus();
-		// A policy the default would never produce: an extra writable root and
-		// unrestricted outbound network access.
 		const policy = {
 			...createSandboxPolicy({ workspace }),
 			filesystem: { readwritePaths: [workspace, scratch] },
@@ -273,9 +262,6 @@ describe("training harness", () => {
 		expect(createSandboxPolicy({ workspace: tmpdir(), version: "0.6.0-alpha" }).version).toBe("0.6.0-alpha");
 	});
 
-	// The policy builder is the whole of the default confinement story, and only
-	// its `version` field was ever asserted. Every other branch (the outbound
-	// allowlist above all) decides what a model-driven agent can reach.
 	describe("the default policy it builds", () => {
 		it("confines writes to the workspace and denies the network outright", () => {
 			const policy = createSandboxPolicy({ workspace: tmpdir() });
@@ -317,8 +303,6 @@ describe("training harness", () => {
 		});
 
 		it("keeps the network closed when the allowlist is empty or only blanks", () => {
-			// An allowlist that filters down to nothing must fail closed. Reading
-			// it as "no restrictions" would open the network on a typo.
 			for (const allowedHosts of [[], ["", "   "]]) {
 				expect(createSandboxPolicy({ workspace: tmpdir(), allowedHosts }).network)
 					.toEqual({ allowOutbound: false, allowLocalNetwork: false });
@@ -398,10 +382,6 @@ async function loopCallbacks(decisions: readonly ("pass" | "fail")[]) {
 }
 
 describe("inferringHarness", () => {
-	// defineTrainingHarness takes three type parameters but `settings` mentions
-	// only TCandidate, so a bare call inferred `unknown, unknown, unknown` and
-	// every documented call site wrote all three out. TChallenge was already
-	// scoped to `run` and inferred; these two now behave the same way.
 	it("infers assessment and feedback from the roles", async () => {
 		const result = await inferringHarness<{ id: string }>().run({
 			task: "task",
@@ -415,8 +395,6 @@ describe("inferringHarness", () => {
 
 		expect(result.outcome).toBe("accepted");
 		expect(result.final.candidate.id).toBe("candidate-2");
-		// Inferred, not asserted: `assessment` is {score: number} here, so this
-		// arithmetic typechecks without a cast or an explicit type argument.
 		expect(result.final.assessment.score + 1).toBe(2);
 	});
 

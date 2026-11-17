@@ -6,32 +6,12 @@ import { discoverInSource } from "./source.js";
 import type { TrainingRecord, TrainingStore } from "./records.js";
 import { defineTrainable, type TrainableId } from "./token.js";
 
-// Conformance suites for the seams this package injects.
-//
-// `TrainingEngine`, `ImplementationExecutor`, `TrainingLoop`, `PromotionApplier`
-// and `TrainingStore` are the whole point of the provider-neutral design: any
-// structurally compatible implementation is supposed to work. That claim was
-// only ever checked against the implementations shipped here, which is not a
-// claim about anyone else's.
-//
-// These ship in the package so an implementer can run them against their own
-// provider. They are framework-agnostic on purpose, a list of named checks
-// that throw on violation, driven by whatever test runner the consumer has:
-//
-//   import { trainingStoreContract } from "ts-autocode-training";
-//
-//   for (const check of trainingStoreContract) {
-//     it(check.name, () => check.run(() => new MyStore()));
-//   }
 
-/** One conformance check. `run` resolves when the subject conforms and rejects
- * with a message naming the violated rule when it does not. */
 export interface ConformanceCheck<TSubject> {
 	readonly name: string;
 	run(subject: TSubject): Promise<void>;
 }
 
-/** A factory, because most checks need a fresh, empty subject. */
 export type Factory<T> = () => T | Promise<T>;
 
 class ConformanceError extends Error {
@@ -70,10 +50,8 @@ const fixtureSource = `class Fixture {
 }
 `;
 
-/** A discovered target implementers can run checks against. */
 export const conformanceTarget: TrainableTarget = discoverInSource(fixtureSource, "conformance.ts")[0]!;
 
-/** An async discovered target, for executors that distinguish them. */
 export const conformanceAsyncTarget: TrainableTarget = discoverInSource(fixtureSource, "conformance.ts")[1]!;
 
 function record(trainableId: TrainableId, id: string, succeeded = true): TrainingRecord {
@@ -88,7 +66,6 @@ function record(trainableId: TrainableId, id: string, succeeded = true): Trainin
 	};
 }
 
-/** A candidate bound to {@link conformanceTarget}. */
 export function conformanceCandidate(implementation = "return input;"): CandidatePatch {
 	return {
 		id: "conformance-candidate",
@@ -100,9 +77,6 @@ export function conformanceCandidate(implementation = "return input;"): Candidat
 }
 
 
-/** What every {@link TrainingStore} must do. Captures are appended off the hot
- * path and read back to build eval cases, so ordering, filtering and isolation
- * are the properties the runtime actually depends on. */
 export const trainingStoreContract: readonly ConformanceCheck<Factory<TrainingStore>>[] = [
 	check("starts empty", async (factory) => {
 		assertEqual((await (await factory()).list()).length, 0, "a fresh store must list nothing");
@@ -143,8 +117,6 @@ export const trainingStoreContract: readonly ConformanceCheck<Factory<TrainingSt
 	}),
 
 	check("does not alias caller state", async (factory) => {
-		// The runtime reads records repeatedly while training; a store handing
-		// back live references lets one caller corrupt another's view.
 		const store = await factory();
 		const token = defineTrainable("Conformance.alias");
 		const appended = record(token.id, "a");
@@ -174,9 +146,6 @@ export const trainingStoreContract: readonly ConformanceCheck<Factory<TrainingSt
 ];
 
 
-/** What every {@link TrainingEngine} must do. The runtime composes a strategy
- * into its own validating pipeline, so an engine's obligations are narrow --
- * but they are obligations, and violating them fails late and confusingly. */
 export const trainingEngineContract: readonly ConformanceCheck<Factory<TrainingEngine>>[] = [
 	check("has a non-empty id", async (factory) => {
 		const engine = await factory();
@@ -234,9 +203,6 @@ export const trainingEngineContract: readonly ConformanceCheck<Factory<TrainingE
 ];
 
 
-/** What every {@link ImplementationExecutor} must do. Candidate verification
- * runs entirely through this seam, so a divergence here silently changes what
- * the promotion gate is deciding about. */
 export const implementationExecutorContract: readonly ConformanceCheck<Factory<ImplementationExecutor>>[] = [
 	check("runs a body and returns its value", async (factory) => {
 		const execute = await factory();
@@ -268,8 +234,6 @@ export const implementationExecutorContract: readonly ConformanceCheck<Factory<I
 	}),
 
 	check("declares the target the same way the engine validated it", async () => {
-		// Both sides must agree on the synthetic wrapper or an executor runs
-		// something the engine never typechecked.
 		const declaration = candidateDeclaration(conformanceTarget, "return input;");
 		assert(declaration.includes("function candidate("),
 			"candidateDeclaration must wrap the body in a `candidate` function");
@@ -279,9 +243,6 @@ export const implementationExecutorContract: readonly ConformanceCheck<Factory<I
 ];
 
 
-/** What every {@link TrainingLoop} must do. The loop owns iteration and
- * stopping; proposing and reviewing stay with the runtime, and the runtime
- * reads `rounds` to decide what to activate. */
 export const trainingLoopContract: readonly ConformanceCheck<Factory<TrainingLoop>>[] = [
 	check("calls propose and review, and reports the rounds it ran", async (factory) => {
 		const loop = await factory();
@@ -324,8 +285,6 @@ export const trainingLoopContract: readonly ConformanceCheck<Factory<TrainingLoo
 	}),
 
 	check("returns the winning round last", async (factory) => {
-		// The runtime activates `rounds.at(-1)`, so a loop that emits the winner
-		// anywhere else silently activates the wrong candidate.
 		const loop = await factory();
 		const result = await loop(promotingInput(true));
 		const final = result.rounds.at(-1);
@@ -351,9 +310,6 @@ export const trainingLoopContract: readonly ConformanceCheck<Factory<TrainingLoo
 	}),
 
 	check("stops proposing once its signal is aborted", async (factory) => {
-		// Rejecting or returning early are both acceptable; continuing to
-		// propose after an abort is not, because each proposal is an engine
-		// call the caller has already said to stop paying for.
 		const loop = await factory();
 		const controller = new AbortController();
 		const budget = 20;
@@ -370,7 +326,6 @@ export const trainingLoopContract: readonly ConformanceCheck<Factory<TrainingLoo
 				},
 			});
 		} catch {
-			// An aborted loop may reject; that is one of the acceptable shapes.
 		}
 		assert(proposed < budget,
 			`a loop must stop proposing after its signal aborts (proposed ${proposed} of ${budget})`);
@@ -406,9 +361,6 @@ function promotingInput(promote: boolean) {
 }
 
 
-/** What every {@link PromotionApplier} must do. Training requires only that an
- * application be undoable, but it requires that absolutely, because it is the
- * only thing standing between a bad candidate and a permanently edited file. */
 export const promoterContract: readonly ConformanceCheck<Factory<PromotionApplier>>[] = [
 	check("refuses a candidate the gate did not pass", async (factory) => {
 		const promote = await factory();
@@ -449,7 +401,6 @@ export const promoterContract: readonly ConformanceCheck<Factory<PromotionApplie
 	}),
 ];
 
-/** Every suite, for an implementer who wants to run the lot. */
 /** @deprecated Renamed to {@link promoterContract}, matching the `Promoter`
  * seam name. The same checks, verbatim. */
 export const promotionApplierContract = promoterContract;

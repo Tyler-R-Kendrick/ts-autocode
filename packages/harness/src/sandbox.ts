@@ -18,23 +18,12 @@ import { absolutePath } from "./schema.js";
 export interface HarnessSandboxSettings {
 	readonly id: string;
 	readonly workspace: string;
-	/** Sandbox policy handed to MXC for every execute. When set, it replaces
-	 * the default built by `createSandboxPolicy` from the settings below, and
-	 * `readonlyPaths`, `allowedHosts`, and `timeoutMs` are ignored. */
 	readonly policy?: SandboxPolicy;
 	readonly bus: WriteAheadAgentBus;
-	/** The bus actor this sandbox's operations are recorded as. */
 	readonly actor: string;
-	/** Gate consulted before every operation runs; without one, operations are
-	 * still written ahead and recorded but execute ungated. */
 	readonly gate?: ActionGate;
-	/** Paths that must remain outside every writable sandbox path, for example
-	 * a file-backed bus log the sandboxed agent must not be able to tamper with. */
 	readonly protectedPaths?: readonly string[];
-	/** Absolute paths outside the workspace the sandboxed process may read. */
 	readonly readonlyPaths?: readonly string[];
-	/** Hosts the sandboxed process may reach. Outbound network is denied
-	 * without them; local network access is always denied. */
 	readonly allowedHosts?: readonly string[];
 	readonly timeoutMs?: number;
 }
@@ -57,8 +46,6 @@ export class HarnessSandbox extends BaseSandbox {
 			allowedHosts: settings.allowedHosts && [...settings.allowedHosts],
 			timeoutMs: settings.timeoutMs,
 		});
-		// Uploads write to the workspace on the host regardless of policy, so it
-		// counts as writable even when a custom policy omits it.
 		const writableRoots = new Set([
 			this.#workspace,
 			...(this.#policy.filesystem?.readwritePaths ?? []).map((path) => resolve(path)),
@@ -94,7 +81,6 @@ export class HarnessSandbox extends BaseSandbox {
 			Promise.all(files.map(([path, content]) => attemptAsync<FileUploadResponse>(async () => {
 				const target = this.#path(path);
 				await mkdir(this.#workspace, { recursive: true });
-				// Preflight before mkdir: a symlinked ancestor would otherwise create directories outside.
 				await this.#assertContained(await existingAncestor(dirname(target), this.#workspace));
 				await mkdir(dirname(target), { recursive: true });
 				await this.#assertContained(dirname(target));
@@ -124,7 +110,6 @@ export class HarnessSandbox extends BaseSandbox {
 		return target;
 	}
 
-	/** Host file access follows symlinks, so containment must hold after resolving them too. */
 	async #assertContained(path: string): Promise<void> {
 		const fromWorkspace = relative(await realpath(this.#workspace), await realpath(path));
 		if (fromWorkspace.startsWith("..") || isAbsolute(fromWorkspace)) {

@@ -2,10 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { digest } from "../src/digest.js";
 
-// The body digest is what guarded application re-computes to decide whether the
-// file changed since discovery. Mutation testing scored this module at 13.9%:
-// its only tests lived in other packages, so key sorting, the plain-object
-// check and the array branch could all be broken undetected.
 
 describe("digest", () => {
 	it("is deterministic and shaped as documented", () => {
@@ -42,7 +38,6 @@ describe("digest", () => {
 	});
 
 	it("does not canonicalize class instances into empty objects", () => {
-		// If the plain-object check accepted them, every Date would hash alike.
 		expect(digest(new Date("2020-01-01"))).not.toBe(digest(new Date("2021-01-01")));
 		expect(digest(new Map([["a", 1]]))).not.toBe(digest({ a: 1 }));
 		class Holder { constructor(readonly value: number) {} }

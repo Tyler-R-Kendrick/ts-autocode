@@ -2,8 +2,6 @@ import { isAbsolute, resolve } from "node:path";
 
 import { z } from "zod";
 
-// Parse, don't validate: inputs are parsed into constrained subtypes at the
-// package boundary, so values that would be invalid cannot exist past it.
 
 export const actorName = z.string().trim().min(1, "agent message actor must be non-empty").brand<"ActorName">();
 export type ActorName = z.output<typeof actorName>;
@@ -14,15 +12,6 @@ export type MessageKind = z.output<typeof messageKind>;
 export const messageId = z.string().trim().min(1, "agent message id must be non-empty").brand<"MessageId">();
 export type MessageId = z.output<typeof messageId>;
 
-/** A positive-integer setting whose message holds however the value is wrong.
- * `z.number().int().positive(message)` attaches `message` to the positivity
- * check alone, so a fractional or non-numeric value failed with zod's generic
- * "Invalid input: expected int, received number", which never says what the
- * setting actually needs. Every constraint carries the same message instead.
- *
- * Deliberately duplicated in packages/training/src/errors.ts rather than shared
- * through a new package for three lines, as `attempt`/`errorMessage` are; keep
- * the copies identical. */
 export function positiveIntegerSetting(message: string) {
 	return z.number({ error: message }).int(message).positive(message);
 }
@@ -35,7 +24,6 @@ export const agentMessage = z.object({
 	kind: messageKind,
 	payload: z.unknown().optional(),
 });
-/** What callers hand to `append`: plain strings, parsed on entry. */
 export type AgentMessage = z.input<typeof agentMessage>;
 export type ParsedAgentMessage = z.output<typeof agentMessage>;
 

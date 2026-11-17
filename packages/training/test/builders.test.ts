@@ -5,9 +5,6 @@ import { discoverInSource } from "../src/source.js";
 import { defineTrainable } from "../src/token.js";
 import type { CandidatePatch } from "../src/engine.js";
 
-// These builders exist so that implementing a TrainingLoop never needs a cast.
-// Their defaulting rules are the part a consumer will rely on without reading
-// the source, so each default is pinned here.
 
 const target = discoverInSource(`class Fixture {
 	route(input: string): string {
@@ -71,7 +68,6 @@ describe("createPromotionDecision", () => {
 	it("lets an explicit promote override the inference in both directions", () => {
 		expect(createPromotionDecision({ candidateId: "c", failures: ["bad"], promote: true }).promote).toBe(true);
 		expect(createPromotionDecision({ candidateId: "c", promote: false }).promote).toBe(false);
-		// And the derived scores follow the explicit flag, not the failures.
 		expect(createPromotionDecision({ candidateId: "c", failures: ["bad"], promote: true }).meanScore).toBe(1);
 	});
 

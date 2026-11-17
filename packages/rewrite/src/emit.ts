@@ -5,10 +5,6 @@ import { instrumentKey, type InstrumentTarget, type Marker } from "./instrument.
 
 const { factory } = ts;
 
-/** Load-hook rewriter: appends one data-driven registration statement for the
- * marker's discovered targets. Append-only, so line numbers and sourcemaps of the
- * original module are untouched; returns the source unchanged when the marker is
- * absent, discovery throws, or nothing instrumentable is found. */
 export function createRewriter(
 	discover: (source: string, path: string) => readonly InstrumentTarget[],
 	marker: Marker,
@@ -27,16 +23,6 @@ export function createRewriter(
 	};
 }
 
-/** Renders the registration statement for the targets. Built entirely from
- * ts.factory nodes and rendered with the TypeScript printer: syntactic validity
- * by construction, no string templates. The statement binds nothing (a single
- * optional call), so it cannot collide with names in the instrumented module:
- *
- *   globalThis[Symbol.for("ts-autocode.instrument")]?.([
- *       { id: "Router.route", name: "route", owner: () => Router },
- *       { id: "normalize", get: () => normalize, set: (__fn) => { normalize = __fn; } }
- *   ]);
- */
 export function emitInstrumentation(targets: readonly InstrumentTarget[]): string {
 	const statement = factory.createExpressionStatement(
 		factory.createCallChain(
@@ -49,29 +35,18 @@ export function emitInstrumentation(targets: readonly InstrumentTarget[]): strin
 	return printer.printNode(ts.EmitHint.Unspecified, statement, printContainer);
 }
 
-// The printer and the source file it prints against. Every node here is
-// synthesized, so the container's name, text and parent linkage never reach the
-// output, and the explicit LineFeed only pins what TypeScript's default already
-// resolves to, belt and braces, so instrumentation appended to an LF file
-// stays LF. None of it is observable from the emitted string, so it is excluded
-// from mutation rather than pinned by a test that could not tell the
-// difference. What the emitted text *is* has its own approved snapshot.
-// Stryker disable all
 const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
 const printContainer = ts.createSourceFile("instrumentation.js", "", ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
-// Stryker restore all
 
 function isInstrumentable(target: InstrumentTarget): boolean {
 	return isIdentifierName(target.methodName) && (target.className === undefined || isIdentifierName(target.className));
 }
 
-/** True when the whole string scans as one Identifier token (keywords excluded). */
 function isIdentifierName(name: string): boolean {
 	const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.Standard, name);
 	return scanner.scan() === ts.SyntaxKind.Identifier && scanner.getTokenEnd() === name.length;
 }
 
-/** `globalThis[Symbol.for(instrumentKey)]` */
 function registryExpression(): ts.Expression {
 	return factory.createElementAccessExpression(
 		factory.createIdentifier("globalThis"),
@@ -99,7 +74,6 @@ function entryLiteral(target: InstrumentTarget): ts.ObjectLiteralExpression {
 	]);
 }
 
-/** `() => <expression>` */
 function accessor(expression: ts.Expression): ts.ArrowFunction {
 	return factory.createArrowFunction(
 		undefined,
@@ -111,7 +85,6 @@ function accessor(expression: ts.Expression): ts.ArrowFunction {
 	);
 }
 
-/** `(__fn) => { <name> = __fn; }`: `__fn` is a parameter, so its own scope. */
 function setter(name: string): ts.ArrowFunction {
 	return factory.createArrowFunction(
 		undefined,

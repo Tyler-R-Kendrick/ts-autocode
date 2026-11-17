@@ -2,11 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { defined, optional } from "../src/optional.js";
 
-// `exactOptionalPropertyTypes` forbids assigning an explicit `undefined` to an
-// optional property, so the distinction these helpers exist for is "key absent"
-// versus "key present with value undefined". Asserting only deep equality would
-// miss that entirely, since `{a: undefined}` and `{}` compare equal under
-// toEqual, so these check key presence directly.
 
 describe("optional", () => {
 	it("includes the key when the value is defined", () => {
@@ -17,7 +12,6 @@ describe("optional", () => {
 	it("omits the key entirely when the value is undefined", () => {
 		const spread = { ...optional("signal", undefined) };
 		expect(Object.keys(spread)).toEqual([]);
-		// `Object.hasOwn`, not `in`: `in` walks the prototype chain.
 		expect(Object.hasOwn(spread, "signal")).toBe(false);
 	});
 
@@ -73,10 +67,6 @@ describe("defined", () => {
 });
 
 describe("keys that shadow Object.prototype", () => {
-	// `defined` built its result with `result[key] = value`, which goes through
-	// the `__proto__` setter: a `__proto__` key was silently dropped, and with
-	// an object value it replaced the result's prototype instead of adding a
-	// key. Found by a property test over arbitrary dictionaries.
 	const dangerous = ["__proto__", "constructor", "prototype", "toString", "hasOwnProperty", "valueOf"];
 
 	it.each(dangerous)("defined keeps a %s key as an own property", (key) => {

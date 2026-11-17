@@ -8,13 +8,10 @@ export function digest(value: unknown): string {
 	return `sha256:${createHash("sha256").update(canonicalJson(value)).digest("hex")}`;
 }
 
-/** Invariant guard: throws with `message` when `condition` fails, narrowing on success. */
 export function check(condition: unknown, message: string): asserts condition {
 	if (!condition) throw new Error(message);
 }
 
-/** Plain objects only: class instances (Date, Map, Error, ...) fall through to
- * JSON.stringify so they are not silently canonicalized to `{}`. */
 function isRecord(value: unknown): value is Record<string, unknown> {
 	if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
 	const proto: unknown = Object.getPrototypeOf(value);

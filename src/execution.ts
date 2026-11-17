@@ -3,7 +3,6 @@ import ts from "typescript";
 
 import { candidateDeclaration, type TrainableTarget } from "ts-autocode-training";
 
-/** How long a candidate may run in the Ax sandbox when no timeout is configured. */
 export const defaultExecutionTimeoutMs = 5_000;
 
 export async function executeImplementation(

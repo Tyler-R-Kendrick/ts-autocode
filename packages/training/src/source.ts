@@ -6,21 +6,14 @@ import { digest } from "./digest.js";
 import { InvalidTrainableIdentityError, SourceDiscoveryError } from "./errors.js";
 import { trainableIdFromKey, type TrainableId } from "./token.js";
 
-/** A `"use <name>"` directive. Structural mirror of ts-autocode-rewrite's Marker,
- * so training markers apply anywhere a rewriter marker is expected. */
 export type Marker = `use ${string}`;
 
-/** The directive that marks a method for training. Instrumentation wiring
- * (outside this package) uses it to route marked calls into runtime capture. */
 export const trainingMarker: Marker = "use training";
 
-/** Where `discoverTrainables` looks when `SourceSettings.tsconfig` is unset. */
 export const defaultTsconfig = "tsconfig.json";
 
-/** Artifact reference recorded for targets discovered from an in-memory string. */
 export const inMemoryArtifactRef = "memory://source.ts";
 
-// Source discovery recognizes this package's public API by name.
 const trainableDecoratorName = "trainable";
 const defineTrainableName = "defineTrainable";
 
@@ -31,32 +24,19 @@ export interface TrainableParameter {
 	readonly optional: boolean;
 }
 
-/** The decorated or directive-marked method body that may be rewritten. */
 export interface TrainableTarget {
 	readonly id: TrainableId;
 	readonly artifactRef: string;
 	readonly className?: string;
 	readonly methodName: string;
 	readonly signature: string;
-	/** True when the declaration itself carries the `export` modifier
-	 * (free functions; always false for class methods). */
 	readonly exported: boolean;
 	readonly parameters: readonly TrainableParameter[];
 	readonly returnType: string;
 	readonly async: boolean;
-	/** Offset of the first character after the directive (or after the body's
-	 * opening brace when the marker is a decorator). Guarded rewriting replaces
-	 * exactly `[bodyStart, bodyEnd)`. */
 	readonly bodyStart: number;
-	/** Offset of the body's closing brace. */
 	readonly bodyEnd: number;
-	/** Digest of the **raw** `[bodyStart, bodyEnd)` slice, whitespace included.
-	 * This is what guarded application re-computes to decide whether the file
-	 * changed since discovery, so it must not be derived from
-	 * {@link TrainableTarget.implementation}, which is trimmed. */
 	readonly bodyDigest: string;
-	/** The body as an engine should read it: the same slice, **trimmed**. The
-	 * untrimmed slice is recoverable as `source.slice(bodyStart, bodyEnd)`. */
 	readonly implementation: string;
 	readonly indentation: string;
 }
@@ -96,13 +76,6 @@ export function discoverInSource(source: string, artifactRef = inMemoryArtifactR
 	return discoverSourceFile(sourceFile, artifactRef);
 }
 
-/** A parameter's declared type, or one inferred from a literal default.
- *
- * `retries = 2` has no type annotation, and reporting it as `unknown` reached
- * the default engine's field mapper as `json`, so the optimizer was told a
- * plainly numeric argument had an opaque shape. TypeScript infers these from
- * the initializer and so can we, for the literal forms that cover almost every
- * real default. Anything else stays `unknown`, as before. */
 function parameterType(parameter: ts.ParameterDeclaration, sourceFile: ts.SourceFile): string {
 	const declared = parameter.type?.getText(sourceFile);
 	if (declared !== undefined) return declared;
@@ -115,7 +88,6 @@ function inferredLiteralType(initializer: ts.Expression | undefined): string | u
 	if (ts.isNumericLiteral(initializer)) return "number";
 	if (initializer.kind === ts.SyntaxKind.TrueKeyword || initializer.kind === ts.SyntaxKind.FalseKeyword) return "boolean";
 	if (ts.isBigIntLiteral(initializer)) return "bigint";
-	// `-1` and friends: a negated numeric literal is still a number.
 	if (ts.isPrefixUnaryExpression(initializer) && ts.isNumericLiteral(initializer.operand)) {
 		return inferredLiteralType(initializer.operand);
 	}
@@ -172,11 +144,6 @@ function targetFor(
 	if (node.asteriskToken) throw new InvalidTrainableIdentityError(`generator methods cannot be trainable: ${artifactRef}`);
 	const body = node.body as ts.Block;
 	const directive = firstDirective(body);
-	// TypeScript's error recovery synthesizes a body for an unterminated block,
-	// whose `end` can sit past EOF, so a truncated file yielded a target
-	// claiming offsets outside its own source. Slicing clamps, so nothing was
-	// corrupted, but publishing an out-of-range range is malformed data crossing
-	// a public boundary. Clamp it: a no-op for source that parses.
 	const limit = sourceFile.text.length;
 	const bodyStart = Math.min(directive?.end ?? body.getStart(sourceFile) + 1, limit);
 	const bodyEnd = Math.max(bodyStart, Math.min(body.end - 1, limit));
@@ -225,7 +192,6 @@ function trainableDecorator(node: ts.MethodDeclaration): ts.Decorator | undefine
 	});
 }
 
-/** Resolves an explicit decorator identity; undefined means infer from the method. */
 function trainableDecoratorId(
 	decorator: ts.Decorator,
 	sourceFile: ts.SourceFile,

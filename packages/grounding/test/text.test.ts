@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { camelCase, digest, normalizeText, pascalCase, stableStringify, union } from "../src/index.js";
 
-// Golden values pinned so downstream byte-for-byte digest parity
-// (e.g. HoBo's build-digest-parity suite) survives refactors here.
 describe("text helpers", () => {
 	it("digest is stable across whitespace normalization", () => {
 		expect(digest("")).toBe("sha256:01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b");

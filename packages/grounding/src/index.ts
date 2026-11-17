@@ -1,5 +1,3 @@
-// The SCREAMING_SNAKE names below are unique in this workspace; camelCase
-// aliases match the rest of it. Both are exported for one release.
 export {
 	componentMetadata,
 	pendingGroundings,

@@ -27,12 +27,7 @@ import {
 	type TsAutocodeErrorCode,
 } from "../src/errors.js";
 
-// Atomic coverage of the error family: every constructor, every static factory,
-// every branch of the brand-based `hasInstance`, and the Zod boundary. The
-// family was added with only a handful of these exercised (16% branch), which
-// is exactly the sort of gap a "we have tests" claim hides.
 
-/** Every concrete error, with the code and message each must produce. */
 const cases: ReadonlyArray<readonly [string, () => Error, TsAutocodeErrorCode, string]> = [
 	["EngineNotConfiguredError", () => new EngineNotConfiguredError(), "engine_not_configured",
 		'no training engine is configured; import "ts-autocode" for the Ax default or set TrainingSettings.engine'],
@@ -95,7 +90,6 @@ describe("brand-based family membership", () => {
 		expect(engine).toBeInstanceOf(EngineNotConfiguredError);
 		expect(engine).not.toBeInstanceOf(ExecutorNotConfiguredError);
 		expect(engine).not.toBeInstanceOf(LoopCapabilityError);
-		// And a TypeError-rooted member is not an instance of an Error-rooted one.
 		expect(new InvalidSettingsError("x")).not.toBeInstanceOf(EngineNotConfiguredError);
 	});
 
@@ -104,7 +98,6 @@ describe("brand-based family membership", () => {
 		expect(new InvalidTrainableIdentityError("x")).toBeInstanceOf(TsAutocodeTypeError);
 		expect(new CandidateSyntaxError("x")).toBeInstanceOf(SyntaxError);
 		expect(new CandidateSyntaxError("x")).toBeInstanceOf(TsAutocodeSyntaxError);
-		// All three roots still answer to the family check.
 		for (const error of [new EngineNotConfiguredError(), new InvalidSettingsError("x"), new CandidateSyntaxError("x")]) {
 			expect(error).toBeInstanceOf(TsAutocodeError);
 		}
@@ -168,7 +161,6 @@ describe("parseSetting", () => {
 		expect(isTsAutocodeError(thrown)).toBe(true);
 		expect(thrown).toBeInstanceOf(InvalidSettingsError);
 		expect((thrown as Error).message).toBe("must be a positive integer");
-		// The underlying ZodError is preserved rather than discarded.
 		expect((thrown as Error).cause).toBeDefined();
 	});
 
@@ -183,12 +175,6 @@ describe("parseSetting", () => {
 });
 
 describe("positiveIntegerSetting", () => {
-	// `z.number().int().positive(message)` attaches the message to the
-	// positivity check alone, so every setting written that way reported zod's
-	// "Invalid input: expected int, received number" for a fractional value --
-	// a message that names neither the setting nor what it needs. Six settings
-	// across two packages were written that way. This is the shape that fixes
-	// them, so the message has to hold for every way the value can be wrong.
 	const schema = positiveIntegerSetting("minTraces must be a positive integer");
 
 	it("accepts a positive integer", () => {

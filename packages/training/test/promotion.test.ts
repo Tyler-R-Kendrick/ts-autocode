@@ -42,8 +42,6 @@ describe("promotion", () => {
 			evaluations: evaluated.evaluations.map((evaluation) => ({ ...evaluation, candidateId: patch.id })),
 			conformance: true,
 		});
-		// The gate decides; the training-agnostic rewrite commit is only reached
-		// once the consumer has checked it, mirroring the wired applier.
 		expect(decision.promote).toBe(true);
 		const committed = commitRewrite(source, patch);
 
@@ -108,10 +106,6 @@ describe("promotion", () => {
 });
 
 describe("threshold validation messages", () => {
-	// A user who passes a bad threshold wants to know the range, not Zod's type
-	// vocabulary. `minScore: Infinity` used to report "expected number, received
-	// number", because the base schema rejected it before the .finite() message
-	// could apply. Found by a property test over non-unit-interval doubles.
 	const bad: ReadonlyArray<readonly [string, unknown]> = [
 		["negative", -0.5],
 		["above one", 1.5],
@@ -137,12 +131,7 @@ describe("threshold validation messages", () => {
 	});
 
 	it("treats null and undefined as unset, applying the default", async () => {
-		// `minScore ?? defaultMinScore` coalesces both. Neither is type-valid, so
-		// this pins the behavior rather than endorsing it as an input.
 		for (const value of [undefined, null]) {
-			// `exactOptionalPropertyTypes` forbids passing an explicit undefined,
-			// which is the point: neither spelling is type-valid, so this pins
-			// runtime behavior rather than endorsing either as an input.
 			const input = { candidate: candidate(), evaluations: [], conformance: true, minScore: value };
 			const decision = await evaluatePromotionGate(input as unknown as Parameters<typeof evaluatePromotionGate>[0]);
 			expect(decision.failures.some((failure) => failure.includes(`below ${defaultMinScore}`))).toBe(true);

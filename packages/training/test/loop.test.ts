@@ -25,8 +25,6 @@ function candidate(id: string): CandidatePatch {
 }
 
 function review(candidateId: string, promote: boolean, meanScore = promote ? 1 : 0): CandidateReview {
-	// `createCandidateReview` supplies the verification run, so this no longer
-	// needs `{} as never` for a type a loop author cannot build.
 	return createCandidateReview({
 		candidate: candidate(candidateId),
 		decision: createPromotionDecision({
@@ -118,8 +116,6 @@ describe("training loop fan-out", () => {
 });
 
 describe("round settings", () => {
-	// A fractional round or fan-out count used to fail with zod's generic
-	// "expected int, received number", naming neither the setting nor its rule.
 	it.each([
 		["maxRounds", { maxRounds: 1.5 }, "maxRounds must be a positive integer"],
 		["maxRounds at zero", { maxRounds: 0 }, "maxRounds must be a positive integer"],
@@ -161,7 +157,6 @@ describe("observable round sequence", () => {
 
 		expect(emitted.map((entry) => typeof entry === "string" ? entry : entry.candidate.id))
 			.toEqual(["candidate-1", "candidate-2", "ready"]);
-		// Without fan-out, review labels keep the sequential naming.
 		expect(labels).toEqual(["candidate-1", "candidate-2"]);
 	});
 

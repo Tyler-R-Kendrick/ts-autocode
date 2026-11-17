@@ -5,16 +5,6 @@ import { defaultPromotionGates, evaluatePromotionGate } from "../src/promotion.j
 import { discoverInSource } from "../src/source.js";
 import type { BoundEvaluation, CandidatePatch } from "../src/engine.js";
 
-// Each standard promotion gate, pinned individually.
-//
-// Mutation testing showed 30 surviving mutants in promotion.ts: replacing an
-// entire gate with `() => undefined` (so that rule never fails) left the
-// suite green. The tests asserted that a bad candidate was refused, but not
-// *which* rule refused it, so any single rule could be deleted undetected.
-//
-// This is the module that decides whether generated code is written into
-// someone's source file. Every rule needs a case where it, and only it, is the
-// reason for refusal.
 
 const target = discoverInSource(`class Fixture {
 	route(input: string): string {
@@ -31,12 +21,10 @@ function result(score: number, executionStatus: EvaluationResult["executionStatu
 	return { testId: "t", score, executionStatus, output: "" } as unknown as EvaluationResult;
 }
 
-/** An evaluation bound to this candidate, which is what the gate counts. */
 function bound(score: number, executionStatus?: EvaluationResult["executionStatus"]): BoundEvaluation {
 	return { trainableId: target.id, candidateId: candidate.id, result: result(score, executionStatus) };
 }
 
-/** A gate input that passes everything, so a single override isolates one rule. */
 function passing(overrides: Partial<Parameters<typeof evaluatePromotionGate>[0]> = {}) {
 	return {
 		candidate,
@@ -105,10 +93,6 @@ describe("each rule refuses on its own", () => {
 	});
 
 	it("pass rate: refuses when too few cases passed, naming both numbers", async () => {
-		// A case counts as passed when its own score clears `minScore`. Scores
-		// of 1 and 0.3 against a 0.5 threshold give a mean of 0.65 (which
-		// clears it) and a pass rate of 0.5, which does not. Only the
-		// pass-rate rule fires.
 		const decision = await evaluatePromotionGate(passing({
 			evaluations: [bound(1), bound(0.3)], minScore: 0.5,
 		}));
@@ -157,7 +141,6 @@ describe("extension gates", () => {
 	});
 
 	it("cannot waive a standard rule", async () => {
-		// Extension adds rules; it never subtracts them.
 		const decision = await evaluatePromotionGate(passing({
 			conformance: false, gates: [() => undefined],
 		}));
@@ -214,20 +197,13 @@ describe("the decision it reports", () => {
 		const decision = await evaluatePromotionGate(passing({
 			evaluations: [bound(1), { ...bound(0), candidateId: "another" }],
 		}));
-		// The foreign evaluation is refused by the binding rule and excluded
-		// from the aggregate, rather than dragging the mean down silently.
 		expect(decision.meanScore).toBe(1);
 	});
 });
 
 describe("rules that only mixed evidence can pin", () => {
-	// These cases exist because mutation testing showed the rules below could be
-	// broken undetected. With a single evaluation, `every` and `some` are
-	// indistinguishable, and a boundary score never sits exactly on the
-	// threshold. Each case below is the minimum evidence that tells them apart.
 
 	it("binding: one foreign evaluation among valid ones is enough to refuse", async () => {
-		// `every` vs `some`: with one evaluation these agree, so the mix matters.
 		const decision = await evaluatePromotionGate(passing({
 			evaluations: [bound(1), { ...bound(1), trainableId: "Other.method" as typeof target.id }],
 		}));
@@ -244,9 +220,6 @@ describe("rules that only mixed evidence can pin", () => {
 	});
 
 	it("binding: an evaluation for another trainable is excused from the candidate check", async () => {
-		// The second rule reads "not this trainable, OR bound to this candidate".
-		// Dropping the left side would make a foreign-trainable evaluation fail
-		// the candidate rule too, hiding which rule actually refused.
 		const foreign = { ...bound(1), trainableId: "Other.method" as typeof target.id, candidateId: "elsewhere" };
 		const decision = await evaluatePromotionGate(passing({ evaluations: [bound(1), foreign] }));
 		expect(decision.failures).toContain("AgentV evaluations must match the candidate trainable id");
@@ -254,23 +227,18 @@ describe("rules that only mixed evidence can pin", () => {
 	});
 
 	it("aggregates: an evaluation for another trainable is excluded even when its candidate id matches", async () => {
-		// Both halves of the filter matter. Dropping the trainable half would let
-		// a foreign trainable's score into this candidate's mean.
 		const foreign = { ...bound(0), trainableId: "Other.method" as typeof target.id };
 		const decision = await evaluatePromotionGate(passing({ evaluations: [bound(1), foreign] }));
 		expect(decision.meanScore).toBe(1);
 	});
 
 	it("pass rate: a score exactly at the threshold counts as passed", async () => {
-		// `>=` versus `>` on the boundary. At 0.8 with a 0.8 threshold the case
-		// passes, so the pass rate is 1 and nothing refuses.
 		const decision = await evaluatePromotionGate(passing({ evaluations: [bound(0.8)] }));
 		expect(decision.passRate).toBe(1);
 		expect(decision.promote).toBe(true);
 	});
 
 	it("pass rate: a score a hair under the threshold does not count", async () => {
-		// Against the same 0.8 threshold the case does not pass, so the rate is 0.
 		const decision = await evaluatePromotionGate(passing({ evaluations: [bound(0.7999)] }));
 		expect(decision.passRate).toBe(0);
 	});

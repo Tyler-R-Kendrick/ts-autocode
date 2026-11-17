@@ -4,7 +4,6 @@ import type { TrainableEvalRun } from "./evaluation.js";
 import type { PromotionDecision } from "./promotion.js";
 import type { TrainableId } from "./token.js";
 
-/** A proposed candidate verified with candidate-bound evals and gated for promotion. */
 export interface CandidateReview {
 	readonly verification: TrainableEvalRun;
 	readonly decision: PromotionDecision;
@@ -17,33 +16,22 @@ export interface TrainingRound extends CandidateReview {
 
 export interface ProposalTurn {
 	readonly round: number;
-	/** 1-based fan-out slot within the round; always 1 without fan-out.
-	 * Strategies can use it to diversify concurrent proposals. */
 	readonly slot: number;
-	/** Failure feedback from earlier reviews of rejected candidates. */
 	readonly feedback: readonly string[];
 	readonly signal?: AbortSignal;
 }
 
 export interface ReviewContext {
-	/** Unique per review; names the eval output subdirectory. */
 	readonly label: string;
 	readonly signal?: AbortSignal;
 }
 
-/** One bounded training run handed to a TrainingLoop. The loop owns iteration
- * and stopping; proposing and reviewing candidates stay with the runtime. */
 export interface TrainingLoopInput {
 	readonly trainableId: TrainableId;
 	readonly objective: string;
-	/** Human-readable promotion criteria for loops with judging agents. */
 	readonly rubric: string;
-	/** Directory for loop artifacts and per-review eval output. */
 	readonly outputDir: string;
 	readonly maxRounds?: number;
-	/** Maximum number of candidates proposed and reviewed concurrently per
-	 * round. Each slot runs its own propose→review pipeline; a slot whose
-	 * proposal duplicates an already-reviewed candidate skips the review. */
 	readonly fanOut?: number;
 	readonly signal?: AbortSignal;
 	readonly propose: (turn: ProposalTurn) => Promise<CandidatePatch>;
@@ -55,15 +43,10 @@ export interface TrainingLoopRun {
 	readonly rounds: readonly TrainingRound[];
 }
 
-/** Orchestrates propose/review rounds. The built-in sequential loop is the
- * default; providers can substitute richer orchestration (ts-autocode wires
- * the governed ts-autocode-harness loop) without this package depending on it. */
 export type TrainingLoop = (input: TrainingLoopInput) => Promise<TrainingLoopRun>;
 
-/** How many propose/review rounds a loop runs when `maxRounds` is unset. */
 export const defaultMaxRounds = 3;
 
-/** How many candidates a round explores concurrently when `fanOut` is unset. */
 export const defaultFanOut = 1;
 
 export interface RoundObserver {
@@ -72,19 +55,10 @@ export interface RoundObserver {
 	readonly error?: (error: unknown) => void;
 }
 
-/** A cold sequence of training rounds: every `subscribe` drives its own run,
- * pushing each reviewed round to the observer as it settles. When a round
- * promotes, the winning round is always the last one emitted before
- * `complete("ready")`. The returned function unsubscribes and aborts any
- * in-flight proposals and reviews. */
 export interface RoundSequence {
 	subscribe(observer: RoundObserver): () => void;
 }
 
-/** The observable propose/review sequence behind `sequentialLoop`. Rounds run
- * in order; within a round up to `fanOut` candidate pipelines run
- * concurrently. A round that reviews nothing new (every slot proposed an
- * already-seen candidate) completes the sequence as `"stalled"`. */
 const roundLimit = positiveIntegerSetting("maxRounds must be a positive integer");
 const fanOutWidth = positiveIntegerSetting("fanOut must be a positive integer");
 
@@ -102,13 +76,10 @@ export function trainingRounds(input: TrainingLoopInput): RoundSequence {
 				closed = true;
 				input.signal?.removeEventListener("abort", forwardAbort);
 			};
-			// Guard every subscriber callback: the drive promise floats, so a
-			// throwing observer would otherwise become an unhandled rejection.
 			const guarded = (deliver: () => void) => {
 				try {
 					deliver();
 				} catch {
-					// A subscriber's own callback failure has nowhere better to go.
 				}
 			};
 			void drive({ ...input, maxRounds, fanOut }, controller.signal, {
@@ -134,7 +105,6 @@ export function trainingRounds(input: TrainingLoopInput): RoundSequence {
 	};
 }
 
-/** Default loop: collects the observable round sequence into one run. */
 export const sequentialLoop: TrainingLoop = (input) =>
 	new Promise((resolve, reject) => {
 		const rounds: TrainingRound[] = [];
@@ -151,8 +121,6 @@ async function drive(
 	observer: Required<RoundObserver>,
 ): Promise<void> {
 	const seen = new Set<string>();
-	// One slot's pipeline: propose, skip duplicates of already-reviewed
-	// candidates, review. Slots only await each other at the round boundary.
 	const runSlot = async (round: number, slot: number, feedback: readonly string[]): Promise<TrainingRound | undefined> => {
 		const candidate = await input.propose({ round, slot, feedback, signal });
 		if (seen.has(candidate.id)) return undefined;

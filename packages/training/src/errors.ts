@@ -2,13 +2,6 @@ import { z } from "zod";
 
 import type { PromotionDecision } from "./promotion.js";
 
-// Before this module every failure was a bare Error, TypeError or SyntaxError
-// carrying a good message and nothing else, so the only way to tell "not enough
-// traces" from "no engine configured" from "gate rejected" was to match on
-// message text, which is exactly what the tests had to do.
-//
-// The message strings are preserved byte for byte, so existing catch blocks and
-// substring assertions keep working; `code` and `instanceof` are added on top.
 
 export type TsAutocodeErrorCode =
 	| "engine_not_configured"
@@ -29,7 +22,6 @@ export type TsAutocodeErrorCode =
 	| "missing_secret"
 	| "source_discovery";
 
-/** Present on every error this library throws, whatever its prototype chain. */
 const brand: unique symbol = Symbol.for("ts-autocode.error") as never;
 
 interface Branded {
@@ -43,14 +35,6 @@ function brandError(error: Error, code: TsAutocodeErrorCode): void {
 	Object.defineProperty(error, "name", { value: error.constructor.name, enumerable: false, writable: true });
 }
 
-/** Base class for every error this library throws.
- *
- * Some of these errors have always been `TypeError`s or `SyntaxError`s, and
- * consumers may catch them as such, so those subclasses keep those prototypes
- * rather than this one. `instanceof TsAutocodeError` still recognizes them:
- * membership is decided by a brand rather than by the prototype chain, so one
- * check covers the whole family without changing any error's existing type.
- * Subclasses are matched normally. */
 export class TsAutocodeError extends Error {
 	declare readonly code: TsAutocodeErrorCode;
 
@@ -60,8 +44,6 @@ export class TsAutocodeError extends Error {
 	}
 
 	static override [Symbol.hasInstance](value: unknown): boolean {
-		// Subclasses keep ordinary prototype-chain semantics; only the base
-		// generalizes to the brand.
 		if (this !== TsAutocodeError) {
 			return Function.prototype[Symbol.hasInstance].call(this, value);
 		}
@@ -69,13 +51,10 @@ export class TsAutocodeError extends Error {
 	}
 }
 
-/** True for any error this library threw, including the ones that are also
- * `TypeError`s or `SyntaxError`s. Narrows to a `code` you can switch on. */
 export function isTsAutocodeError(value: unknown): value is Error & Branded {
 	return value instanceof Error && brand in value;
 }
 
-/** A `TypeError` that is also part of this library's error family. */
 export class TsAutocodeTypeError extends TypeError {
 	declare readonly code: TsAutocodeErrorCode;
 
@@ -85,7 +64,6 @@ export class TsAutocodeTypeError extends TypeError {
 	}
 }
 
-/** A `SyntaxError` that is also part of this library's error family. */
 export class TsAutocodeSyntaxError extends SyntaxError {
 	declare readonly code: TsAutocodeErrorCode;
 
@@ -95,31 +73,24 @@ export class TsAutocodeSyntaxError extends SyntaxError {
 	}
 }
 
-/** No `TrainingEngine` is available. The message names both the setting and the
- * import that supplies a default. */
 export class EngineNotConfiguredError extends TsAutocodeError {
 	constructor() {
 		super("engine_not_configured", 'no training engine is configured; import "ts-autocode" for the Ax default or set TrainingSettings.engine');
 	}
 }
 
-/** No `ImplementationExecutor` is available to run candidate bodies. */
 export class ExecutorNotConfiguredError extends TsAutocodeError {
 	constructor() {
 		super("executor_not_configured", 'candidate execution requires an executor; import "ts-autocode" or set TrainingSettings.executor');
 	}
 }
 
-/** No `PromotionApplier` is available to apply a gate-approved candidate. */
 export class PromotionApplierNotConfiguredError extends TsAutocodeError {
 	constructor() {
 		super("applier_not_configured", 'activation requires a promotion applier; import "ts-autocode" for the default or set TrainingProviders.promote');
 	}
 }
 
-/** Activation was attempted for a candidate the promotion gate did not pass.
- * Carries the decision, so the caller can report the failures without
- * re-running the gate. */
 export class PromotionRejectedError extends TsAutocodeError {
 	readonly candidateId: string;
 	readonly decision: PromotionDecision | undefined;
@@ -130,14 +101,11 @@ export class PromotionRejectedError extends TsAutocodeError {
 		this.decision = decision;
 	}
 
-	/** Why the gate refused, when the decision is known. */
 	get failures(): readonly string[] {
 		return this.decision?.failures ?? [];
 	}
 }
 
-/** Training from captured traffic needs more distinct successful traces than
- * the store holds. Carries both counts so a caller can report progress. */
 export class InsufficientTracesError extends TsAutocodeError {
 	readonly required: number;
 	readonly found: number;
@@ -152,8 +120,6 @@ export class InsufficientTracesError extends TsAutocodeError {
 	}
 }
 
-/** A training run finished without a promotable candidate, or produced no
- * rounds at all. Carries the outcome rather than only naming it in prose. */
 export class TrainingIncompleteError extends TsAutocodeError {
 	readonly outcome: string;
 
@@ -171,7 +137,6 @@ export class TrainingIncompleteError extends TsAutocodeError {
 	}
 }
 
-/** A replayed evaluation asked for an input no captured trace supplies. */
 export class TraceNotFoundError extends TsAutocodeError {
 	readonly input: string;
 
@@ -181,8 +146,6 @@ export class TraceNotFoundError extends TsAutocodeError {
 	}
 }
 
-/** The engine returned something that is not valid TypeScript. Remains a
- * `SyntaxError`, which is what it was before. */
 export class CandidateSyntaxError extends TsAutocodeSyntaxError {
 	readonly trainableId: string;
 
@@ -192,22 +155,18 @@ export class CandidateSyntaxError extends TsAutocodeSyntaxError {
 	}
 }
 
-/** The engine or its request violated the candidate contract: an empty
- * implementation, or records and evaluations bound to a different trainable. */
 export class EngineContractError extends TsAutocodeError {
 	constructor(message: string) {
 		super("engine_contract", message);
 	}
 }
 
-/** The engine could not produce a candidate. */
 export class EngineProposalError extends TsAutocodeError {
 	constructor(message: string) {
 		super("engine_proposal", message);
 	}
 }
 
-/** A required secret was not available from the secret provider or environment. */
 export class MissingSecretError extends TsAutocodeError {
 	readonly secret: string;
 
@@ -217,29 +176,24 @@ export class MissingSecretError extends TsAutocodeError {
 	}
 }
 
-/** The configured loop cannot honor a requested capability. Refusing beats
- * silently doing something else. */
 export class LoopCapabilityError extends TsAutocodeError {
 	constructor(message: string) {
 		super("loop_capability", message);
 	}
 }
 
-/** A trainable identity or id was not usable. Remains a `TypeError`. */
 export class InvalidTrainableIdentityError extends TsAutocodeTypeError {
 	constructor(message: string) {
 		super("invalid_identity", message);
 	}
 }
 
-/** Source discovery could not resolve a trainable or its TypeScript project. */
 export class SourceDiscoveryError extends TsAutocodeError {
 	constructor(message: string) {
 		super("source_discovery", message);
 	}
 }
 
-/** An operation was interrupted without a caller abort reason to surface. */
 export class OperationInterruptedError extends TsAutocodeError {
 	readonly operation: string;
 
@@ -249,30 +203,16 @@ export class OperationInterruptedError extends TsAutocodeError {
 	}
 }
 
-/** A setting failed validation. Wraps the underlying `ZodError` as `cause`
- * rather than letting it escape as a schema-library type. */
 export class InvalidSettingsError extends TsAutocodeTypeError {
 	constructor(message: string, options?: ErrorOptions) {
 		super("invalid_settings", message, options);
 	}
 }
 
-/** A positive-integer setting whose message holds however the value is wrong.
- * `z.number().int().positive(message)` attaches `message` to the positivity
- * check alone, so a fractional or non-numeric value failed with zod's generic
- * "Invalid input: expected int, received number", which never says what the
- * setting actually needs. Every constraint carries the same message instead.
- *
- * Deliberately duplicated in packages/harness/src/schema.ts rather than shared
- * through a new package for three lines, as `attempt`/`errorMessage` are; keep
- * the copies identical. */
 export function positiveIntegerSetting(message: string) {
 	return z.number({ error: message }).int(message).positive(message);
 }
 
-/** Parse with a Zod schema, surfacing failures as `InvalidSettingsError`
- * instead of leaking `ZodError` to consumers. The first issue's message is used
- * verbatim, so the schemas' hand-written messages still read as before. */
 export function parseSetting<T>(schema: z.ZodType<T>, value: unknown): T {
 	const result = schema.safeParse(value);
 	if (result.success) return result.data;

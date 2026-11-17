@@ -11,9 +11,6 @@ import {
 } from "../src/token.js";
 import { InvalidTrainableIdentityError } from "../src/errors.js";
 
-// The token is the durable join key binding a method to its captures, evals,
-// candidate and promotion decision. Its normalization and rejection rules are
-// the only thing standing between a typo and a silently different identity.
 
 describe("defineTrainable", () => {
 	it("produces a stable id and registry symbol", () => {
@@ -71,8 +68,6 @@ describe("toTrainableToken", () => {
 	});
 
 	it("rejects strings and anything else that is not an identity", () => {
-		// ADR: a plain string is never an identity; test/adr.test.ts pins the
-		// rejection at compile time, this pins it at runtime.
 		for (const value of ["Router.route", 42, null, undefined, {}, { id: 1 }]) {
 			expect(() => toTrainableToken(value as never)).toThrow(InvalidTrainableIdentityError);
 			expect(() => toTrainableToken(value as never)).toThrow("must be a symbol or TrainableToken");
@@ -120,9 +115,6 @@ describe("trainableIdFromKey", () => {
 });
 
 describe("registerTrainable", () => {
-	// The symbol index is what makes `train(route)` plain key indexing; every
-	// branch here decides which trainable a symbol resolves to, so each one is
-	// pinned individually: a surviving mutant in this file is an identity bug.
 	it("binds a unique symbol to the machinery-derived token, keeping the symbol", () => {
 		const key: unique symbol = Symbol("key");
 		const bound = registerTrainable(key, defineTrainable("Derived.method"));
@@ -132,8 +124,6 @@ describe("registerTrainable", () => {
 	});
 
 	it("resolves through the index, not the symbol description", () => {
-		// The description would derive a *different* id; the index must win, or
-		// a unique symbol silently forks into a description-named trainable.
 		const misleading: unique symbol = Symbol("Misleading.name");
 		registerTrainable(misleading, defineTrainable("Actual.target"));
 		expect(toTrainableToken(misleading).id).toBe("Actual.target");
@@ -153,7 +143,6 @@ describe("registerTrainable", () => {
 			.toThrow(InvalidTrainableIdentityError);
 		expect(() => registerTrainable(key, defineTrainable("Second.method")))
 			.toThrow("already registered to First.method");
-		// The failed rebind must not have corrupted the existing binding.
 		expect(toTrainableToken(key).id).toBe("First.method");
 	});
 
@@ -182,15 +171,10 @@ describe("stampTrainable", () => {
 
 describe("the stamp protocol", () => {
 	it("uses the published registry key, which other packages may address", () => {
-		// The stamp is cross-package protocol: instrumentation writes it without
-		// this package importing it back. The exact key is the contract.
 		expect(Symbol.keyFor(trainableStamp)).toBe("ts-autocode.trainable.id");
 	});
 
 	it("restamps rather than freezing the first identity in place", () => {
-		// Instrumentation may legitimately stamp the same callable again (the
-		// decorator stamps both the original method and the woven slot); the
-		// property stays configurable so the later, more specific stamp wins.
 		const fn = (input: string): string => input;
 		stampTrainable(fn, defineTrainable("First.stamp"));
 		stampTrainable(fn, defineTrainable("Second.stamp"));
@@ -206,9 +190,6 @@ describe("the stamp protocol", () => {
 
 describe("unregistered unique symbols", () => {
 	it("fail loudly instead of deriving an id from the description", () => {
-		// The description is user-typed text; deriving an id from it would be
-		// string identity by the back door, and could silently target a
-		// directive-marked trainable that happens to share the name.
 		const unregistered: unique symbol = Symbol("Router.route");
 		expect(() => toTrainableToken(unregistered)).toThrow(InvalidTrainableIdentityError);
 		expect(() => toTrainableToken(unregistered)).toThrow(
