@@ -9,20 +9,9 @@ import { commitRewrite, digest as rewriteDigest, revertRewrite } from "ts-autoco
 import { evolutionEnabled } from "../src/evolve.js";
 import { anyModule, damagedModule, markedModule } from "./support/sources.js";
 
-// Fuzzing: feed the parsers arbitrary and deliberately hostile input and assert
-// they fail predictably rather than crashing, hanging, or (worst for this
-// library) silently corrupting a user's source file.
-//
-// Every one of these functions runs against code the library did not write:
-// `augmentSource` sees every module a user loads, and `scanDeclaredTrainables`
-// and `discoverInSource` see whatever is in their project.
 
 const runs = 200;
 
-// The corpus is generated marked modules and damaged variants of them (see
-// test/support/sources.ts), not random punctuation: instrumenting a
-// punctuation corpus showed 1 in 3000 inputs produced a discovered target, so
-// every property about offsets and rewriting was passing vacuously.
 const hostileSource = anyModule;
 
 describe("source discovery", () => {
@@ -34,8 +23,6 @@ describe("source discovery", () => {
 
 	it("never crashes on hostile fragments", () => {
 		fc.assert(fc.property(hostileSource, (source) => {
-			// A throw is acceptable only as a typed library error, never as a
-			// TypeError from an unchecked property access.
 			try {
 				discoverInSource(source, "fuzz.ts");
 			} catch (error) {
@@ -55,10 +42,6 @@ describe("source discovery", () => {
 	});
 
 	it("relates the body slice, implementation and digest exactly as documented", () => {
-		// These three fields have subtly different relationships to the source
-		// (`implementation` is trimmed, `bodyDigest` hashes the raw slice), and
-		// nothing said so until a property test asked. Guarded application
-		// depends on the digest side, so the distinction is load-bearing.
 		fc.assert(fc.property(hostileSource, (source) => {
 			for (const target of safeDiscover(source)) {
 				const raw = source.slice(target.bodyStart, target.bodyEnd);
@@ -69,8 +52,6 @@ describe("source discovery", () => {
 	});
 
 	it("produces targets a guarded rewrite accepts and can revert", () => {
-		// The end-to-end invariant that matters: whatever discovery reports must
-		// survive commit and revert byte for byte.
 		fc.assert(fc.property(markedModule, (source) => {
 			for (const target of safeDiscover(source)) {
 				const candidate = {
@@ -94,8 +75,6 @@ describe("source discovery", () => {
 });
 
 describe("the register load hook", () => {
-	// This rewrites every module a user loads. Corrupting one would be the worst
-	// failure this library could have.
 	it("never throws, whatever the module contains", () => {
 		fc.assert(fc.property(fc.string({ maxLength: 400 }), (source) => {
 			expect(() => augmentSource(source, "fuzz.ts")).not.toThrow();
@@ -104,7 +83,6 @@ describe("the register load hook", () => {
 
 	it("is append-only: the original source is always a prefix of the result", () => {
 		fc.assert(fc.property(hostileSource, (source) => {
-			// Line numbers and sourcemaps of the original module depend on this.
 			expect(augmentSource(source, "fuzz.ts").startsWith(source)).toBe(true);
 		}), { numRuns: runs });
 	});
@@ -152,15 +130,13 @@ describe("ambient declaration scanning", () => {
 });
 
 describe("the evolve kill switch", () => {
-	// This decides whether the library rewrites the user's source. It must never
-	// read an unrecognized value as consent.
 	it("only ever enables on a recognized affirmative or an unset value", () => {
 		fc.assert(fc.property(fc.string({ maxLength: 20 }), (value) => {
 			let enabled: boolean;
 			try {
 				enabled = evolutionEnabled(value);
 			} catch {
-				return; // Refusing to guess is the correct outcome.
+				return;
 			}
 			const flag = value.trim().toLowerCase();
 			expect(enabled).toBe(flag === "" || ["1", "true", "on", "yes", "enabled"].includes(flag));
@@ -175,7 +151,6 @@ describe("the command line", () => {
 			async (argv) => {
 				const result = await run(argv);
 				expect([0, 1, 2]).toContain(result.code);
-				// A non-zero exit must say something; a zero exit must not be silent.
 				expect((result.code === 0 ? result.stdout : result.stderr).length).toBeGreaterThan(0);
 			},
 		), { numRuns: 150 });
@@ -193,7 +168,6 @@ describe("the command line", () => {
 	});
 });
 
-/** Discovery result, or nothing when the source is rejected outright. */
 function safeDiscover(source: string) {
 	try {
 		return discoverInSource(source, "fuzz.ts");
@@ -203,20 +177,6 @@ function safeDiscover(source: string) {
 }
 
 describe("the fuzz corpus itself", () => {
-	// A corpus that never reaches the code under test makes every property
-	// above vacuously true. This asserts the corpus does its job, so the suite
-	// cannot quietly decay into theatre.
-	//
-	// Unlike the properties above, these three measure the *generator* rather
-	// than the code, so they draw from a fixed seed. Unseeded, each run drew a
-	// different corpus: `markedModule` can emit a class of only unmarked
-	// methods and no marked free function, so the hit rate is a binomial around
-	// 90 in 100 (measured across seeds it ranges 83 to 95), and a threshold
-	// of 80 sits about three standard deviations out. CI duly drew 79 one run
-	// and failed on a corpus that was doing its job. A seeded draw measures the
-	// same thing every time and on every machine, and still fails loudly if the
-	// generators change such that the corpus stops reaching real code, which is
-	// the whole point of these three.
 	const corpusSeed = 1;
 
 	it("produces modules that discovery actually finds targets in", () => {
@@ -232,7 +192,6 @@ describe("the fuzz corpus itself", () => {
 		for (const source of fc.sample(damagedModule, { numRuns: 200, seed: corpusSeed })) {
 			if (safeDiscover(source).length > 0) withTargets += 1;
 		}
-		// Damaged input should be a genuine mix, not all-or-nothing.
 		expect(withTargets).toBeGreaterThan(10);
 		expect(withTargets).toBeLessThan(200);
 	});

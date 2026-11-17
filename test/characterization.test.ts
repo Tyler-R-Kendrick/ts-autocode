@@ -16,14 +16,6 @@ import { augmentSource } from "../src/register/hook.js";
 import { run, usage } from "../src/cli.js";
 import { verify, verifyJson } from "./support/verify.js";
 
-// Characterization tests over everything this library *generates*. For a
-// library whose product is rewritten source, the generated text is the
-// product, and a diff of it is the only review that shows what actually changed.
-// Assertions like `toContain("return input")` say almost nothing about the
-// emitted module; an approved file says all of it.
-//
-// These are deliberately not correctness tests. They pin current behavior so
-// that an unintended change to it shows up in a pull request diff.
 
 const routerSource = `class Router {
 	route(input: string): string {
@@ -51,8 +43,6 @@ function candidate(implementation: string): CandidatePatch {
 
 describe("discovered source targets", () => {
 	it("records the signature, parameters and offsets an engine will see", async () => {
-		// This is the entire contract handed to an optimizer. A change to any
-		// field silently changes every generated prompt.
 		await verifyJson("source/discovered-targets", discoverInSource(routerSource, "router.ts"));
 	});
 

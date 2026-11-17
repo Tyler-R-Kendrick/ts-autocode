@@ -21,8 +21,6 @@ import { digest as groundingDigest, textDigest } from "ts-autocode-grounding";
 import { digest as rewriteDigest } from "ts-autocode-rewrite";
 import { defined, optional } from "ts-autocode-training";
 
-// The Tier 3 reshaping is additive: every legacy spelling must keep working.
-// This file is the enforcement of that promise, not a restatement of it.
 
 const executor: ImplementationExecutor = async (target, implementation, args) =>
 	new Function(...target.parameters.map((parameter) => parameter.name), implementation)(...args) as unknown;
@@ -36,8 +34,6 @@ async function fixture(name: string): Promise<string> {
 	return artifact;
 }
 
-/** Runs one training input and reports the gate failures it produced, which is
- * where the resolved thresholds and gates become observable. */
 async function failuresFor(name: string, extra: Partial<TrainInput>): Promise<readonly string[]> {
 	const artifact = await fixture(name);
 	const training = createTrainingRuntime({
@@ -58,8 +54,6 @@ async function failuresFor(name: string, extra: Partial<TrainInput>): Promise<re
 	return run.final.decision.failures;
 }
 
-/** Same, but with an expectation the candidate cannot meet, so score-based
- * gates actually report a failure naming the threshold in force. */
 async function failuresForFailing(name: string, extra: Partial<TrainInput>): Promise<readonly string[]> {
 	const artifact = await fixture(name);
 	const training = createTrainingRuntime({
@@ -102,8 +96,6 @@ describe("grouped train options", () => {
 	});
 
 	it("prefers the grouped threshold when both are given", async () => {
-		// The candidate scores 0 against this expectation, so whichever
-		// threshold won is named in the failure.
 		const failures = await failuresForFailing("threshold", { minScore: 0.1, promotion: { minScore: 1 } });
 		expect(failures.some((failure) => failure.includes("is below 1"))).toBe(true);
 		expect(failures.some((failure) => failure.includes("is below 0.1"))).toBe(false);
@@ -117,9 +109,6 @@ describe("grouped train options", () => {
 
 describe("evolution opt-in naming", () => {
 	it("treats auto and the deprecated enabled the same", () => {
-		// Both spellings reach the same branch; neither turns evolution on
-		// without being asked, which is the property that matters for a feature
-		// that rewrites source.
 		for (const evolution of [{ auto: true }, { enabled: true }] as const) {
 			expect(() => createTrainingRuntime({ evolution })).not.toThrow();
 		}
@@ -137,8 +126,6 @@ describe("configureTraining semantics", () => {
 	it("merges when asked", async () => {
 		const artifact = await fixture("merge");
 		configureTraining({ source: { files: [artifact] }, tracing: { enabled: false } });
-		// Without merge this second call would drop `source` and discovery
-		// would fail; with it, the earlier settings survive.
 		const merged = configureTraining({
 			engine: { id: "x", optimize: async () => ({ implementation: "return input.toUpperCase();" }) },
 			executor,
@@ -168,13 +155,10 @@ describe("resolved name collisions", () => {
 	it("keeps the harness round default reachable under both names", () => {
 		expect(defaultHarnessRounds).toBe(3);
 		expect(harnessMaxRounds).toBe(defaultHarnessRounds);
-		// The root now exports training's loop default without a collision.
 		expect(defaultMaxRounds).toBe(3);
 	});
 
 	it("distinguishes the two digests that share a prefix", () => {
-		// They were both called `digest` and both emit `sha256:`, but they hash
-		// different things: swapping them silently changes every hash.
 		expect(groundingDigest).toBe(textDigest);
 		expect(textDigest("a\r\nb")).toBe(textDigest("a\nb"));
 		expect(rewriteDigest("a\nb")).not.toBe(textDigest("a\nb"));
@@ -199,8 +183,6 @@ describe("optional-spread helper", () => {
 	it("spreads a defined value and drops an undefined one", () => {
 		expect({ ...optional("signal", "abc") }).toEqual({ signal: "abc" });
 		expect({ ...optional("signal", undefined) }).toEqual({});
-		// Crucially it omits the key rather than setting it to undefined, which
-		// is what exactOptionalPropertyTypes forbids.
 		expect("signal" in { ...optional("signal", undefined) }).toBe(false);
 	});
 

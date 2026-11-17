@@ -11,23 +11,10 @@ import {
 	type TrainingRun,
 } from "../../src/index.js";
 
-// A given/when/then harness for behavior specs.
-//
-// The other suites are organized around units and failure modes. These are
-// organized around what a *user* is trying to do, in the vocabulary the README
-// uses: mark a method, capture traffic, train, gate, activate, roll back.
-// That makes them the suite that fails when the documented promise stops being
-// true, even if every unit still passes.
-//
-// No BDD framework: Gherkin's parser buys little when the steps are TypeScript
-// anyway, and a plain builder keeps the spec and its assertions in one file.
 
 export interface ScenarioOptions {
-	/** Directory for the fixture module and run artifacts. */
 	readonly name: string;
-	/** The marked source the scenario starts from. */
 	readonly source?: string;
-	/** What a proposing engine returns. */
 	readonly proposal?: string;
 }
 
@@ -39,8 +26,6 @@ const defaultSource = `class Router {
 }
 `;
 
-/** Runs candidate bodies directly; the sandbox is exercised in the contract
- * suite, and a spec about user-visible behavior should not depend on it. */
 export { directExecutor };
 
 export class Scenario {
@@ -65,9 +50,7 @@ export class Scenario {
 		this.#proposal = options.proposal ?? "return input.toUpperCase();";
 	}
 
-	// given
 
-	/** The marked module exists on disk, as a developer's project would. */
 	async givenAMarkedModule(): Promise<this> {
 		await rm(this.directory, { recursive: true, force: true });
 		await mkdir(this.directory, { recursive: true });
@@ -75,26 +58,22 @@ export class Scenario {
 		return this;
 	}
 
-	/** An engine that proposes the configured replacement body. */
 	givenAnEngineThatProposes(implementation: string): this {
 		this.#proposal = implementation;
 		return this;
 	}
 
-	/** An engine that fails every time it is asked. */
 	givenAnEngineThatFails(message: string): this {
 		this.#engine = { id: "spec/failing", optimize: async () => { throw new Error(message); } };
 		return this;
 	}
 
-	/** Background evolution is switched on, as `ts-autocode/register` does. */
 	givenEvolutionIsOn(minTraces: number): this {
 		this.#autoEvolve = true;
 		this.#minTraces = minTraces;
 		return this;
 	}
 
-	/** The runtime a user would have after configuring the library. */
 	get training(): Training {
 		this.#training ??= createTrainingRuntime({
 			engine: this.#engine ?? { id: "spec/engine", optimize: async () => ({ implementation: this.#proposal }) },
@@ -115,9 +94,7 @@ export class Scenario {
 		return this.#training;
 	}
 
-	// when
 
-	/** The application calls the marked method. */
 	whenTheApplicationCalls(...inputs: readonly string[]): this {
 		for (const input of inputs) {
 			this.training.capture(
@@ -131,7 +108,6 @@ export class Scenario {
 		return this;
 	}
 
-	/** The user trains against explicit eval cases. */
 	async whenTrainedAgainst(cases: ReadonlyArray<readonly [string, string]>): Promise<this> {
 		this.#failure = undefined;
 		try {
@@ -154,7 +130,6 @@ export class Scenario {
 		return this;
 	}
 
-	/** The user trains from captured traffic instead of explicit cases. */
 	async whenTrainedFromCapturedTraffic(minTraces: number): Promise<this> {
 		this.#failure = undefined;
 		try {
@@ -170,7 +145,6 @@ export class Scenario {
 		return this;
 	}
 
-	/** The user applies the result. */
 	async whenActivated(): Promise<this> {
 		this.#failure = undefined;
 		try {
@@ -181,7 +155,6 @@ export class Scenario {
 		return this;
 	}
 
-	/** The user undoes it. */
 	async whenRolledBack(): Promise<this> {
 		this.#failure = undefined;
 		try {
@@ -192,14 +165,12 @@ export class Scenario {
 		return this;
 	}
 
-	/** Someone edits the file out from under the run. */
 	async whenTheFileIsEditedTo(replacement: string): Promise<this> {
 		const current = await readFile(this.artifact, "utf8");
 		await writeFile(this.artifact, current.replace("return input;", replacement), "utf8");
 		return this;
 	}
 
-	/** Background work settles, or the attempts run out. */
 	async whenBackgroundWorkSettles(done: () => boolean, attempts = 60): Promise<this> {
 		await this.training.flush();
 		for (let attempt = 0; attempt < attempts && !done(); attempt += 1) {
@@ -208,7 +179,6 @@ export class Scenario {
 		return this;
 	}
 
-	// then
 
 	get run(): TrainingRun {
 		if (this.#run === undefined) throw new Error("no training run: the scenario never trained, or training threw");
@@ -220,17 +190,14 @@ export class Scenario {
 		return this.#activation;
 	}
 
-	/** Whatever the last `when` step threw, if anything. */
 	get failure(): unknown {
 		return this.#failure;
 	}
 
-	/** The current contents of the marked module. */
 	async currentSource(): Promise<string> {
 		return readFile(this.artifact, "utf8");
 	}
 
-	/** The source the scenario started from. */
 	get originalSource(): string {
 		return this.#source;
 	}
@@ -240,7 +207,6 @@ export class Scenario {
 	}
 }
 
-/** Starts a scenario with its fixture already on disk. */
 export async function given(options: ScenarioOptions): Promise<Scenario> {
 	return new Scenario(options).givenAMarkedModule();
 }

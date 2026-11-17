@@ -10,12 +10,6 @@ import {
 } from "../src/index.js";
 import { given } from "./support/scenario.js";
 
-// Behavior specs, written in the vocabulary the README uses.
-//
-// Every other suite is organized around units and failure modes. These are
-// organized around what a user is trying to do, so they are the suite that
-// fails when a documented promise stops being true even though every unit
-// still passes. Each `it` is one sentence of the contract this library offers.
 
 describe("Marking a method for training", () => {
 	it("captures calls without changing what the method returns", async () => {
@@ -24,7 +18,6 @@ describe("Marking a method for training", () => {
 		scenario.whenTheApplicationCalls("invoice", "password");
 		await scenario.training.flush();
 
-		// The promise: marking is observation, not interception.
 		const records = await scenario.training.records();
 		expect(records).toHaveLength(2);
 		expect(records.every((record) => record.succeeded)).toBe(true);
@@ -115,8 +108,6 @@ describe("Training from captured traffic", () => {
 	it("counts distinct inputs, not repeated ones", async () => {
 		const scenario = await given({ name: "live-distinct" });
 
-		// The README promises repeated inputs use the latest output rather than
-		// producing contradictory replay cases.
 		scenario.whenTheApplicationCalls("same", "same", "same");
 		await scenario.whenTrainedFromCapturedTraffic(3);
 
@@ -147,7 +138,6 @@ describe("Activating a training run", () => {
 		await scenario.whenActivated();
 
 		expect(scenario.failure).toBeInstanceOf(PromotionRejectedError);
-		// And the promise that matters: the file is untouched.
 		expect(await scenario.currentSource()).toBe(scenario.originalSource);
 	}, 30_000);
 
@@ -169,7 +159,6 @@ describe("Activating a training run", () => {
 
 		await scenario.whenTrainedAgainst([["abc", "ABC"]]);
 		await scenario.whenActivated();
-		// A developer edits the rewritten method before rolling back.
 		const rewritten = await scenario.currentSource();
 		await scenario.whenTheFileIsEditedTo("return input;");
 		expect(await scenario.currentSource()).toBe(rewritten);
@@ -178,7 +167,6 @@ describe("Activating a training run", () => {
 		await writeFile(scenario.artifact, edited, "utf8");
 		await scenario.whenRolledBack();
 
-		// The README's promise: rollback refuses to overwrite later changes.
 		expect(scenario.failure).toBeDefined();
 		expect(await scenario.currentSource()).toBe(edited);
 	}, 30_000);
@@ -188,8 +176,6 @@ describe("Zero-config evolution", () => {
 	it("trains and rewrites on its own once enough traffic accumulates", async () => {
 		const scenario = await given({ name: "evolve-applies" });
 		scenario.givenEvolutionIsOn(2);
-		// Evolution replays captured traffic as equality cases, so a candidate
-		// only promotes if it reproduces the behavior that was observed.
 		scenario.givenAnEngineThatProposes("return input.trim();");
 
 		scenario.whenTheApplicationCalls("alpha", "beta");
@@ -201,9 +187,6 @@ describe("Zero-config evolution", () => {
 	}, 60_000);
 
 	it("refuses a candidate that changes the behavior the traffic demonstrated", async () => {
-		// The whole safety story for unattended rewriting: evolution trains to
-		// preserve what production actually does, so a candidate that alters it
-		// cannot pass the gate no matter how confident the model was.
 		const scenario = await given({ name: "evolve-behavior-change" });
 		scenario.givenEvolutionIsOn(2);
 		scenario.givenAnEngineThatProposes("return input.toUpperCase();");
@@ -233,7 +216,6 @@ describe("Zero-config evolution", () => {
 		scenario.givenEvolutionIsOn(1);
 		scenario.givenAnEngineThatFails("model unavailable");
 
-		// The calls still return normally.
 		scenario.whenTheApplicationCalls("alpha", "beta");
 		await scenario.whenBackgroundWorkSettles(() => scenario.eventTypes().includes("evolution.failed"));
 
@@ -248,8 +230,6 @@ describe("The errors a user meets", () => {
 		scenario.givenAnEngineThatFails("model unavailable");
 		await scenario.whenTrainedAgainst([["abc", "ABC"]]);
 
-		// Not every failure originates here (an engine's own error propagates
-		// unchanged, by design), but library failures are always typed.
 		const scenario2 = await given({ name: "errors-coded-2" });
 		scenario2.whenTheApplicationCalls("one");
 		await scenario2.whenTrainedFromCapturedTraffic(9);

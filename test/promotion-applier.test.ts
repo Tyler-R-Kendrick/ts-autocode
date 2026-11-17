@@ -15,17 +15,6 @@ import {
 	type TrainableTarget,
 } from "../src/index.js";
 
-// The shipped promotion applier, on its own.
-//
-// `rewritePromotion` does two things at once: it writes the guarded source
-// rewrite and, for an async target, it hot-swaps the live implementation
-// so a long-running process picks the candidate up without a restart. The
-// second half had no test at all. It is the half that changes the behavior of
-// an application that is already serving traffic, and the half a rollback has
-// to undo as exactly as it undoes the file.
-//
-// The conformance suite (test/contract.test.ts) checks the applier's refusals;
-// these check what it does when it accepts.
 
 const directory = "test/output/promotion-applier";
 
@@ -53,9 +42,6 @@ beforeEach(async () => {
 	targets = discoverTrainables({ files: [artifact] });
 });
 
-// The swap registry is module-global and keyed by trainable id, so a test that
-// installs one and never rolls back leaves it for the next test in the file --
-// which makes "does not swap" assertions pass or fail on declaration order.
 afterEach(() => {
 	for (const entry of targets) restoreImplementation(entry.id);
 });
@@ -80,7 +66,6 @@ function approving(candidate: CandidatePatch): PromotionDecision {
 	return { candidateId: candidate.id, promote: true, failures: [], meanScore: 1, passRate: 1 };
 }
 
-/** Records what the applier hands the executor when a swapped call runs. */
 function recordingExecutor(): ImplementationExecutor & { calls: unknown[][] } {
 	const calls: unknown[][] = [];
 	const executor = (async (executed, implementation, args, options) => {
@@ -99,7 +84,6 @@ describe("the shipped promotion applier", () => {
 		const written = await readFile(artifact, "utf8");
 		expect(written).toContain("return input.toUpperCase();");
 		expect(written).toContain('"use training";');
-		// The sibling method is untouched.
 		expect(written).toContain("async slow(input: string): Promise<string> {");
 	});
 
@@ -149,9 +133,6 @@ describe("the shipped promotion applier", () => {
 
 	describe("leaving a synchronous target alone", () => {
 		it("does not swap a sync method, whose calling convention the executor would change", async () => {
-			// The executor returns a promise. Swapping it in for a method declared
-			// `(input: string): string` would hand every caller a promise where
-			// they typed a string, so only async targets swap.
 			const candidate = candidateFor("route", "return input.toUpperCase();");
 			await rewritePromotion(candidate, approving(candidate), recordingExecutor());
 			expect(swappedImplementation(candidate.trainableId)).toBeUndefined();

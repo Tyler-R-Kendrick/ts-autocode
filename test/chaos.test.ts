@@ -22,23 +22,9 @@ import {
 	type TrainingStore,
 } from "../src/index.js";
 
-// Chaos / fault injection.
-//
-// Everything this library depends on can fail: the engine is a network call to
-// a model, the executor runs code that was written by that model, the store is
-// I/O, and the file it rewrites is one a developer may be editing at the same
-// moment. The existing suites all exercise the path where nothing goes wrong.
-//
-// Two properties matter more than any other, and both are asserted repeatedly
-// below:
-//
-//   - a failure anywhere in capture or evolution must never break, delay or
-//     alter the application call being traced;
-//   - a failure during promotion must never leave a partially rewritten file.
 
 const directory = "test/output/chaos";
 
-/** The identity every capture in this file routes through. */
 const route = defineTrainable("Fixture.route");
 
 const source = `class Fixture {
@@ -83,7 +69,6 @@ describe("a failing store", () => {
 			tracing: { enabled: false },
 			onEvent: (event) => events.push(event),
 		});
-		// The call must return normally even though every write fails.
 		const result = training.capture(route, "route", undefined, (input: string) => input.toUpperCase(), ["abc"]);
 		expect(result).toBe("ABC");
 		await training.flush();
@@ -242,8 +227,6 @@ describe("a failing executor", () => {
 			tracing: { enabled: false },
 			loop: sequentialLoop,
 		});
-		// The run completes; the candidate simply does not promote. A typed
-		// rejection is also acceptable: silently promoting is not.
 		const settled = await training.train({ ...trainInput(`${directory}/executor-throws`), rounds: { max: 1 } })
 			.then((run) => ({ ok: true as const, run }))
 			.catch((error: unknown) => ({ ok: false as const, error }));
@@ -318,7 +301,6 @@ describe("cancellation mid-run", () => {
 			...trainInput(`${directory}/abort-no-retry`),
 			signal: controller.signal,
 		}).catch(() => undefined);
-		// Retrying work the caller cancelled spends money on a result nobody wants.
 		expect(attempts).toBe(1);
 	}, 30_000);
 });
@@ -332,7 +314,6 @@ describe("the file changing underneath a rewrite", () => {
 			id: "c", trainableId: target.id, engineId: "chaos", target, implementation: "return input.toUpperCase();",
 		};
 
-		// A developer edits the method between discovery and application.
 		const edited = source.replace("return input;", "return input.trim();");
 		expect(() => commitRewrite(edited, candidate)).toThrow(/changed after discovery/);
 	});
@@ -392,7 +373,6 @@ describe("the file changing underneath a rewrite", () => {
 		});
 		const run = await training.train(trainingInputFor(artifact));
 		const activation = await run.activate();
-		// Someone edits the rewritten method before the rollback lands.
 		const rewritten = await readFile(artifact, "utf8");
 		await writeFile(artifact, rewritten.replace("toUpperCase", "toLowerCase"), "utf8");
 		await expect(activation.rollback()).rejects.toThrow(/changed before revert/);
@@ -428,7 +408,6 @@ describe("evolution under failure", () => {
 		await training.flush();
 		await settle(() => events.some((event) => event.type === "evolution.failed"));
 		expect(events.map((event) => event.type)).toContain("evolution.failed");
-		// And the file was never touched.
 		expect(await readFile(artifact, "utf8")).toBe(source);
 	}, 30_000);
 
@@ -477,7 +456,6 @@ describe("evolution under failure", () => {
 		}
 		await training.flush();
 		await settle(() => events.filter((event) => event.type === "evolution.started").length > 0, 60);
-		// Overlapping evolutions of one trainable would race on the same file.
 		expect(peak).toBeLessThanOrEqual(1);
 	}, 30_000);
 });
@@ -583,8 +561,6 @@ function trainingInputFor(artifact: string) {
 	};
 }
 
-/** Waits for a detached background chain to reach a condition. Evolution runs
- * off the call path by design, so there is nothing to await directly. */
 async function settle(done: () => boolean, attempts = 40): Promise<void> {
 	for (let attempt = 0; attempt < attempts && !done(); attempt += 1) {
 		await new Promise((resolve) => setTimeout(resolve, 25));

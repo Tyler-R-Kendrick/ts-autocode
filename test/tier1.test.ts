@@ -16,19 +16,12 @@ const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.
 };
 
 describe("sideEffects declaration", () => {
-	// `src/index.ts` registers the Ax engine, executor, harness loop and
-	// promotion applier at import time, and `src/register.ts` is entirely side
-	// effects. Declaring `false` let a tree-shaking bundler drop that wiring and
-	// leave a consumer with "no training engine is configured" after importing
-	// the package that configures it.
 	it("names the modules whose imports actually wire the runtime", () => {
 		expect(manifest.sideEffects).toEqual(["./dist/cli-main.js", "./dist/index.js", "./dist/register.js"]);
 	});
 });
 
 describe("evolution kill switch", () => {
-	// Evolution rewrites the user's source files. The switch used to disable
-	// only "0", "false" and "off", so TS_AUTOCODE_EVOLVE=no enabled it.
 	it("stays enabled when unset, because loading the hook is the opt-in", () => {
 		expect(evolutionEnabled(undefined)).toBe(true);
 		expect(evolutionEnabled("")).toBe(true);
@@ -48,9 +41,6 @@ describe("evolution kill switch", () => {
 	});
 
 	it("lists every value it would have accepted, and quotes the one it got", () => {
-		// Failing closed is only half of it: a user who typed the wrong thing has
-		// to be told what the right thing is, or the kill switch is a dead end.
-		// Asserting only /must be one of/ let the list itself go unchecked.
 		const message = (() => {
 			try {
 				evolutionEnabled("nope");
@@ -74,8 +64,6 @@ describe("promotion thresholds", () => {
 		expect(defaultMinPassRate).toBe(1);
 	});
 
-	// promotionRubric() is read verbatim by the harness judge. It used to emit
-	// the literal string "evaluation default" in place of the real threshold.
 	it("names resolved numbers in the rubric handed to the judge", async () => {
 		const rubrics: string[] = [];
 		const { configureTraining } = await import("ts-autocode-training");
@@ -103,9 +91,6 @@ describe("promotion thresholds", () => {
 });
 
 describe("harness loop fan-out", () => {
-	// TrainInput.fanOut was documented as a first-class knob but the default
-	// loop pinned one candidate per round and ignored it. Refusing is honest;
-	// silently doing something else is not.
 	it("refuses a fanOut it cannot honor instead of ignoring it", async () => {
 		await expect(createHarnessLoop()({
 			trainableId: "Fixture.route" as never,
@@ -134,12 +119,6 @@ describe("harness loop fan-out", () => {
 });
 
 describe("ts-autocode/register on older Node", () => {
-	// CI on Node 20.20.2 surfaced `TypeError: registerHooks is not a function`
-	// from src/register.ts. `module.registerHooks` is the synchronous in-thread
-	// loader API and Node 20 does not have it, so the documented zero-config
-	// entry point (`node --import ts-autocode/register`) crashed on the
-	// minimum version `engines` declares. Nothing imported that module in a
-	// test before, which is why it went unnoticed.
 	it("installs the hook when the runtime provides it", () => {
 		expect(canRegisterLoadHook()).toBe(typeof nodeModule.registerHooks === "function");
 		if (!canRegisterLoadHook()) return;
@@ -161,7 +140,6 @@ describe("ts-autocode/register on older Node", () => {
 			expect(canRegisterLoadHook()).toBe(false);
 			expect(() => registerLoadHook({ load: (url, context, nextLoad) => nextLoad(url, context) }))
 				.toThrow(/needs module\.registerHooks/);
-			// The message must say what still works and what to do, not just fail.
 			expect(() => registerLoadHook({ load: (url, context, nextLoad) => nextLoad(url, context) }))
 				.toThrow(/@trainable\(\) decorator/);
 		} finally {

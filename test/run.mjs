@@ -9,9 +9,6 @@ await mkdir(temporaryDirectory, { recursive: true });
 await resetVerifiedMarkers();
 
 const args = process.argv.slice(2);
-// Anything that is not a flag is a file filter, and a filtered run legitimately
-// compares against almost no approved snapshots, so the orphan check below
-// only applies when the whole suite ran.
 const fullRun = args.every((argument) => argument.startsWith("-"));
 
 const vitest = resolve("node_modules/vitest/vitest.mjs");
@@ -33,9 +30,6 @@ child.on("exit", (code, signal) => {
 
 async function reportOrphans(enabled) {
 	if (!enabled) return;
-	// Swallowed rather than left to reject: this runs fire-and-forget from the
-	// exit handler, so an unhandled rejection would crash a passing run with a
-	// stack trace. A check that cannot run is not a failing check.
 	const orphans = await orphanedSnapshots().catch(() => []);
 	if (orphans.length === 0) return;
 	process.exitCode = 1;

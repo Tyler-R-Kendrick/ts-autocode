@@ -17,17 +17,9 @@ import {
 import { discoverInSource } from "../src/index.js";
 import { trainableIdFromKey } from "../packages/training/src/token.js";
 
-// Property-based tests: instead of a handful of chosen inputs, state the law
-// that must hold and let fast-check hunt for a counterexample. These target the
-// pure, total functions where an example-based test can only ever sample --
-// identity round-trips, canonicalization, aggregation, and the spread helpers.
-//
-// Every failure prints a shrunk counterexample and a seed, so a regression is
-// reproducible rather than "it failed once on CI".
 
 const runs = 300;
 
-/** Ids the library accepts: non-empty once trimmed. */
 const trainableId = fc.string({ minLength: 1, maxLength: 64 })
 	.filter((value) => value.trim().length > 0);
 
@@ -74,8 +66,6 @@ describe("trainable identity", () => {
 });
 
 describe("digest canonicalization", () => {
-	// Guarded rewriting refuses a candidate whose body digest changed, so these
-	// laws are load-bearing rather than cosmetic.
 	const json = fc.jsonValue();
 
 	it("is deterministic", () => {
@@ -111,10 +101,6 @@ describe("digest canonicalization", () => {
 
 describe("optional and defined", () => {
 	it("optional includes a key exactly when the value is defined", () => {
-		// `Object.hasOwn`, not `in`: `in` walks the prototype chain, so any key
-		// named after an Object.prototype member ("toString", "constructor")
-		// reads as present whether or not it was added. fast-check found that
-		// mistake in this assertion within a few hundred runs.
 		fc.assert(fc.property(fc.string({ minLength: 1 }), fc.option(fc.jsonValue(), { nil: undefined }), (key, value) => {
 			const spread = { ...optional(key, value) } as Record<string, unknown>;
 			expect(Object.hasOwn(spread, key)).toBe(value !== undefined);
@@ -126,8 +112,6 @@ describe("optional and defined", () => {
 			const present = { ...optional(key, 1) } as Record<string, unknown>;
 			expect(Object.hasOwn(present, key)).toBe(true);
 			expect(present[key]).toBe(1);
-			// A computed `__proto__` defines an own property rather than setting
-			// the prototype, so the object stays a plain object.
 			expect(Object.getPrototypeOf({ ...optional("__proto__", { polluted: true }) })).toBe(Object.prototype);
 			expect(Object.hasOwn({ ...optional(key, undefined) } as object, key)).toBe(false);
 		}
@@ -162,10 +146,6 @@ describe("evaluation argument decoding", () => {
 	});
 
 	it("round-trips a JSON array of arguments", () => {
-		// `-0` is excluded because JSON cannot represent it: JSON.stringify(-0)
-		// is "0", so no decoder could return it. That is a property of the wire
-		// format, not something this library can or should fix, but it is
-		// worth having stated, since eval inputs are JSON strings.
 		fc.assert(fc.property(fc.array(fc.jsonValue(), { maxLength: 6 }), (args) => {
 			fc.pre(!JSON.stringify(args).includes("-0") && !hasNegativeZero(args));
 			expect(evaluationArgs(JSON.stringify(args))).toEqual(args);
@@ -271,7 +251,6 @@ describe("promotion gate aggregation", () => {
 	});
 });
 
-/** Recursively reorders object keys, leaving arrays and scalars alone. */
 function shuffleKeys(value: unknown): unknown {
 	if (Array.isArray(value)) return value.map(shuffleKeys);
 	if (typeof value !== "object" || value === null) return value;
@@ -279,7 +258,6 @@ function shuffleKeys(value: unknown): unknown {
 	return Object.fromEntries(entries.map(([key, nested]) => [key, shuffleKeys(nested)]));
 }
 
-/** True when any nested value is `-0`, which JSON flattens to `0`. */
 function hasNegativeZero(value: unknown): boolean {
 	if (Object.is(value, -0)) return true;
 	if (Array.isArray(value)) return value.some(hasNegativeZero);

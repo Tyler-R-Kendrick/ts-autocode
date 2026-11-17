@@ -16,16 +16,6 @@ vi.mock("@ax-llm/ax", async (importOriginal) => ({
 	optimize: mocks.optimize,
 }));
 
-// Two artifacts nothing else pins, both of which are read by a model rather
-// than by code:
-//
-//   - the promotion rubric handed to the harness judge, which once shipped the
-//     literal string "evaluation default" in place of the real threshold;
-//   - the Ax program signature derived from the TypeScript method, which is
-//     the prompt an optimizer actually receives.
-//
-// Neither has a natural assertion (they are prose and field descriptors), so
-// an approved file is the only review that shows a change to them.
 
 const directory = "test/output/prompts";
 const source = `class Router {
@@ -43,7 +33,6 @@ async function fixture(): Promise<string> {
 	return file;
 }
 
-/** Runs a train() far enough to capture what the loop is handed, then stops. */
 async function captureLoopInput(input: Record<string, unknown> = {}): Promise<TrainingLoopInput> {
 	const artifact = await fixture();
 	let captured: TrainingLoopInput | undefined;
@@ -117,8 +106,6 @@ describe("Ax program derived from the method signature", () => {
 			}],
 			constraints: ["Do not call the network."],
 		}, { variables: {} });
-		// This object is the prompt. Its description and field types decide what
-		// the model is asked for.
 		await verifyJson("prompts/ax-program-signature", mocks.ax.mock.calls[0]?.[0]);
 	});
 });

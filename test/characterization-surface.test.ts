@@ -9,10 +9,6 @@ import * as rewrite from "ts-autocode-rewrite";
 import * as training from "ts-autocode-training";
 import { verify, verifyJson } from "./support/verify.js";
 
-// The public surface, captured as an approved file. An export added or removed
-// shows up as a diff in the pull request that does it, which is the only place
-// anyone will notice. `test/surface.test.ts` proves the root re-exports its
-// siblings exhaustively; this says what that set actually *is*.
 
 const entries: ReadonlyArray<readonly [string, object]> = [
 	["ts-autocode", root],

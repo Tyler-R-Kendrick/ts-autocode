@@ -4,11 +4,6 @@ import * as root from "../src/index.js";
 import * as rewrite from "ts-autocode-rewrite";
 import * as training from "ts-autocode-training";
 
-// The root package re-exported a hand-maintained subset of its siblings, and it
-// had drifted: README-documented symbols (`trainingRounds`, `sequentialLoop`)
-// and extension-point essentials (`defaultPromotionGates`) were unreachable
-// from `ts-autocode`. These tests make the re-export lists exhaustive by
-// contract rather than by vigilance.
 
 const valueNames = (module: object): readonly string[] =>
 	Object.keys(module).filter((name) => name !== "default").sort();

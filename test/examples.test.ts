@@ -3,10 +3,6 @@ import { describe, expect, it } from "vitest";
 import { optimizeRouter } from "../examples/optimize.js";
 import type { TrainingEngine } from "../src/index.js";
 
-// examples/optimize.ts imported "../src/index.js" rather than the package name,
-// exported a function rather than running, and was referenced by no test or
-// script, so nothing would have noticed it breaking. CONTRIBUTING asks for a
-// runnable example; this executes it on every check.
 
 const engine: TrainingEngine = {
 	id: "examples-test",

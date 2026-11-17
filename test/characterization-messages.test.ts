@@ -21,11 +21,6 @@ import {
 } from "../src/index.js";
 import { verify } from "./support/verify.js";
 
-// Error text is the library's most-read documentation: it is what a stuck user
-// sees. It is also load-bearing here, because the typed hierarchy promised to
-// preserve every message byte for byte so existing catch blocks and substring
-// assertions keep working. An approved catalogue makes any drift reviewable,
-// and reads as a table of contents for what can go wrong.
 
 const catalogue: ReadonlyArray<Error> = [
 	new EngineNotConfiguredError(),

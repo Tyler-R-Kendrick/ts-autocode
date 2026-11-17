@@ -88,8 +88,6 @@ describe("default Ax engine", () => {
 	});
 });
 
-/** The same optimize request the suite above uses, as a helper the model
- * selection tests can reuse. */
 function request() {
 	return { trainableId: token.id, objective: "improve", target, records: [], evaluations };
 }
@@ -107,8 +105,6 @@ describe("model selection", () => {
 
 	afterEach(() => vi.unstubAllEnvs());
 
-	// Choosing a model used to require constructing a whole replacement engine
-	// via the barely-documented ts-autocode/ax subpath. It is now a setting.
 	it("builds the service from a provider-neutral selection", async () => {
 		vi.stubEnv("ANTHROPIC_API_KEY", "anthropic-key");
 		const engine = createAxEngine();
@@ -158,9 +154,6 @@ describe("model selection", () => {
 		expect(apiKeyNamesFor("some-new-provider")).toEqual(["SOME_NEW_PROVIDER_API_KEY"]);
 	});
 
-	// The provider/name descriptor is sugar over Ax's registry. The library is
-	// responsible for no provider list: a user-built service (any client with
-	// a chat method) passes straight through, keys and endpoints included.
 	it("uses a supplied service directly, consulting no provider or key", async () => {
 		const supplied = { chat: vi.fn() };
 		const engine = createAxEngine();
@@ -204,13 +197,6 @@ describe("model selection", () => {
 	});
 });
 
-// Examples.
-//
-// What the engine hands Ax to optimize against is the whole substance of the
-// default engine: everything else is provider plumbing. The suites above only
-// ever pass one AgentV evaluation, so the branch that turns *captured traffic*
-// into examples (the zero-config path the README leads with) was never
-// executed, and neither was any of the content decoding underneath it.
 
 function trace(messages: ReadonlyArray<{ role: string; content: unknown }>): TrainingRecord["trace"] {
 	return { messages } as unknown as TrainingRecord["trace"];
@@ -232,7 +218,6 @@ function captured(overrides: Partial<TrainingRecord> = {}): TrainingRecord {
 	};
 }
 
-/** The examples the engine handed the optimizer for a given request. */
 async function examplesFor(request: Parameters<ReturnType<typeof createAxEngine>["optimize"]>[0]) {
 	const engine = createAxEngine({ studentAI: {} as never });
 	await engine.optimize(request, { variables: {} }).catch(() => undefined);
@@ -426,15 +411,7 @@ describe("examples the engine optimizes against", () => {
 	});
 });
 
-// The metric.
-//
-// The metric is what the optimizer actually optimizes: it runs each candidate
-// body and scores it against what the captured or evaluated call produced. It
-// was only ever asserted through one inline expectation on the happy path, so
-// none of the ways a candidate fails to earn a point were checked, and a
-// metric that scores everything 1 optimizes nothing.
 
-/** The scoring function the engine handed the optimizer for this request. */
 async function metricFor(records: TrainingRecord[]): Promise<
 	(input: { prediction: unknown; example: unknown }) => Promise<number>
 > {
@@ -495,8 +472,6 @@ describe("the metric the engine hands the optimizer", () => {
 	}, 30_000);
 
 	it("scores a candidate that throws at zero, leaving the round to continue", async () => {
-		// A model returns code that does not run more often than code that runs
-		// and is wrong. Letting that reject would abort the whole optimization.
 		const score = await metricFor([captured()]);
 		await expect(score({
 			prediction: { optimizedMethodImplementation: 'throw new Error("boom");' },
@@ -506,9 +481,6 @@ describe("the metric the engine hands the optimizer", () => {
 });
 
 describe("typing example values from the method signature", () => {
-	// `inputValue` coerces each captured argument to the type its parameter
-	// declares, so Ax receives a number field as a number rather than as the
-	// string the JSON trace round-tripped it through. Only the string arm ran.
 	const typedSource = `class Router {
   page(index: number, deep: boolean, extra: Record<string, unknown>, tags: string[]): string {
     "use training";
@@ -545,8 +517,6 @@ describe("typing example values from the method signature", () => {
 		expect(examples[0]).toMatchObject({
 			methodArgumentIndex: 7,
 			methodArgumentDeep: true,
-			// Declared `json` and `string[]`, so they arrive as an object and an
-			// array, not as the JSON strings a second substring match produced.
 			methodArgumentExtra: { a: 1 },
 			methodArgumentTags: ["x", "y"],
 		});

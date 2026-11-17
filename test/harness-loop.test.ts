@@ -27,8 +27,6 @@ function candidate(id: string): CandidatePatch {
 }
 
 function review(promote: boolean, failures: readonly string[] = []): CandidateReview {
-	// No cast: `createCandidateReview` builds the TrainableEvalRun a custom
-	// loop must return but could not previously construct.
 	return createCandidateReview({
 		candidate: candidate("irrelevant"),
 		promote,

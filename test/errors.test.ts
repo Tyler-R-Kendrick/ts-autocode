@@ -57,8 +57,6 @@ describe("typed errors", () => {
 		expect(new EngineNotConfiguredError()).toBeInstanceOf(EngineNotConfiguredError);
 	});
 
-	// Errors that were TypeError/SyntaxError stay that way, so a consumer
-	// catching them today keeps working.
 	it("preserves the builtin prototypes consumers may already catch", () => {
 		const identity = new InvalidTrainableIdentityError("bad");
 		expect(identity).toBeInstanceOf(TypeError);
@@ -141,7 +139,6 @@ describe("activation readiness", () => {
 			executor,
 			source: { files: [artifact] },
 			tracing: { enabled: false },
-			// A loop that never promotes, so the run ends unready.
 			loop: async (input) => {
 				const candidate = await input.propose({ round: 1, slot: 1, feedback: [] });
 				const review = await input.review(candidate, { label: "candidate-1" });
@@ -163,7 +160,6 @@ describe("activation readiness", () => {
 			expect(readiness.outcome).toBe("exhausted");
 			expect(readiness.failures.length).toBeGreaterThan(0);
 		}
-		// And the throwing path agrees with it.
 		await expect(run.activate()).rejects.toBeInstanceOf(PromotionRejectedError);
 	});
 
@@ -206,13 +202,11 @@ describe("background events", () => {
 		const { captureTrainable } = await import("../src/index.js");
 		captureTrainable("Fixture.route", "route", undefined, (input: string) => input, ["abc"]);
 		await training.flush();
-		// Evolution runs detached; give its microtask chain a turn to settle.
 		for (let attempt = 0; attempt < 50 && !events.some((e) => e.type === "evolution.failed"); attempt += 1) {
 			await new Promise((resolve) => setTimeout(resolve, 20));
 		}
 
 		expect(events.map((event) => event.type)).toContain("evolution.started");
-		// The sad path documented in the README now has a test.
 		expect(events.map((event) => event.type)).toContain("evolution.failed");
 		expect(legacy.some(([, phase]) => phase === "evolve")).toBe(true);
 	});

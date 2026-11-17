@@ -28,9 +28,6 @@ const candidate: CandidatePatch = {
 };
 
 describe("builders", () => {
-	// A custom TrainingLoop must return a CandidateReview containing a
-	// TrainableEvalRun that only the internals could produce, so both this
-	// repo's tests and any consumer had to write `as unknown as`.
 	it("builds a review with no cast at all", () => {
 		const review = createCandidateReview({ candidate, failures: ["nope"] });
 		expect(review.decision.promote).toBe(false);
@@ -64,8 +61,6 @@ describe("evaluation argument decoding", () => {
 	it("guesses by default, ambiguously", () => {
 		expect(evaluationArgs('["a","b"]')).toEqual(["a", "b"]);
 		expect(evaluationArgs("plain")).toEqual(["plain"]);
-		// The ambiguity the escape hatch exists for: a trainable taking the
-		// literal string "[1,2]" receives two numbers instead.
 		expect(evaluationArgs("[1,2]")).toEqual([1, 2]);
 	});
 
@@ -85,7 +80,6 @@ describe("evaluation argument decoding", () => {
 			executor,
 			source: { files: [artifact] },
 			tracing: { enabled: false },
-			// Pass the raw string through rather than letting JSON.parse split it.
 			execution: { decodeArgs: (input) => [input] },
 		});
 		await training.train({
