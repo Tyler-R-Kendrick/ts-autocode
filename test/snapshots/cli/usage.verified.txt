@@ -6,6 +6,7 @@ Commands:
                       records artifact at <output-dir>/records.json. A store
                       must persist that artifact; the default in-memory store
                       does not, so a fresh project reports zero captures.
+  train               Train the identity exported by a local configuration module.
   help                Show this message.
 
 Options:
@@ -14,3 +15,6 @@ Options:
   --file <path>       Scan only these files; repeatable.
   --output-dir <dir>  Where run artifacts live (default: .agentv).
   --json              Emit JSON instead of a table.
+  --module <file>     JavaScript configuration module for train.
+  --export <name>     Configuration export for train (default: default).
+  --activate          Apply an accepted candidate after training.

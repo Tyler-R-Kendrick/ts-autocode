@@ -9,5 +9,4 @@ normalize      router.ts
 
 Bind evals with your own symbol key:
   export const route: unique symbol = Symbol("route");
-  // @trainable(route) on Router.route, then:
-  await training.train(route, { /* ... */ });
+  Mark Router.route with @trainable(route), then pass route to training.train.

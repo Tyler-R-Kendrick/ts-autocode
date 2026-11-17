@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { relative } from "node:path";
+import { relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import {
@@ -7,15 +8,14 @@ import {
 	discoverTrainables,
 	isTsAutocodeError,
 	type SourceSettings,
+	type TrainInput,
+	type TrainableIdentity,
 	type TrainableTarget,
+	type Training,
 	type TrainingRecord,
 } from "ts-autocode-training";
 
-// Inspecting what is trainable, what has been captured, or what a run would
-// change previously meant writing a script that imports discoverTrainables.
-// The identities the library asks for are strings a user has to guess exactly
-// (`defineTrainable("Router.route")`), so `discover` is the tool that makes
-// the marker-based design usable without reading the source scanner.
+import { training } from "./index.js";
 
 export const usage = `ts-autocode <command> [options]
 
@@ -25,6 +25,7 @@ Commands:
                       records artifact at <output-dir>/records.json. A store
                       must persist that artifact; the default in-memory store
                       does not, so a fresh project reports zero captures.
+  train               Train the identity exported by a local configuration module.
   help                Show this message.
 
 Options:
@@ -33,6 +34,9 @@ Options:
   --file <path>       Scan only these files; repeatable.
   --output-dir <dir>  Where run artifacts live (default: .agentv).
   --json              Emit JSON instead of a table.
+  --module <file>     JavaScript configuration module for train.
+  --export <name>     Configuration export for train (default: default).
+  --activate          Apply an accepted candidate after training.
 `;
 
 export interface CliResult {
@@ -41,6 +45,14 @@ export interface CliResult {
 	readonly stderr: string;
 }
 
+export interface CliTrainingRequest {
+	readonly trainable: TrainableIdentity;
+	readonly input?: Omit<TrainInput, "trainable">;
+	readonly runtime?: Training;
+}
+
+class CliUsageError extends Error {}
+
 interface DiscoveredRow {
 	readonly id: string;
 	readonly signature: string;
@@ -48,8 +60,6 @@ interface DiscoveredRow {
 	readonly async: boolean;
 }
 
-/** What `discover` reports, separated from how it is printed so the shape can
- * be tested and consumed as JSON. */
 export function describeTrainables(targets: readonly TrainableTarget[], cwd: string): readonly DiscoveredRow[] {
 	return targets.map((target) => ({
 		id: target.id,
@@ -74,13 +84,10 @@ function table(rows: readonly DiscoveredRow[]): string {
 		"",
 		"Bind evals with your own symbol key:",
 		"  export const route: unique symbol = Symbol(\"route\");",
-		`  // @trainable(route) on ${rows[0]?.id ?? "Class.method"}, then:`,
-		"  await training.train(route, { /* ... */ });",
+		`  Mark ${rows[0]?.id ?? "Class.method"} with @trainable(route), then pass route to training.train.`,
 	].join("\n");
 }
 
-/** Reads the records a run wrote, if any. Absent artifacts are not an error:
- * "nothing captured yet" is the normal state before an app has served traffic. */
 async function readRecords(outputDir: string): Promise<readonly TrainingRecord[]> {
 	const path = `${outputDir}/records.json`;
 	try {
@@ -116,7 +123,54 @@ function sourceSettings(values: Record<string, unknown>): SourceSettings {
 	};
 }
 
-/** The CLI as a function, so it is testable without spawning a process. */
+function record(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function loadTrainingRequest(modulePath: string, exportName: string, cwd: string): Promise<CliTrainingRequest> {
+	let namespace: Record<string, unknown>;
+	try {
+		namespace = await import(pathToFileURL(resolve(cwd, modulePath)).href) as Record<string, unknown>;
+	} catch (error) {
+		throw new CliUsageError(`cannot load training module ${modulePath}: ${error instanceof Error ? error.message : String(error)}`);
+	}
+	const request = namespace[exportName];
+	if (!record(request) || !("trainable" in request)) {
+		throw new CliUsageError(`training export ${exportName} must be an object with a trainable identity`);
+	}
+	const identity = request.trainable;
+	if (typeof identity !== "symbol" && typeof identity !== "function" && !(record(identity) && typeof identity.id === "string" && typeof identity.symbol === "symbol")) {
+		throw new CliUsageError("trainable must be a symbol, marked function, or trainable token");
+	}
+	if (request.input !== undefined && (!record(request.input) || "trainable" in request.input)) {
+		throw new CliUsageError("training input must be an object without a trainable field");
+	}
+	if (request.runtime !== undefined && (!record(request.runtime) || typeof request.runtime.train !== "function")) {
+		throw new CliUsageError("training runtime must provide train()");
+	}
+	return request as unknown as CliTrainingRequest;
+}
+
+async function trainFromModule(values: Record<string, unknown>, cwd: string): Promise<CliResult> {
+	if (typeof values.module !== "string" || !values.module.trim()) throw new CliUsageError("train requires --module <file>");
+	if (values.project !== undefined || values.file !== undefined) throw new CliUsageError("--project and --file apply to discovery, not train");
+	const exportName = typeof values.export === "string" ? values.export : "default";
+	if (!exportName) throw new CliUsageError("--export must name a module export");
+	const request = await loadTrainingRequest(values.module, exportName, cwd);
+	const input = typeof values["output-dir"] === "string"
+		? { ...request.input, evaluation: { ...request.input?.evaluation, outputDir: resolve(cwd, values["output-dir"]) } }
+		: request.input;
+	const run = await (request.runtime ?? training).train(request.trainable, input);
+	const readiness = run.canActivate();
+	const activated = values.activate === true && readiness.ready;
+	if (activated) await run.activate();
+	const summary = { outcome: run.outcome, rounds: run.rounds.length, candidate: run.final.candidate.id, readiness, activated };
+	const stdout = values.json === true
+		? `${JSON.stringify(summary, null, 2)}\n`
+		: `Outcome: ${summary.outcome}\nCandidate: ${summary.candidate}\nReady to activate: ${readiness.ready ? "yes" : "no"}\nActivated: ${activated ? "yes" : "no"}\n${readiness.ready ? "" : `${readiness.failures.join("\n")}\n`}`;
+	return { code: readiness.ready ? 0 : 1, stdout, stderr: "" };
+}
+
 export async function run(argv: readonly string[]): Promise<CliResult> {
 	let parsed: ReturnType<typeof parseArgs>;
 	try {
@@ -128,6 +182,9 @@ export async function run(argv: readonly string[]): Promise<CliResult> {
 				project: { type: "string" },
 				file: { type: "string", multiple: true },
 				"output-dir": { type: "string" },
+				module: { type: "string" },
+				export: { type: "string" },
+				activate: { type: "boolean" },
 				json: { type: "boolean" },
 				help: { type: "boolean", short: "h" },
 			},
@@ -145,6 +202,10 @@ export async function run(argv: readonly string[]): Promise<CliResult> {
 	const cwd = settings.cwd ?? process.cwd();
 
 	try {
+		if (command === "train") return await trainFromModule(parsed.values, cwd);
+		if (parsed.values.module !== undefined || parsed.values.export !== undefined || parsed.values.activate === true) {
+			throw new CliUsageError("--module, --export, and --activate apply only to train");
+		}
 		if (command === "discover") {
 			const rows = describeTrainables(discoverTrainables(settings), cwd);
 			return { code: 0, stdout: `${parsed.values["json"] ? JSON.stringify(rows, null, 2) : table(rows)}\n`, stderr: "" };
@@ -164,11 +225,10 @@ export async function run(argv: readonly string[]): Promise<CliResult> {
 		}
 		return { code: 2, stdout: "", stderr: `unknown command: ${command}\n\n${usage}` };
 	} catch (error) {
-		// Library errors already say what to fix; anything else is a real crash.
+		if (error instanceof CliUsageError) return { code: 2, stdout: "", stderr: `${error.message}\n` };
 		if (isTsAutocodeError(error)) return { code: 1, stdout: "", stderr: `${error.message}\n` };
 		throw error;
 	}
 }
 
-/** Exposed so `discover`'s suggested snippet stays true to the real API. */
 export { defineTrainable };

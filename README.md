@@ -40,9 +40,8 @@ Node.js 20 or newer is required.
 npx ts-autocode discover
 ```
 
-`discover` lists every method the project marks and prints the exact identity
-to bind evals to, the one place this otherwise type-safe design falls back to
-a string, where a typo yields a different symbol with no error:
+`discover` lists every method the project marks and shows how to bind it to an
+application-owned symbol:
 
 ```text
 Router.route  src/router.ts
@@ -52,13 +51,32 @@ Router.route  src/router.ts
 
 Bind evals with your own symbol key:
   export const route: unique symbol = Symbol("route");
-  // @trainable(route) on Router.route, then:
-  await training.train(route, { /* ... */ });
+  Mark Router.route with @trainable(route), then pass route to training.train.
 ```
 
 `ts-autocode status` reports how many traces each trainable has captured, which
 is what background evolution counts against `evolution.minTraces`. Both accept
 `--cwd`, `--project`, `--file` (repeatable), `--output-dir`, and `--json`.
+
+`train` loads a local JavaScript module that exports a trainable identity and its
+evaluation input. The module must load the application code that registers the
+symbol before exporting the request:
+
+```js
+import { training } from "ts-autocode";
+import { route } from "./dist/router.js";
+
+export default {
+  trainable: route,
+  runtime: training,
+  input: { cases: [["example", "EXAMPLE"]] },
+};
+```
+
+Run `npx ts-autocode train --module ./training.config.mjs`. Use `--export` for a
+named export and `--json` for machine-readable results. Training evaluates a
+candidate without changing the source; pass `--activate` to apply it only after
+the promotion gates accept it. A rejected candidate exits with a nonzero status.
 
 ## Use the directive
 

@@ -5,11 +5,6 @@ import { createAxEngine } from "./providers/ax.js";
 import { createHarnessLoop } from "./providers/harness.js";
 import { configureRewriteCapture, rewritePromotion } from "./providers/rewrite.js";
 
-// This package connects the provider-neutral training runtime to its concrete
-// providers: Ax optimizes and executes candidates, the governed agent harness
-// drives training rounds, and the rewrite package intercepts marked methods
-// into runtime capture and applies gated promotions. The sibling packages
-// never import each other; they meet only here.
 provideTrainingDefaults({
 	engine: () => createAxEngine(),
 	executor: executeImplementation,
@@ -20,17 +15,12 @@ configureRewriteCapture();
 
 export { createHarnessLoop, defaultActionLogDir } from "./providers/harness.js";
 export type { HarnessLoopOptions } from "./providers/harness.js";
+export type { CliTrainingRequest } from "./cli.js";
 export { defaultContextWindow, windowedContext } from "./providers/context.js";
 export { configureRewriteCapture, rewritePromotion } from "./providers/rewrite.js";
 export { instrumentTrainable, trainable, wrapTrainable } from "./instrumentation.js";
 export type { TrainableDecorator } from "./instrumentation.js";
 
-// The re-export lists below are exhaustive by contract: `test/surface.test.ts`
-// asserts that every runtime value exported by ts-autocode-training and
-// ts-autocode-rewrite is reachable from here. They had drifted, leaving
-// README-documented symbols such as `trainingRounds` and `sequentialLoop`
-// unreachable, and `defaultPromotionGates` (needed to compose
-// `TrainInput.gates` with the standard set) unavailable.
 export {
 	candidateDeclaration,
 	CandidateSyntaxError,
@@ -199,8 +189,6 @@ export type {
 	RewriteTarget,
 } from "ts-autocode-rewrite";
 
-// `HarnessLoopOptions` is typed in terms of these, so configuring the default
-// loop must not require taking a second, undocumented dependency.
 export { defaultHarnessRounds } from "ts-autocode-harness";
 export type {
 	ContextProvider,

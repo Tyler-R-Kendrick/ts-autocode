@@ -1,16 +1,11 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { describeTrainables, run, usage } from "../src/cli.js";
 import { discoverInSource } from "ts-autocode-training";
 
-// Discovery is the CLI's only failure surface, and the one behavior nothing
-// covered is what happens when it fails in a way the library does not model.
-// The rule the code states (library errors are printed, anything else is a
-// real crash and must not be swallowed into a tidy exit code) needs a
-// discovery that throws something else, which only a stub can produce.
 const discovery = vi.hoisted(() => ({ crash: undefined as Error | undefined }));
 
 vi.mock("ts-autocode-training", async (importOriginal) => {
@@ -24,11 +19,6 @@ vi.mock("ts-autocode-training", async (importOriginal) => {
 	};
 });
 
-// Inspecting what is trainable required writing a script that imports
-// discoverTrainables. That matters more here than in most libraries, because
-// the identity a user must pass to train() is an exact string with no type
-// safety: `defineTrainable("Router.route")`. A typo yields a different symbol
-// silently, so `discover` is what makes the marker design usable.
 
 const directory = "test/output/cli";
 const source = `class Router {
@@ -63,13 +53,9 @@ describe("ts-autocode discover", () => {
 
 	it("suggests the unique-symbol key flow against a real discovered id", async () => {
 		const result = await run(["discover", "--file", await project()]);
-		// Per the identity ADR the user types no name anywhere: they declare a
-		// unique symbol, @trainable(route) keys the code with it, and train
-		// reuses the same symbol. The discovered id appears only as a comment
-		// pointing at which method to decorate.
 		expect(result.stdout).toContain("unique symbol");
-		expect(result.stdout).toContain("@trainable(route) on Router.route");
-		expect(result.stdout).toContain("training.train(route,");
+		expect(result.stdout).toContain("Mark Router.route with @trainable(route)");
+		expect(result.stdout).toContain("pass route to training.train");
 	});
 
 	it("emits machine-readable output", async () => {
@@ -96,6 +82,89 @@ describe("ts-autocode discover", () => {
 	});
 });
 
+describe("ts-autocode train", () => {
+	async function trainingModule(name: string, implementation: string) {
+		const sourceFile = resolve(await project());
+		const moduleFile = resolve(directory, `${name}.mjs`);
+		const outputDir = resolve(directory, `${name}-output`);
+		await writeFile(moduleFile, `
+import { createTrainingRuntime, directExecutor, instrumentTrainable, rewritePromotion, sequentialLoop } from "ts-autocode";
+class Router { route(input) { return input; } }
+const route = Symbol("route");
+instrumentTrainable(Router, "route", route);
+const runtime = createTrainingRuntime({
+  engine: () => ${JSON.stringify(implementation)},
+  executor: directExecutor,
+  source: { files: [${JSON.stringify(sourceFile)}] },
+  tracing: { enabled: false },
+  loop: sequentialLoop,
+  promote: rewritePromotion,
+});
+export const request = {
+  trainable: route,
+  runtime,
+  input: { cases: [["abc", "ABC"]], rounds: { max: 1 }, evaluation: { outputDir: ${JSON.stringify(outputDir)} } },
+};
+export default request;
+`, "utf8");
+		return { sourceFile, moduleFile };
+	}
+
+	it("trains a symbol-keyed method without applying the candidate", async () => {
+		const { sourceFile } = await trainingModule("ready", "return input.toUpperCase();");
+		const original = await readFile(sourceFile, "utf8");
+		const result = await run(["train", "--cwd", resolve(directory), "--module", "ready.mjs", "--export", "request", "--output-dir", "chosen-output", "--json"]);
+		expect(result.code).toBe(0);
+		expect(JSON.parse(result.stdout)).toMatchObject({ outcome: "ready", readiness: { ready: true }, activated: false });
+		expect(await readFile(sourceFile, "utf8")).toBe(original);
+		expect(await readFile(resolve(directory, "chosen-output/benchmark.json"), "utf8")).toContain("case-1");
+	}, 30_000);
+
+	it("applies an accepted candidate only when requested", async () => {
+		const { sourceFile, moduleFile } = await trainingModule("activate", "return input.toUpperCase();");
+		const result = await run(["train", "--module", moduleFile, "--activate"]);
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("Activated: yes");
+		expect(await readFile(sourceFile, "utf8")).toContain("return input.toUpperCase();");
+	}, 30_000);
+
+	it("does not apply a candidate rejected by evaluation", async () => {
+		const { sourceFile, moduleFile } = await trainingModule("rejected", 'return "wrong";');
+		const original = await readFile(sourceFile, "utf8");
+		const result = await run(["train", "--module", moduleFile, "--activate", "--json"]);
+		expect(result.code).toBe(1);
+		expect(JSON.parse(result.stdout)).toMatchObject({ readiness: { ready: false }, activated: false });
+		expect(await readFile(sourceFile, "utf8")).toBe(original);
+		const text = await run(["train", "--module", moduleFile]);
+		expect(text.code).toBe(1);
+		expect(text.stdout).toContain("Ready to activate: no");
+	}, 30_000);
+
+	it("rejects missing modules, invalid identities, and misplaced options", async () => {
+		expect((await run(["train"])).stderr).toContain("requires --module");
+		expect((await run(["train", "--module", "missing.mjs"])).stderr).toContain("cannot load training module");
+		await mkdir(directory, { recursive: true });
+		const invalid = resolve(directory, "invalid.mjs");
+		await writeFile(invalid, `
+export default { trainable: "Router.route" };
+export const missingIdentity = {};
+export const badRuntime = { trainable: Symbol(), runtime: {} };
+export const badInput = { trainable: Symbol(), input: [] };
+export const nestedIdentity = { trainable: Symbol(), input: { trainable: Symbol() } };
+export const unregistered = { trainable: Symbol() };
+`, "utf8");
+		expect((await run(["train", "--module", invalid])).stderr).toContain("trainable must be a symbol");
+		expect((await run(["train", "--module", invalid, "--export", "missing"])).code).toBe(2);
+		for (const name of ["missingIdentity", "badRuntime", "badInput", "nestedIdentity"]) {
+			expect((await run(["train", "--module", invalid, "--export", name])).code).toBe(2);
+		}
+		expect((await run(["train", "--module", invalid, "--export", "unregistered"])).code).toBe(1);
+		expect((await run(["train", "--module", invalid, "--export", ""])).code).toBe(2);
+		expect((await run(["train", "--module", invalid, "--file", "router.ts"])).code).toBe(2);
+		expect((await run(["discover", "--module", invalid])).code).toBe(2);
+	});
+});
+
 describe("ts-autocode status", () => {
 	it("reports zero captures before an app has served traffic", async () => {
 		const result = await run(["status", "--file", await project(), "--output-dir", `${directory}/absent`]);
@@ -104,8 +173,6 @@ describe("ts-autocode status", () => {
 	});
 
 	it("renders the counts as a table when --json is not asked for", async () => {
-		// The table path only ever ran with no records at all, so the counting
-		// loop behind it (the whole of what `status` reports) was unexecuted.
 		const artifacts = join(directory, "table-artifacts");
 		await rm(artifacts, { recursive: true, force: true });
 		await mkdir(artifacts, { recursive: true });
@@ -118,7 +185,6 @@ describe("ts-autocode status", () => {
 
 		expect(result.code).toBe(0);
 		expect(result.stdout).toContain("Router.route   2 successful / 3 captured");
-		// A trainable with no records still appears, at zero.
 		expect(result.stdout).toContain("Router.enrich  0 successful / 0 captured");
 	});
 
@@ -166,8 +232,6 @@ describe("ts-autocode argument handling", () => {
 		afterEach(() => { discovery.crash = undefined; });
 
 		it.each(["discover", "status"])("propagates out of %s rather than becoming an exit code", async (command) => {
-			// Swallowing this would report "nothing found" for a broken install,
-			// which is the least debuggable outcome available.
 			discovery.crash = new TypeError("something the library does not model");
 			await expect(run([command, "--file", await project()]))
 				.rejects.toThrow("something the library does not model");
@@ -217,7 +281,6 @@ describe("ts-autocode status output paths", () => {
 			{ trainableId: "Router.route", succeeded: true },
 		]), "utf8");
 		const result = await run(["status", "--file", await project(), "--output-dir", artifacts, "--json"]);
-		// Only declared trainables are reported; a stale record is simply not shown.
 		expect(JSON.parse(result.stdout)).toEqual([
 			{ id: "Router.route", captured: 1, succeeded: 1 },
 			{ id: "Router.enrich", captured: 0, succeeded: 0 },
