@@ -11,6 +11,8 @@ All agents and tools must write self-documenting code. Do not add explanatory
 comments, deferred-work markers, planning documents, ADRs, design or architecture documents,
 or audit backlogs. Complete the work in code and executable tests. Preserve
 only comments required by a compiler, tool, license, or generated-file marker.
+Tool directives contain only arguments consumed by the tool, without explanatory
+text. Evidence must exercise real behavior rather than fabricated results.
 The source policy runs in agent hooks, the pre-commit hook, and CI.
 
 ## Trainable identity (hard failure)

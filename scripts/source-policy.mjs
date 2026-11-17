@@ -36,6 +36,12 @@ const languages = new Map([
 const deferred = /\b(?:TODO|FIXME|HACK|XXX|TBD)\b|parallel-type-allowed:/iu;
 const directive =
 	/^(?:\/\/\/?\s*|\/\*+!?\s*|#\s*|<!--\s*)(?:@ts-(?:check|nocheck|ignore|expect-error)\b|@(?:jsx|jsxFrag|jsxImportSource|jsxRuntime|vitest-environment)\b|(?:eslint|oxlint|biome|prettier|stylelint)-(?:disable|enable|ignore)\b|(?:istanbul|c8|v8)\s+ignore\b|(?:shellcheck|pyright|ruff|fmt|type|pragma|buf|go|atlas):|yaml-language-server:|noqa\b|[#@]__(?:PURE|NO_SIDE_EFFECTS)__|[#@]\s*sourceMappingURL=|<reference\b|@license\b|SPDX-License-Identifier:|copyright\b)/iu;
+const typescriptDirective =
+	/^(?:\/\/\/?\s*|\/\*+!?\s*(?:\*\s*)?)@ts-(?:check|nocheck|ignore|expect-error)\b/iu;
+const conciseTypescriptDirective =
+	/^\/\/\s*@ts-(?:check|nocheck|ignore|expect-error)\s*$/iu;
+const lintDirectiveExplanation =
+	/^(?:\/\/\/?\s*|\/\*+!?\s*(?:\*\s*)?|#\s*|<!--\s*)(?:eslint|oxlint|stylelint)-(?:disable|enable)\b[^\r\n]*\s--(?:\s|$)/iu;
 const generated = /^(?:\/\/\s*@generated\s*|\/\*\s*@generated\s*\*\/)$/u;
 
 function git(args) {
@@ -144,6 +150,9 @@ export function commentViolations(file, text, added) {
 			if (first === 1 && comment.startsWith("#!")) return [];
 			if (
 				!deferred.test(comment) &&
+				(!typescriptDirective.test(comment) ||
+					conciseTypescriptDirective.test(comment)) &&
+				!lintDirectiveExplanation.test(comment) &&
 				(directive.test(comment) || generated.test(comment))
 			)
 				return [];

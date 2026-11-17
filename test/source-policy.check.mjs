@@ -84,7 +84,7 @@ describe("source policy", () => {
 
 	it("allows tool directives and rejects deferred work and explanations", () => {
 		const text = [
-			"// @ts-expect-error required",
+			"// @ts-expect-error",
 			"// @generated",
 			"// eslint-disable-next-line no-alert TODO replace",
 			"// explanation",
@@ -102,6 +102,25 @@ describe("source policy", () => {
 				new Set([2]),
 			).length,
 			1,
+		);
+	});
+
+	it("rejects explanations attached to TypeScript and lint directives", () => {
+		const text = [
+			"// @ts-expect-error",
+			"// @ts-ignore",
+			"// @ts-expect-error explanation",
+			"// @ts-ignore: explanation",
+			"/* @ts-ignore */",
+			"// eslint-disable-next-line no-alert",
+			"// eslint-disable-next-line no-alert -- explanation",
+			"/* oxlint-disable no-explicit-any -- explanation */",
+		].join("\n");
+		assert.deepEqual(
+			commentViolations("example.ts", text, new Set([1, 2, 3, 4, 5, 6, 7, 8])).map(
+				(item) => item.line,
+			),
+			[3, 4, 5, 7, 8],
 		);
 	});
 
