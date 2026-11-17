@@ -1,0 +1,29 @@
+{
+	"hooks": {
+		"SessionStart": [
+			{
+				"matcher": "startup|resume",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "sh \"$(git rev-parse --show-toplevel)/scripts/ensure-hooks-path.sh\"",
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"matcher": "Edit|Write|apply_patch",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node \"$(git rev-parse --show-toplevel)/scripts/agent-source-policy.mjs\"",
+						"timeout": 60,
+						"statusMessage": "Checking repository source policy"
+					}
+				]
+			}
+		]
+	}
+}

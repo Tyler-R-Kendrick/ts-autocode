@@ -1,0 +1,20 @@
+{
+	"version": 1,
+	"hooks": {
+		"sessionStart": [
+			{
+				"type": "command",
+				"bash": "sh \"$(git rev-parse --show-toplevel)/scripts/ensure-hooks-path.sh\"",
+				"timeoutSec": 10
+			}
+		],
+		"postToolUse": [
+			{
+				"type": "command",
+				"matcher": "edit|create|apply_patch",
+				"bash": "node \"$(git rev-parse --show-toplevel)/scripts/agent-source-policy.mjs\"",
+				"timeoutSec": 60
+			}
+		]
+	}
+}

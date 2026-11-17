@@ -5,6 +5,8 @@ allowed-tools: Read Write Edit Glob Grep
 ---
 # antislop-code
 
+The source policy in `AGENTS.md` takes precedence: write self-documenting code, complete deferred work, and do not add explanatory comments or planning artifacts. Modify executable code when needed to complete the requested work.
+
 > Anti Slop: Rules for AI Coding Agents. Code Comments skill
 
 > Part of the antislop system. Read together with `antislop.md` (the core). This skill filters comments that read as generically AI (decorative, restating the obvious, stiff, loud) while preserving the comments that carry real information. It references core rules by number and never duplicates or renumbers them. Load it when the task writes or edits code comments.

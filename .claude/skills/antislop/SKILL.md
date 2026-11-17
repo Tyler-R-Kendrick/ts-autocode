@@ -5,6 +5,8 @@ allowed-tools: Read Write Edit Glob Grep
 ---
 # antislop
 
+The source policy in `AGENTS.md` takes precedence. Apply the skills during implementation; do not request a usage mode or create planning, design, or audit documents.
+
 > Anti Slop: Rules for AI Coding Agents
 
 > Follow these rules whenever generating or building UI for a website, web app, or any interface.

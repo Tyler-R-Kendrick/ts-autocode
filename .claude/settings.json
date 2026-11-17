@@ -1,0 +1,27 @@
+{
+	"hooks": {
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "sh \"$(git rev-parse --show-toplevel)/scripts/ensure-hooks-path.sh\"",
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"matcher": "Edit|Write|MultiEdit|apply_patch",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node \"$(git rev-parse --show-toplevel)/scripts/agent-source-policy.mjs\"",
+						"timeout": 60
+					}
+				]
+			}
+		]
+	}
+}

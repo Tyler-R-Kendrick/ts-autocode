@@ -5,13 +5,21 @@ failure: stop, revert the violating change, and re-read this file. Several
 have already been violated by agents "simplifying" the API; the enforcement
 tests named below exist because of those incidents.
 
-## Trainable identity (ADR, hard failure)
+## Source policy
+
+All agents and tools must write self-documenting code. Do not add explanatory
+comments, deferred-work markers, planning documents, ADRs, design documents,
+or audit backlogs. Complete the work in code and executable tests. Preserve
+only comments required by a compiler, tool, license, or generated-file marker.
+The source policy runs in agent hooks, the pre-commit hook, and CI.
+
+## Trainable identity (hard failure)
 
 **A string literal must never define a trainable identity in application
 code, examples, or documentation. Not as `trainable: "X"`, and not as
 `defineTrainable("X")`. Both are rejected.**
 
-The intended design, in full:
+Applications use these invariants:
 
 1. The application declares a **`unique symbol`** it owns:
 
@@ -57,5 +65,5 @@ For UI, copy, people, mobile layout, or code comments work, load the antislop sk
 - Core filter, always on: `antislop`
 - Code comments: `antislop-code`
 - Copy & text: `antislop-copywriting`
-Before starting, ask the user when antislop applies: during the work, or after it is done.
+Apply these skills during the work and follow the source policy above when their instructions conflict.
 <!-- antislop:end -->

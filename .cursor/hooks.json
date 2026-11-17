@@ -1,0 +1,17 @@
+{
+	"version": 1,
+	"hooks": {
+		"sessionStart": [
+			{
+				"command": "sh \"$(git rev-parse --show-toplevel)/scripts/ensure-hooks-path.sh\"",
+				"timeout": 10
+			}
+		],
+		"afterFileEdit": [
+			{
+				"command": "node \"$(git rev-parse --show-toplevel)/scripts/agent-source-policy.mjs\"",
+				"timeout": 60
+			}
+		]
+	}
+}
