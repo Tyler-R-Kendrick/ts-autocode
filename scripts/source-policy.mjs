@@ -168,13 +168,14 @@ export function documentViolation(file, text) {
 	)
 		return true;
 	if (!/\.mdx?$/iu.test(path)) return false;
-	if (/(?:^|\/)(?:design|designs|plans|roadmaps|adr|adrs)\//iu.test(path))
+	if (/(?:^|\/)(?:design|designs|architecture|architectures|plans|roadmaps|adr|adrs)\//iu.test(path))
 		return true;
+	if (/(?:^|\/)anti-slop\/audit[^/]*\.mdx?$/iu.test(path)) return true;
 	if (
-		/(?:^|\/)(?:design|roadmap|adr|(?:implementation[-_])?plan)\.mdx?$/iu.test(
+		/(?:^|\/)(?:design|architecture|roadmap|adr|(?:implementation[-_])?plan)\.mdx?$/iu.test(
 			path,
 		) ||
-		/(?:^|\/)[^/]+[-_](?:design|roadmap|plan)\.mdx?$/iu.test(path)
+		/(?:^|\/)[^/]+[-_](?:design|architecture|roadmap|plan)\.mdx?$/iu.test(path)
 	)
 		return true;
 	const frontmatter =

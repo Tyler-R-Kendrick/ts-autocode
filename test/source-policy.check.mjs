@@ -143,6 +143,8 @@ describe("source policy", () => {
 	it("rejects planning artifacts by path, name, and document type", () => {
 		for (const [file, text] of [
 			["docs/design/feature.md", "# Feature"],
+			["docs/architecture.md", "# Architecture"],
+			["anti-slop/audit-001.md", "# Audit"],
 			["docs/implementation-plan.md", "# Plan"],
 			["notes.md", "---\ntype: implementation plan\n---\n"],
 			[".sdlc/work.json", "{}"],

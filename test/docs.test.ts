@@ -7,10 +7,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { documentationFiles, readDoc } from "./support/docs.js";
 
-// The README documented `activation.promotion.snapshot.candidateId` on an
-// `Activation` that has only `run` and `rollback`, and a quickstart that
-// referenced an undefined `deploymentPolicy`. Prose review had not caught
-// either in the year the snippets shipped. Compile them instead.
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -22,8 +18,6 @@ interface Snippet {
 	readonly code: string;
 }
 
-/** Fenced ```ts blocks, including ones indented inside a list item. A block may
- * opt out with `<!-- typecheck: skip -->` on the line above its fence. */
 export function typescriptSnippets(doc: string, markdown: string): readonly Snippet[] {
 	const lines = markdown.split("\n");
 	const snippets: Snippet[] = [];
@@ -46,15 +40,8 @@ export function typescriptSnippets(doc: string, markdown: string): readonly Snip
 
 const snippets = docs.flatMap((doc) => typescriptSnippets(doc, readDoc(doc)));
 
-// Snippets compile inside the repo (under the git-ignored test output tree) so
-// NodeNext resolution sees the real node_modules and the root package's
-// "type": "module". Top-level await in the docs is then legal, as it is for a
-// consumer.
 const directory = join(repoRoot, "test", "output", "docs");
 
-/** Compiler options a consumer effectively gets, plus path mappings because the
- * package cannot import itself by name from inside its own repo. Snippets stay
- * written exactly as a consumer would write them. */
 const compilerOptions: ts.CompilerOptions = {
 	target: ts.ScriptTarget.ES2023,
 	module: ts.ModuleKind.NodeNext,
@@ -86,11 +73,6 @@ function describeDiagnostic(diagnostic: ts.Diagnostic): string {
 	return `line ${line}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`;
 }
 
-/** Errors per snippet file. One `ts.Program` covers every snippet: building 26
- * of them re-parsed the whole dependency graph each time, which took ~36s
- * normally and blew the default 5s per-test timeout under coverage
- * instrumentation. Each snippet is still its own module, so a stray
- * declaration in one cannot satisfy another. */
 const diagnosticsBySnippet = new Map<string, readonly string[]>();
 
 beforeAll(async () => {
@@ -122,9 +104,6 @@ describe("documentation snippets", () => {
 	});
 
 	it("covers every document the repository publishes, not a list someone maintains", () => {
-		// The list this replaced had drifted: AGENTS.md, CONTRIBUTING.md,
-		// SECURITY.md, docs/dx-review.md and docs/testing.md were all outside it,
-		// so a snippet added to any of them compiled nowhere.
 		expect(docs).toContain("README.md");
 		expect(docs).toContain("AGENTS.md");
 		expect(docs).toContain("docs/testing.md");

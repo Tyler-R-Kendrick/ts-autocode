@@ -657,7 +657,7 @@ ignored by Git and excluded from TypeScript compilation.
 
 See [examples/optimize.ts](examples/optimize.ts),
 [packages/harness/README.md](packages/harness/README.md),
-[docs/architecture.md](docs/architecture.md), [CONTRIBUTING.md](CONTRIBUTING.md),
+[CONTRIBUTING.md](CONTRIBUTING.md),
 [GOVERNANCE.md](GOVERNANCE.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md),
 and [SECURITY.md](SECURITY.md).
 

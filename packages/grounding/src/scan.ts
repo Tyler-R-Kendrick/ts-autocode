@@ -2,27 +2,6 @@ import ts from "typescript";
 
 import { inferredIntent } from "./decorators.js";
 
-// AST scanner for ambient trainable declarations. An `export declare class`
-// is erased at compile time (no decorator ever runs), so the syntax below
-// is honored statically:
-//
-//   @trainable
-//   export declare class Program {
-//     @intent("Produce a simple hello-world program")
-//     @returns("Hello World! or Hello, <name>! when supplied")
-//     trainableMethod(
-//       @description("Optional person to greet")
-//       name?: string,
-//     ): string;
-//   }
-//
-// Every decorator is optional: a bare `@trainable declare class` with
-// undecorated method signatures still scans: intent is inferred and the
-// TypeScript signature is the declared shape. The scan result feeds
-// codegen (`generateDeclaredRegistrations` emits registration source).
-// Non-ambient decorated classes scan identically. Parsing is a real
-// TypeScript AST walk (decorators on ambient members are grammar errors
-// but survive in the parse tree), never regex.
 
 export interface DeclaredParameter {
 	readonly name: string;
@@ -50,7 +29,6 @@ export interface DeclaredTrainableClass {
 
 const markerDecoratorNames = new Set(["trainable", "component"]);
 
-/** Scan source for `@trainable` classes (ambient or not) and their declared operations. */
 export function scanDeclaredTrainables(source: string): readonly DeclaredTrainableClass[] {
 	if (typeof source !== "string") {
 		throw new TypeError("source must be a string");
@@ -96,9 +74,6 @@ function scanOperations(
 		if (!ts.isMethodDeclaration(member) || !member.name) continue;
 		const method = memberName(member.name, sourceFile);
 		if (method === "constructor") continue;
-		// Generated registrations become `export const <method> = …`. A
-		// duplicate (ambient overload signatures) or non-identifier name would
-		// silently corrupt that file, so refuse loudly here instead.
 		if (!/^[A-Za-z_$][\w$]*$/.test(method)) {
 			throw new TypeError(`trainable method name must be a plain identifier: ${className}.${method}`);
 		}
@@ -157,29 +132,16 @@ function memberName(name: ts.PropertyName, sourceFile: ts.SourceFile): string {
 }
 
 export interface RegistrationEmitOptions {
-	/** Module specifier the emitted `import { defineGrounding } from …` uses.
-	 * Defaults to this package's public entry. */
 	readonly runtimeModule?: string;
-	/** Leading comment lines (verbatim, with `//`) above the import. */
 	readonly header?: readonly string[];
 }
 
-const defaultHeader: readonly string[] = [
-	"// Generated from an ambient trainable declaration: do not edit by hand.",
-];
-
-/**
- * Generate the `defineGrounding` registration source for a scanned class.
- * The declared TypeScript signature becomes the contract's shape
- * descriptors, so the registration grounds (shape present) even with every
- * decorator omitted.
- */
 export function generateDeclaredRegistrations(
 	declared: DeclaredTrainableClass,
 	emit: RegistrationEmitOptions = {},
 ): string {
 	const lines: string[] = [
-		...(emit.header ?? defaultHeader),
+		...(emit.header ?? []),
 		`import { defineGrounding } from ${JSON.stringify(emit.runtimeModule ?? "ts-autocode/grounding")};`,
 		"",
 	];
